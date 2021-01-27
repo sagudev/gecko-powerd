@@ -25,13 +25,7 @@ static constexpr ValueOperand R1(r15); // non-volatile
 static constexpr ValueOperand R2(r5);
 
 // ICTailCallReg and ICStubReg
-// These use registers that are not preserved across calls.
-// The tail call register situation is rather weird on Power: LR is an SPR, not
-// a GPR. We have to do some manual patching in the JIT to deal with this issue
-// since it assumes it can just use the tail call register like any other
-// register. The invalid value is just a dummy to put something here.
-#error fix JIT to deal with ICTailCallReg in jit and shared
-static constexpr Register ICTailCallReg = InvalidReg;
+static constexpr Register ICTailCallReg = r8;
 static constexpr Register ICStubReg = r7;
 
 static constexpr Register ExtractTemp0 = InvalidReg;
@@ -43,6 +37,8 @@ static constexpr Register BaselineSecondScratchReg = SecondScratchReg;
 // FloatReg0 must be equal to ReturnFloatReg.
 static constexpr FloatRegister FloatReg0 = f1;
 static constexpr FloatRegister FloatReg1 = f2;
+static constexpr FloatRegister FloatReg2 = f3;
+static constexpr FloatRegister FloatReg3 = f4;
 
 } // namespace jit
 } // namespace js

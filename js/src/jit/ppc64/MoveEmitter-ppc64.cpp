@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "jit/ppc64le/MoveEmitter-ppc64le.h"
+#include "jit/ppc64/MoveEmitter-ppc64.h"
 
 #include "jit/MacroAssembler-inl.h"
 
@@ -12,7 +12,7 @@ using namespace js;
 using namespace js::jit;
 
 void
-MoveEmitterPPC64LE::emit(const MoveResolver& moves)
+MoveEmitterPPC64::emit(const MoveResolver& moves)
 {
     if (moves.numCycles()) {
         // Reserve stack for cycle resolution
@@ -25,7 +25,7 @@ MoveEmitterPPC64LE::emit(const MoveResolver& moves)
 }
 
 Address
-MoveEmitterPPC64LE::cycleSlot(uint32_t slot, uint32_t subslot) const
+MoveEmitterPPC64::cycleSlot(uint32_t slot, uint32_t subslot) const
 {
     int32_t offset = masm.framePushed() - pushedAtCycle_;
     MOZ_ASSERT(Imm16::IsInSignedRange(offset));
@@ -33,7 +33,7 @@ MoveEmitterPPC64LE::cycleSlot(uint32_t slot, uint32_t subslot) const
 }
 
 int32_t
-MoveEmitterPPC64LE::getAdjustedOffset(const MoveOperand& operand)
+MoveEmitterPPC64::getAdjustedOffset(const MoveOperand& operand)
 {
     MOZ_ASSERT(operand.isMemoryOrEffectiveAddress());
     if (operand.base() != StackPointer)
@@ -44,21 +44,21 @@ MoveEmitterPPC64LE::getAdjustedOffset(const MoveOperand& operand)
 }
 
 Address
-MoveEmitterPPC64LE::getAdjustedAddress(const MoveOperand& operand)
+MoveEmitterPPC64::getAdjustedAddress(const MoveOperand& operand)
 {
     return Address(operand.base(), getAdjustedOffset(operand));
 }
 
 
 Register
-MoveEmitterPPC64LE::tempReg()
+MoveEmitterPPC64::tempReg()
 {
     spilledReg_ = SecondScratchReg;
     return SecondScratchReg;
 }
 
 void
-MoveEmitterPPC64LE::emitMove(const MoveOperand& from, const MoveOperand& to)
+MoveEmitterPPC64::emitMove(const MoveOperand& from, const MoveOperand& to)
 {
     if (from.isGeneralReg()) {
         // Second scratch register should not be moved by MoveEmitter.
@@ -94,7 +94,7 @@ MoveEmitterPPC64LE::emitMove(const MoveOperand& from, const MoveOperand& to)
 }
 
 void
-MoveEmitterPPC64LE::emitInt32Move(const MoveOperand &from, const MoveOperand &to)
+MoveEmitterPPC64::emitInt32Move(const MoveOperand &from, const MoveOperand &to)
 {
     if (from.isGeneralReg()) {
         // Second scratch register should not be moved by MoveEmitter.
@@ -130,7 +130,7 @@ MoveEmitterPPC64LE::emitInt32Move(const MoveOperand &from, const MoveOperand &to
 }
 
 void
-MoveEmitterPPC64LE::emitFloat32Move(const MoveOperand& from, const MoveOperand& to)
+MoveEmitterPPC64::emitFloat32Move(const MoveOperand& from, const MoveOperand& to)
 {
     // Don't clobber the temp register if it's the source.
     MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchFloat32Reg);
@@ -163,7 +163,7 @@ MoveEmitterPPC64LE::emitFloat32Move(const MoveOperand& from, const MoveOperand& 
 
 // This is almost the same.
 void
-MoveEmitterPPC64LE::emitDoubleMove(const MoveOperand& from, const MoveOperand& to)
+MoveEmitterPPC64::emitDoubleMove(const MoveOperand& from, const MoveOperand& to)
 {
     // Don't clobber the temp register if it's the source.
     MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchFloat32Reg);
@@ -194,7 +194,7 @@ MoveEmitterPPC64LE::emitDoubleMove(const MoveOperand& from, const MoveOperand& t
 }
 
 void
-MoveEmitterPPC64LE::breakCycle(const MoveOperand& from, const MoveOperand& to,
+MoveEmitterPPC64::breakCycle(const MoveOperand& from, const MoveOperand& to,
                               MoveOp::Type type, uint32_t slotId)
 {
     // There is some pattern:
@@ -250,7 +250,7 @@ MoveEmitterPPC64LE::breakCycle(const MoveOperand& from, const MoveOperand& to,
 }
 
 void
-MoveEmitterPPC64LE::completeCycle(const MoveOperand& from, const MoveOperand& to,
+MoveEmitterPPC64::completeCycle(const MoveOperand& from, const MoveOperand& to,
                                  MoveOp::Type type, uint32_t slotId)
 {
     // There is some pattern:
@@ -308,7 +308,7 @@ MoveEmitterPPC64LE::completeCycle(const MoveOperand& from, const MoveOperand& to
 }
 
 void
-MoveEmitterPPC64LE::emit(const MoveOp& move)
+MoveEmitterPPC64::emit(const MoveOp& move)
 {
     const MoveOperand& from = move.from();
     const MoveOperand& to = move.to();
@@ -353,13 +353,13 @@ MoveEmitterPPC64LE::emit(const MoveOp& move)
 }
 
 void
-MoveEmitterPPC64LE::assertDone()
+MoveEmitterPPC64::assertDone()
 {
     MOZ_ASSERT(inCycle_ == 0);
 }
 
 void
-MoveEmitterPPC64LE::finish()
+MoveEmitterPPC64::finish()
 {
     assertDone();
 

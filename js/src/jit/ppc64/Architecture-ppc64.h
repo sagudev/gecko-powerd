@@ -36,6 +36,9 @@ static const int32_t NUNBOX32_PAYLOAD_OFFSET = 4;
 // For PowerPC this is a single bl.
 static const uint32_t BAILOUT_TABLE_ENTRY_SIZE = sizeof(void *);
 
+// Range of an immediate jump (26 bit jumps
+static constexpr uint32_t JumpImmediateRange = 32 * 1024 * 1024;
+
 // GPRs.
 class Registers
 {
@@ -55,7 +58,7 @@ class Registers
         r8,
         r9,
         r10,
-        lr,   /* This is a lie so that pushing register sets works. We never use r11. */
+        r11,
         r12,
         addressTempRegister = r12,
         r13,
@@ -126,7 +129,7 @@ class Registers
     // We use this constant to save registers when entering functions. This
     // is why fake-LR is added here too.
     static const uint32_t NonVolatileMask =
-    	(1 << Registers::lr)  |
+    	(1 << Registers::r11)  |
     	(1 << Registers::r2)  |
         (1 << Registers::r13) |
         (1 << Registers::r14) |
@@ -156,7 +159,7 @@ class Registers
     static const uint32_t NonAllocatableMask =
         (1 << Registers::r0)  |
         (1 << Registers::sp)  |
-        (1 << Registers::lr)  |
+        (1 << Registers::r11)  |
         (1 << Registers::r2)  |
         (1 << Registers::r12) |
         // These are non-volatile work registers held over from PPCBC.
@@ -458,9 +461,9 @@ class FloatRegister
         MOZ_ASSERT(aliasIdx == 0);
         return *this;
     }
-    void alignedAliased(uint32_t aliasIdx, FloatRegister *ret) {
+    FloatRegister alignedAliased(uint32_t aliasIdx) {
         MOZ_ASSERT(aliasIdx == 0);
-        *ret = *this;
+        return *this;
     }
     typedef FloatRegisters::SetType SetType;
     SetType alignedOrDominatedAliasedSet() const {
@@ -470,6 +473,11 @@ class FloatRegister
     static uint32_t SetSize(SetType x) {
         static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
         return mozilla::CountPopulation32(x);
+    }
+    template <RegTypeName Name = DefaultType>
+    static SetType AllocatableAsIndexableSet(SetType s) {
+        static_assert(Name != RegTypeName::Any, "Allocatable set are not iterable");
+        return LiveAsIndexableSet<Name>(s);
     }
     static Code FromName(const char *name) {
         return FloatRegisters::FromName(name);
@@ -555,6 +563,8 @@ class CRs // Class definition not yet supported.
     }
 };
 #endif
+
+inline uint32_t GetPPC64Flags() { return 0; }
 
 // All spades are groovy.
 inline bool

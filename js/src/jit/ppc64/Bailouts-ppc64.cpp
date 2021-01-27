@@ -5,9 +5,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "jit/Bailouts.h"
-#include "jit/ppc64le/Bailouts-ppc64le.h"
+#include "jit/ppc64/Bailouts-ppc64.h"
+#include "jit/SafepointIndex.h"
+#include "jit/ScriptFromCalleeToken.h"
 
 #include "vm/JSContext.h"
+#include "vm/JSScript-inl.h"
 #include "vm/Realm.h"
 
 using namespace js;

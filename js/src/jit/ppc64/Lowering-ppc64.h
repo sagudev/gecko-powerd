@@ -12,10 +12,10 @@
 namespace js {
 namespace jit {
 
-class LIRGeneratorPPC64LE : public LIRGeneratorShared
+class LIRGeneratorPPC64 : public LIRGeneratorShared
 {
   protected:
-    LIRGeneratorPPC64LE(MIRGenerator* gen, MIRGraph& graph, LIRGraph& lirGraph)
+    LIRGeneratorPPC64(MIRGenerator* gen, MIRGraph& graph, LIRGraph& lirGraph)
       : LIRGeneratorShared(gen, graph, lirGraph)
     { }
 
@@ -50,6 +50,7 @@ class LIRGeneratorPPC64LE : public LIRGeneratorShared
     void lowerForFPU(LInstructionHelper<1, 2, Temps>* ins, MDefinition* mir,
                      MDefinition* lhs, MDefinition* rhs);
 
+#if 0
     void lowerForCompIx4(LSimdBinaryCompIx4* ins, MSimdBinaryComp* mir,
                          MDefinition* lhs, MDefinition* rhs)
     {
@@ -60,12 +61,14 @@ class LIRGeneratorPPC64LE : public LIRGeneratorShared
     {
         return lowerForFPU(ins, mir, lhs, rhs);
     }
+#endif
 
     void lowerForBitAndAndBranch(LBitAndAndBranch* baab, MInstruction* mir,
                                  MDefinition* lhs, MDefinition* rhs);
     void lowerDivI(MDiv* div);
     void lowerModI(MMod* mod);
     void lowerMulI(MMul* mul, MDefinition* lhs, MDefinition* rhs);
+    void lowerPowOfTwoI(MPow* mir);
     void lowerUDiv(MDiv* div);
     void lowerUMod(MMod* mod);
 
@@ -95,9 +98,23 @@ class LIRGeneratorPPC64LE : public LIRGeneratorShared
     void lowerModI64(MMod* mod);
     void lowerUDivI64(MDiv* div);
     void lowerUModI64(MMod* mod);
+
+    // BigInt
+    void lowerBigIntDiv(MBigIntDiv *ins);
+    void lowerBigIntMod(MBigIntMod *ins);
+    void lowerBigIntLsh(MBigIntLsh *ins);
+    void lowerBigIntRsh(MBigIntRsh *ins);
+
+    // WASM bits
+    void lowerWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32 *ins);
+    void lowerWasmBuiltinTruncateToInt64(MWasmBuiltinTruncateToInt64 *ins);
+    void lowerWasmBuiltinDivI64(MWasmBuiltinDivI64 *ins);
+    void lowerWasmBuiltinModI64(MWasmBuiltinModI64 *ins);
+
+    void lowerBuiltinInt64ToFloatingPoint(MBuiltinInt64ToFloatingPoint *ins);
 };
 
-typedef LIRGeneratorPPC64LE LIRGeneratorSpecific;
+typedef LIRGeneratorPPC64 LIRGeneratorSpecific;
 
 } // namespace jit
 } // namespace js

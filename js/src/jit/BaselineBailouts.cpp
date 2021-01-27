@@ -484,6 +484,9 @@ class MOZ_STACK_CLASS BaselineStackBuilder {
         RectifierFrameLayout::Size() + priorFrame->prevFrameLocalSize() +
         BaselineStubFrameLayout::reverseOffsetOfSavedFramePtr();
     return virtualPointerAtStackOffset(priorOffset + extraOffset);
+#elif defined(JS_CODEGEN_PPC64)
+    (void)priorOffset;
+#warning "TODO! BaselineStackBuilder::calculatePrevFramePtr()"
 #elif defined(JS_CODEGEN_NONE)
     (void)priorOffset;
     MOZ_CRASH();

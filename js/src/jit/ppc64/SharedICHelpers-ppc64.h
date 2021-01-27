@@ -43,7 +43,7 @@ EmitRepushTailCallReg(MacroAssembler& masm)
 }
 
 inline void
-EmitCallIC(CodeOffset* patchOffset, MacroAssembler& masm)
+EmitCallIC(MacroAssembler& masm, CodeOffset* patchOffset)
 {
     // Move ICEntry offset into ICStubReg.
     CodeOffset offset = masm.movWithPatch(ImmWord(-1), ICStubReg);
@@ -58,22 +58,6 @@ EmitCallIC(CodeOffset* patchOffset, MacroAssembler& masm)
 
     // Call the stubcode via a direct jump-and-link
     masm.call(R2.scratchReg());
-}
-
-inline void
-EmitEnterTypeMonitorIC(MacroAssembler& masm,
-                       size_t monitorStubOffset = ICMonitoredStub::offsetOfFirstMonitorStub())
-{
-    // This is expected to be called from within an IC, when ICStubReg
-    // is properly initialized to point to the stub.
-    masm.loadPtr(Address(ICStubReg, (uint32_t) monitorStubOffset), ICStubReg);
-
-    // Load stubcode pointer from BaselineStubEntry.
-    // R2 won't be active when we call ICs, so we can use it.
-    masm.loadPtr(Address(ICStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
-
-    // Jump to the stubcode.
-    masm.branch(R2.scratchReg());
 }
 
 inline void
@@ -122,18 +106,18 @@ inline void
 EmitPreBarrier(MacroAssembler& masm, const AddrType& addr, MIRType type)
 {
     // Calls made in the prebarrier may clobber LR, so save it first.
-    masm.xs_mflr(ScratchReg);
-    masm.push(ScratchReg);
+    masm.xs_mflr(ScratchRegister);
+    masm.push(ScratchRegister);
     masm.guardedCallPreBarrier(addr, type);
-    masm.pop(ScratchReg);
-    masm.xs_mtlr(ScratchReg);
+    masm.pop(ScratchRegister);
+    masm.xs_mtlr(ScratchRegister);
 }
 
 inline void
 EmitStubGuardFailure(MacroAssembler& masm)
 {
     // Load next stub into ICStubReg
-    masm.loadPtr(Address(ICStubReg, ICStub::offsetOfNext()), ICStubReg);
+    masm.loadPtr(Address(ICStubReg, ICCacheIRStub::offsetOfNext()), ICStubReg);
 
     // Return address is already loaded, just jump to the next stubcode.
     masm.jump(Address(ICStubReg, ICStub::offsetOfStubCode()));

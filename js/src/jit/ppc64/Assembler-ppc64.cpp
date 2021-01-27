@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "jit/ppc64/Assembler-ppc64.h"
+#include "jit/FlushICache.h"
 
 #include "mozilla/DebugOnly.h"
 
@@ -14,8 +15,9 @@ using namespace js;
 using namespace js::jit;
 
 ABIArgGenerator::ABIArgGenerator()
-  : usedArgSlots_(0),
-    firstArgFloat(false),
+  : stackOffset_(0),
+    usedGPRs_(0),
+    usedFPRs_(0),
     current_()
 {}
 
@@ -26,71 +28,26 @@ ABIArgGenerator::next(MIRType type)
       case MIRType::Int32:
       case MIRType::Int64:
       case MIRType::Pointer: {
-        Register destReg;
-        if (GetIntArgReg(usedArgSlots_, &destReg))
-            current_ = ABIArg(destReg);
-        else
-            current_ = ABIArg(GetArgStackDisp(usedArgSlots_));
-        usedArgSlots_++;
+        if (usedGPRs_ == 8)
+            MOZ_CRASH("ABIArgGenerator overflow (GPR)");
+        current_ = ABIArg(Register::FromCode((Register::Code)(usedGPRs_ + 3)));
+        usedGPRs_++;
         break;
       }
       case MIRType::Float32:
       case MIRType::Double: {
-        FloatRegister destFReg;
-        FloatRegister::ContentType contentType;
-        if (!usedArgSlots_)
-            firstArgFloat = true;
-        contentType = (type == MIRType::Double) ?
-            FloatRegisters::Double : FloatRegisters::Single;
-        if (GetFloatArgReg(usedArgSlots_, &destFReg))
-            current_ = ABIArg(FloatRegister(destFReg.id(), contentType));
-        else
-            current_ = ABIArg(GetArgStackDisp(usedArgSlots_));
-        usedArgSlots_++;
+        if (usedFPRs_ == 12)
+            MOZ_CRASH("ABIArgGenerator overflow(FPRs)");
+
+        current_ = ABIArg(FloatRegister::FromCode((Register::Code)(usedFPRs_ + 1)));
+        usedGPRs_++;
+        usedFPRs_++;
         break;
       }
       default:
         MOZ_CRASH("Unexpected argument type");
     }
     return current_;
-}
-
-uint32_t
-js::jit::RT(FloatRegister r)
-{
-    MOZ_ASSERT(r.id() < FloatRegisters::TotalPhys);
-    return r.id() << RTShift;
-}
-
-uint32_t
-js::jit::RD(FloatRegister r)
-{
-    MOZ_ASSERT(r.id() < FloatRegisters::TotalPhys);
-    return r.id() << RDShift;
-}
-
-uint32_t
-js::jit::RZ(FloatRegister r)
-{
-    MOZ_ASSERT(r.id() < FloatRegisters::TotalPhys);
-    return r.id() << RZShift;
-}
-
-uint32_t
-js::jit::SA(FloatRegister r)
-{
-    MOZ_ASSERT(r.id() < FloatRegisters::TotalPhys);
-    return r.id() << SAShift;
-}
-
-void
-Assembler::executableCopy(uint8_t* buffer, bool flushICache)
-{
-    MOZ_ASSERT(isFinished);
-    m_buffer.executableCopy(buffer);
-
-    if (flushICache)
-        AutoFlushICache::setRange(uintptr_t(buffer), m_buffer.size());
 }
 
 uintptr_t
@@ -137,7 +94,7 @@ TraceOneDataRelocation(JSTracer* trc, Instruction* inst)
 
     if (ptr != prior) {
         Assembler::UpdateLoad64Value(inst, uint64_t(ptr));
-        AutoFlushICache::flush(uintptr_t(inst), 6 * sizeof(uint32_t));
+        FlushICache(inst, 6 * sizeof(uint32_t));
     }
 }
 
@@ -173,24 +130,25 @@ Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
 void
 Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
 {
+#if 0 // TODO: Assembler::bind()
     int64_t offset = target - branch;
-    InstImm inst_bgezal = InstImm(op_regimm, zero, rt_bgezal, BOffImm16(0));
-    InstImm inst_beq = InstImm(op_beq, zero, zero, BOffImm16(0));
+    InstImm inst_bgezal = InstImm(op_regimm, r0, rt_bgezal, BOffImm16(0));
+    InstImm inst_beq = InstImm(PPC_bc, r0, r0, BOffImm16(0));
 
     // If encoded offset is 4, then the jump must be short
     if (BOffImm16(inst[0]).decode() == 4) {
         MOZ_ASSERT(BOffImm16::IsInRange(offset));
         inst[0].setBOffImm16(BOffImm16(offset));
-        inst[1].makeNop();
+        inst[1].makeOp_nop();
         return;
     }
 
     // Generate the long jump for calls because return address has to be the
     // address after the reserved block.
     if (inst[0].encode() == inst_bgezal.encode()) {
-        addLongJump(BufferOffset(branch), BufferOffset(target));
+        addLongJump(BufferOffset(branch));
         Assembler::WriteLoad64Instructions(inst, ScratchRegister, LabelBase::INVALID_OFFSET);
-        inst[4] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr).encode();
+        inst[4] = InstReg(PPC_b | LinkB, ScratchRegister, r0).encode();
         // There is 1 nop after this.
         return;
     }
@@ -198,14 +156,14 @@ Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
     if (BOffImm16::IsInRange(offset)) {
         // Don't skip trailing nops can improve performance
         // on Loongson3 platform.
-        bool skipNops = !isLoongson() && (inst[0].encode() != inst_bgezal.encode() &&
-                                          inst[0].encode() != inst_beq.encode());
+        bool skipNops = (inst[0].encode() != inst_bgezal.encode() &&
+                        inst[0].encode() != inst_beq.encode());
 
         inst[0].setBOffImm16(BOffImm16(offset));
-        inst[1].makeNop();
+        inst[1].makeOp_nop();
 
         if (skipNops) {
-            inst[2] = InstImm(op_regimm, zero, rt_bgez, BOffImm16(5 * sizeof(uint32_t))).encode();
+            inst[2] = InstImm(op_regimm, r0, rt_bgez, BOffImm16(5 * sizeof(uint32_t))).encode();
             // There are 4 nops after this
         }
         return;
@@ -213,21 +171,23 @@ Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
 
     if (inst[0].encode() == inst_beq.encode()) {
         // Handle long unconditional jump.
-        addLongJump(BufferOffset(branch), BufferOffset(target));
+        addLongJump(BufferOffset(branch));
         Assembler::WriteLoad64Instructions(inst, ScratchRegister, LabelBase::INVALID_OFFSET);
-        inst[4] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr).encode();
+        inst[4] = InstReg(op_special, ScratchRegister, r0, r0, ff_jr).encode();
         // There is 1 nop after this.
     } else {
         // Handle long conditional jump.
         inst[0] = invertBranch(inst[0], BOffImm16(7 * sizeof(uint32_t)));
         // No need for a "nop" here because we can clobber scratch.
-        addLongJump(BufferOffset(branch + sizeof(uint32_t)), BufferOffset(target));
+        addLongJump(BufferOffset(branch + sizeof(uint32_t)));
         Assembler::WriteLoad64Instructions(&inst[1], ScratchRegister, LabelBase::INVALID_OFFSET);
-        inst[5] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr).encode();
+        inst[5] = InstReg(op_special, ScratchRegister, r0, r0, ff_jr).encode();
         // There is 1 nop after this.
     }
+#endif
 }
 
+#if 0
 void
 Assembler::bind(RepatchLabel* label)
 {
@@ -237,7 +197,7 @@ Assembler::bind(RepatchLabel* label)
         // the bound label;
         BufferOffset b(label->offset());
         InstImm* inst = (InstImm*)editSrc(b);
-        InstImm inst_beq = InstImm(op_beq, zero, zero, BOffImm16(0));
+        InstImm inst_beq = InstImm(op_beq, r0, r0, BOffImm16(0));
         uint64_t offset = dest.getOffset() - label->offset();
 
         // If first instruction is lui, then this is a long jump.
@@ -246,7 +206,7 @@ Assembler::bind(RepatchLabel* label)
             // For unconditional long branches generated by ma_liPatchable,
             // such as under:
             //     jumpWithpatch
-            addLongJump(BufferOffset(label->offset()), dest);
+            addLongJump(BufferOffset(label->offset()));
         } else if (inst[1].extractOpcode() == (uint32_t(op_lui) >> OpcodeShift) ||
                    BOffImm16::IsInRange(offset))
         {
@@ -271,9 +231,9 @@ Assembler::bind(RepatchLabel* label)
             MOZ_ASSERT(inst[3].encode() == NopInst);
             MOZ_ASSERT(inst[4].encode() == NopInst);
             MOZ_ASSERT(inst[5].encode() == NopInst);
-            addLongJump(BufferOffset(label->offset()), dest);
+            addLongJump(BufferOffset(label->offset()));
             Assembler::WriteLoad64Instructions(inst, ScratchRegister, LabelBase::INVALID_OFFSET);
-            inst[4] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr).encode();
+            inst[4] = InstReg(op_special, ScratchRegister, r0, r0, ff_jr).encode();
         } else {
             // Handle open long conditional jumps created by
             // MacroAssemblerMIPSShared::ma_b(..., wasm::Trap, ...).
@@ -287,13 +247,14 @@ Assembler::bind(RepatchLabel* label)
             MOZ_ASSERT(inst[4].encode() == NopInst);
             MOZ_ASSERT(inst[5].encode() == NopInst);
             MOZ_ASSERT(inst[6].encode() == NopInst);
-            addLongJump(BufferOffset(label->offset() + sizeof(uint32_t)), dest);
+            addLongJump(BufferOffset(label->offset() + sizeof(uint32_t)));
             Assembler::WriteLoad64Instructions(&inst[1], ScratchRegister, LabelBase::INVALID_OFFSET);
-            inst[5] = InstReg(op_special, ScratchRegister, zero, zero, ff_jr).encode();
+            inst[5] = InstReg(op_special, ScratchRegister, r0, r0, ff_jr).encode();
         }
     }
     label->bind(dest.getOffset());
 }
+#endif
 
 void
 Assembler::processCodeLabels(uint8_t* rawCode)
@@ -306,8 +267,8 @@ Assembler::processCodeLabels(uint8_t* rawCode)
 uint32_t
 Assembler::PatchWrite_NearCallSize()
 {
-    // Load an address needs 4 instructions, and a jump with a delay slot.
-    return (4 + 2) * sizeof(uint32_t);
+    // Load an address needs 5 instructions, mtctr, bctrl
+    return (5 + 2) * sizeof(uint32_t);
 }
 
 void
@@ -322,11 +283,13 @@ Assembler::PatchWrite_NearCall(CodeLocationLabel start, CodeLocationLabel toCall
     // - Return address has to be at the end of replaced block.
     // Short jump wouldn't be more efficient.
     Assembler::WriteLoad64Instructions(inst, ScratchRegister, (uint64_t)dest);
-    inst[4] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
-    inst[5] = InstNOP();
+    // XXX: This is wrong!
+    //inst[4] = InstReg(PPC_b | LinkB, ScratchRegister, r0, lr, ff_jalr);
+    inst[5] = Instruction(PPC_nop);
+    inst[6] = Instruction(PPC_nop);
 
     // Ensure everyone sees the code that was just written into memory.
-    AutoFlushICache::flush(uintptr_t(inst), PatchWrite_NearCallSize());
+    FlushICache(inst, PatchWrite_NearCallSize());
 }
 
 uint64_t
@@ -334,24 +297,14 @@ Assembler::ExtractLoad64Value(Instruction* inst0)
 {
     InstImm* i0 = (InstImm*) inst0;
     InstImm* i1 = (InstImm*) i0->next();
-    InstReg* i2 = (InstReg*) i1->next();
+    Instruction* i2 = (Instruction*) i1->next();
     InstImm* i3 = (InstImm*) i2->next();
     InstImm* i5 = (InstImm*) i3->next()->next();
 
-    MOZ_ASSERT(i0->extractOpcode() == ((uint32_t)op_lui >> OpcodeShift));
-    MOZ_ASSERT(i1->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
-    MOZ_ASSERT(i3->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
-
-    if ((i2->extractOpcode() == ((uint32_t)op_special >> OpcodeShift)) &&
-        (i2->extractFunctionField() == ff_dsrl32))
-    {
-        uint64_t value = (uint64_t(i0->extractImm16Value()) << 32) |
-                         (uint64_t(i1->extractImm16Value()) << 16) |
-                         uint64_t(i3->extractImm16Value());
-        return uint64_t((int64_t(value) <<16) >> 16);
-    }
-
-    MOZ_ASSERT(i5->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
+    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
     uint64_t value = (uint64_t(i0->extractImm16Value()) << 48) |
                      (uint64_t(i1->extractImm16Value()) << 32) |
                      (uint64_t(i3->extractImm16Value()) << 16) |
@@ -364,24 +317,14 @@ Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value)
 {
     InstImm* i0 = (InstImm*) inst0;
     InstImm* i1 = (InstImm*) i0->next();
-    InstReg* i2 = (InstReg*) i1->next();
+    Instruction* i2 = (Instruction*) i1->next();
     InstImm* i3 = (InstImm*) i2->next();
     InstImm* i5 = (InstImm*) i3->next()->next();
 
-    MOZ_ASSERT(i0->extractOpcode() == ((uint32_t)op_lui >> OpcodeShift));
-    MOZ_ASSERT(i1->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
-    MOZ_ASSERT(i3->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
-
-    if ((i2->extractOpcode() == ((uint32_t)op_special >> OpcodeShift)) &&
-        (i2->extractFunctionField() == ff_dsrl32))
-    {
-        i0->setImm16(Imm16::Lower(Imm32(value >> 32)));
-        i1->setImm16(Imm16::Upper(Imm32(value)));
-        i3->setImm16(Imm16::Lower(Imm32(value)));
-        return;
-    }
-
-    MOZ_ASSERT(i5->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
+    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)op_oris);
+    MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
 
     i0->setImm16(Imm16::Upper(Imm32(value >> 32)));
     i1->setImm16(Imm16::Lower(Imm32(value >> 32)));
@@ -395,11 +338,14 @@ Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg, uint64_t va
     Instruction* inst1 = inst0->next();
     Instruction* inst2 = inst1->next();
     Instruction* inst3 = inst2->next();
+    Instruction* inst4 = inst3->next();
 
-    *inst0 = InstImm(op_lui, zero, reg, Imm16::Lower(Imm32(value >> 32)));
-    *inst1 = InstImm(op_ori, reg, reg, Imm16::Upper(Imm32(value)));
-    *inst2 = InstReg(op_special, rs_one, reg, reg, 48 - 32, ff_dsrl32);
-    *inst3 = InstImm(op_ori, reg, reg, Imm16::Lower(Imm32(value)));
+    *inst0 = InstImm(PPC_ori, reg, r0, BOffImm16(Imm16::Lower(Imm32(value >> 32)).encode()));
+    *inst1 = InstImm(PPC_oris, reg, reg, BOffImm16(Imm16::Upper(Imm32(value >> 32)).encode()));
+    // Manually construct 'sldi reg, reg, 32'
+    *inst2 = InstImm(PPC_rldicr, reg, reg, BOffImm16((32 << 11)  | (31 << 4) | (1 << 2)));
+    *inst3 = InstImm(PPC_oris, reg, reg, BOffImm16(Imm16::Upper(Imm32(value)).encode()));
+    *inst4 = InstImm(PPC_ori, reg, reg, BOffImm16(Imm16::Lower(Imm32(value)).encode()));
 }
 
 void
@@ -423,14 +369,7 @@ Assembler::PatchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newVal
     // Replace with new value
     Assembler::UpdateLoad64Value(inst, uint64_t(newValue.value));
 
-    AutoFlushICache::flush(uintptr_t(inst), 6 * sizeof(uint32_t));
-}
-
-uint64_t
-Assembler::ExtractInstructionImmediate(uint8_t* code)
-{
-    InstImm* inst = (InstImm*)code;
-    return Assembler::ExtractLoad64Value(inst);
+    FlushICache(inst, 6 * sizeof(uint32_t));
 }
 
 void
@@ -440,20 +379,34 @@ Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled)
     InstImm* i0 = (InstImm*) inst;
     InstImm* i1 = (InstImm*) i0->next();
     InstImm* i3 = (InstImm*) i1->next()->next();
-    Instruction* i4 = (Instruction*) i3->next();
+    InstImm* i4 = (InstImm*) i3->next();
+    Instruction* i5 = (Instruction*) i4->next();
+    Instruction* i6 = (Instruction*) i5->next();
 
-    MOZ_ASSERT(i0->extractOpcode() == ((uint32_t)op_lui >> OpcodeShift));
-    MOZ_ASSERT(i1->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
-    MOZ_ASSERT(i3->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
+    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
 
     if (enabled) {
-        MOZ_ASSERT(i4->extractOpcode() != ((uint32_t)op_lui >> OpcodeShift));
-        InstReg jalr = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
-        *i4 = jalr;
+        i5->makeOp_mtctr(ScratchRegister);
+        i6->makeOp_bctr(LinkB);
     } else {
-        InstNOP nop;
-        *i4 = nop;
+        *i5 = Instruction(PPC_nop);
+        *i6 = Instruction(PPC_nop);
     }
 
-    AutoFlushICache::flush(uintptr_t(i4), sizeof(uint32_t));
+    FlushICache(i4, sizeof(uint32_t));
+}
+
+bool Assembler::swapBuffer(wasm::Bytes& bytes) {
+  // For now, specialize to the one use case. As long as wasm::Bytes is a
+  // Vector, not a linked-list of chunks, there's not much we can do other
+  // than copy.
+  MOZ_ASSERT(bytes.empty());
+  if (!bytes.resize(bytesNeeded())) {
+    return false;
+  }
+  m_buffer.executableCopy(bytes.begin());
+  return true;
 }

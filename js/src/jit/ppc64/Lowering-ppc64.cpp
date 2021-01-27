@@ -7,7 +7,7 @@
 #include "mozilla/MathAlgorithms.h"
 
 #include "jit/Lowering.h"
-#include "jit/ppc64le/Assembler-ppc64le.h"
+#include "jit/ppc64/Assembler-ppc64.h"
 #include "jit/MIR.h"
 
 #include "jit/shared/Lowering-shared-inl.h"
@@ -18,32 +18,32 @@ using namespace js::jit;
 using mozilla::FloorLog2;
 
 LAllocation
-LIRGeneratorPPC64LE::useByteOpRegister(MDefinition* mir)
+LIRGeneratorPPC64::useByteOpRegister(MDefinition* mir)
 {
     return useRegister(mir);
 }
 
 LAllocation
-LIRGeneratorPPC64LE::useByteOpRegisterAtStart(MDefinition* mir)
+LIRGeneratorPPC64::useByteOpRegisterAtStart(MDefinition* mir)
 {
     return useRegisterAtStart(mir);
 }
 
 LAllocation
-LIRGeneratorPPC64LE::useByteOpRegisterOrNonDoubleConstant(MDefinition* mir)
+LIRGeneratorPPC64::useByteOpRegisterOrNonDoubleConstant(MDefinition* mir)
 {
     return useRegisterOrNonDoubleConstant(mir);
 }
 
 LDefinition
-LIRGeneratorPPC64LE::tempByteOpRegister()
+LIRGeneratorPPC64::tempByteOpRegister()
 {
     return temp();
 }
 
 // x = !y
 void
-LIRGeneratorPPC64LE::lowerForALU(LInstructionHelper<1, 1, 0>* ins,
+LIRGeneratorPPC64::lowerForALU(LInstructionHelper<1, 1, 0>* ins,
                                     MDefinition* mir, MDefinition* input)
 {
     ins->setOperand(0, useRegister(input));
@@ -52,7 +52,7 @@ LIRGeneratorPPC64LE::lowerForALU(LInstructionHelper<1, 1, 0>* ins,
 
 // z = x+y
 void
-LIRGeneratorPPC64LE::lowerForALU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
+LIRGeneratorPPC64::lowerForALU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
                                     MDefinition* lhs, MDefinition* rhs)
 {
     ins->setOperand(0, useRegister(lhs));
@@ -61,7 +61,7 @@ LIRGeneratorPPC64LE::lowerForALU(LInstructionHelper<1, 2, 0>* ins, MDefinition* 
 }
 
 void
-LIRGeneratorPPC64LE::lowerForALUInt64(LInstructionHelper<INT64_PIECES, 2 * INT64_PIECES, 0>* ins,
+LIRGeneratorPPC64::lowerForALUInt64(LInstructionHelper<INT64_PIECES, 2 * INT64_PIECES, 0>* ins,
                                          MDefinition* mir, MDefinition* lhs, MDefinition* rhs)
 {
     ins->setInt64Operand(0, useInt64RegisterAtStart(lhs));
@@ -71,7 +71,7 @@ LIRGeneratorPPC64LE::lowerForALUInt64(LInstructionHelper<INT64_PIECES, 2 * INT64
 }
 
 void
-LIRGeneratorPPC64LE::lowerForMulInt64(LMulI64* ins, MMul* mir, MDefinition* lhs, MDefinition* rhs)
+LIRGeneratorPPC64::lowerForMulInt64(LMulI64* ins, MMul* mir, MDefinition* lhs, MDefinition* rhs)
 {
     bool needsTemp = false;
     bool cannotAliasRhs = false;
@@ -91,7 +91,7 @@ LIRGeneratorPPC64LE::lowerForMulInt64(LMulI64* ins, MMul* mir, MDefinition* lhs,
 
 template<size_t Temps>
 void
-LIRGeneratorPPC64LE::lowerForShiftInt64(LInstructionHelper<INT64_PIECES, INT64_PIECES + 1, Temps>* ins,
+LIRGeneratorPPC64::lowerForShiftInt64(LInstructionHelper<INT64_PIECES, INT64_PIECES + 1, Temps>* ins,
                                            MDefinition* mir, MDefinition* lhs, MDefinition* rhs)
 {
     ins->setInt64Operand(0, useInt64RegisterAtStart(lhs));
@@ -104,15 +104,15 @@ LIRGeneratorPPC64LE::lowerForShiftInt64(LInstructionHelper<INT64_PIECES, INT64_P
     defineInt64ReuseInput(ins, mir, 0);
 }
 
-template void LIRGeneratorPPC64LE::lowerForShiftInt64(
+template void LIRGeneratorPPC64::lowerForShiftInt64(
     LInstructionHelper<INT64_PIECES, INT64_PIECES+1, 0>* ins, MDefinition* mir,
     MDefinition* lhs, MDefinition* rhs);
-template void LIRGeneratorPPC64LE::lowerForShiftInt64(
+template void LIRGeneratorPPC64::lowerForShiftInt64(
     LInstructionHelper<INT64_PIECES, INT64_PIECES+1, 1>* ins, MDefinition* mir,
     MDefinition* lhs, MDefinition* rhs);
 
 void
-LIRGeneratorPPC64LE::lowerForFPU(LInstructionHelper<1, 1, 0>* ins, MDefinition* mir,
+LIRGeneratorPPC64::lowerForFPU(LInstructionHelper<1, 1, 0>* ins, MDefinition* mir,
                                     MDefinition* input)
 {
     ins->setOperand(0, useRegister(input));
@@ -121,7 +121,7 @@ LIRGeneratorPPC64LE::lowerForFPU(LInstructionHelper<1, 1, 0>* ins, MDefinition* 
 
 template<size_t Temps>
 void
-LIRGeneratorPPC64LE::lowerForFPU(LInstructionHelper<1, 2, Temps>* ins, MDefinition* mir,
+LIRGeneratorPPC64::lowerForFPU(LInstructionHelper<1, 2, Temps>* ins, MDefinition* mir,
                                     MDefinition* lhs, MDefinition* rhs)
 {
     ins->setOperand(0, useRegister(lhs));
@@ -129,13 +129,13 @@ LIRGeneratorPPC64LE::lowerForFPU(LInstructionHelper<1, 2, Temps>* ins, MDefiniti
     define(ins, mir, LDefinition(LDefinition::TypeFrom(mir->type()), LDefinition::REGISTER));
 }
 
-template void LIRGeneratorPPC64LE::lowerForFPU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
+template void LIRGeneratorPPC64::lowerForFPU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
                                                   MDefinition* lhs, MDefinition* rhs);
-template void LIRGeneratorPPC64LE::lowerForFPU(LInstructionHelper<1, 2, 1>* ins, MDefinition* mir,
+template void LIRGeneratorPPC64::lowerForFPU(LInstructionHelper<1, 2, 1>* ins, MDefinition* mir,
                                                   MDefinition* lhs, MDefinition* rhs);
 
 void
-LIRGeneratorPPC64LE::lowerForBitAndAndBranch(LBitAndAndBranch* baab, MInstruction* mir,
+LIRGeneratorPPC64::lowerForBitAndAndBranch(LBitAndAndBranch* baab, MInstruction* mir,
                                                 MDefinition* lhs, MDefinition* rhs)
 {
     baab->setOperand(0, useRegisterAtStart(lhs));
@@ -144,7 +144,7 @@ LIRGeneratorPPC64LE::lowerForBitAndAndBranch(LBitAndAndBranch* baab, MInstructio
 }
 
 void
-LIRGeneratorPPC64LE::lowerForShift(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
+LIRGeneratorPPC64::lowerForShift(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
                                       MDefinition* lhs, MDefinition* rhs)
 {
     ins->setOperand(0, useRegister(lhs));
@@ -153,7 +153,7 @@ LIRGeneratorPPC64LE::lowerForShift(LInstructionHelper<1, 2, 0>* ins, MDefinition
 }
 
 void
-LIRGeneratorPPC64LE::lowerDivI(MDiv* div)
+LIRGeneratorPPC64::lowerDivI(MDiv* div)
 {
     if (div->isUnsigned()) {
         lowerUDiv(div);
@@ -173,7 +173,7 @@ LIRGeneratorPPC64LE::lowerDivI(MDiv* div)
         if (rhs > 0 && 1 << shift == rhs) {
             LDivPowTwoI* lir = new(alloc()) LDivPowTwoI(useRegister(div->lhs()), shift, temp());
             if (div->fallible())
-                assignSnapshot(lir, Bailout_DoubleOutput);
+                assignSnapshot(lir, div->bailoutKind());
             define(lir, div);
             return;
         }
@@ -181,24 +181,24 @@ LIRGeneratorPPC64LE::lowerDivI(MDiv* div)
 
     LDivI* lir = new(alloc()) LDivI(useRegister(div->lhs()), useRegister(div->rhs()), temp());
     if (div->fallible())
-        assignSnapshot(lir, Bailout_DoubleOutput);
+        assignSnapshot(lir, div->bailoutKind());
     define(lir, div);
 }
 
 void
-LIRGeneratorPPC64LE::lowerMulI(MMul* mul, MDefinition* lhs, MDefinition* rhs)
+LIRGeneratorPPC64::lowerMulI(MMul* mul, MDefinition* lhs, MDefinition* rhs)
 {
     // XXX: Consider strength-reduction here, since some Power implementations
     // may take several cycles versus simple one-cycle adds.
     LMulI* lir = new(alloc()) LMulI;
     if (mul->fallible())
-        assignSnapshot(lir, Bailout_DoubleOutput);
+        assignSnapshot(lir, mul->bailoutKind());
 
     lowerForALU(lir, mul, lhs, rhs);
 }
 
 void
-LIRGeneratorPPC64LE::lowerModI(MMod* mod)
+LIRGeneratorPPC64::lowerModI(MMod* mod)
 {
     if (mod->isUnsigned()) {
         lowerUMod(mod);
@@ -211,7 +211,7 @@ LIRGeneratorPPC64LE::lowerModI(MMod* mod)
         if (rhs > 0 && 1 << shift == rhs) {
             LModPowTwoI* lir = new(alloc()) LModPowTwoI(useRegister(mod->lhs()), shift);
             if (mod->fallible())
-                assignSnapshot(lir, Bailout_DoubleOutput);
+                assignSnapshot(lir, mod->bailoutKind());
             define(lir, mod);
             return;
         } else if (shift < 31 && (1 << (shift + 1)) - 1 == rhs) {
@@ -220,7 +220,7 @@ LIRGeneratorPPC64LE::lowerModI(MMod* mod)
                                                     temp(LDefinition::GENERAL),
                                                     shift + 1);
             if (mod->fallible())
-                assignSnapshot(lir, Bailout_DoubleOutput);
+                assignSnapshot(lir, mod->bailoutKind());
             define(lir, mod);
             return;
         }
@@ -229,7 +229,7 @@ LIRGeneratorPPC64LE::lowerModI(MMod* mod)
                            temp(LDefinition::GENERAL));
 
     if (mod->fallible())
-        assignSnapshot(lir, Bailout_DoubleOutput);
+        assignSnapshot(lir, mod->bailoutKind());
     define(lir, mod);
 }
 
@@ -243,21 +243,21 @@ LIRGenerator::visitPowHalf(MPowHalf* ins)
 }
 
 LTableSwitch*
-LIRGeneratorPPC64LE::newLTableSwitch(const LAllocation& in, const LDefinition& inputCopy,
+LIRGeneratorPPC64::newLTableSwitch(const LAllocation& in, const LDefinition& inputCopy,
                                         MTableSwitch* tableswitch)
 {
     return new(alloc()) LTableSwitch(in, inputCopy, temp(), tableswitch);
 }
 
 LTableSwitchV*
-LIRGeneratorPPC64LE::newLTableSwitchV(MTableSwitch* tableswitch)
+LIRGeneratorPPC64::newLTableSwitchV(MTableSwitch* tableswitch)
 {
     return new(alloc()) LTableSwitchV(useBox(tableswitch->getOperand(0)),
                                       temp(), tempDouble(), temp(), tableswitch);
 }
 
 void
-LIRGeneratorPPC64LE::lowerUrshD(MUrsh* mir)
+LIRGeneratorPPC64::lowerUrshD(MUrsh* mir)
 {
     MDefinition* lhs = mir->lhs();
     MDefinition* rhs = mir->rhs();
@@ -393,7 +393,7 @@ LIRGenerator::visitWasmSelect(MWasmSelect* ins)
 }
 
 void
-LIRGeneratorPPC64LE::lowerUDiv(MDiv* div)
+LIRGeneratorPPC64::lowerUDiv(MDiv* div)
 {
     MDefinition* lhs = div->getOperand(0);
     MDefinition* rhs = div->getOperand(1);
@@ -402,13 +402,13 @@ LIRGeneratorPPC64LE::lowerUDiv(MDiv* div)
     lir->setOperand(0, useRegister(lhs));
     lir->setOperand(1, useRegister(rhs));
     if (div->fallible())
-        assignSnapshot(lir, Bailout_DoubleOutput);
+        assignSnapshot(lir, div->bailoutKind());
 
     define(lir, div);
 }
 
 void
-LIRGeneratorPPC64LE::lowerUMod(MMod* mod)
+LIRGeneratorPPC64::lowerUMod(MMod* mod)
 {
     MDefinition* lhs = mod->getOperand(0);
     MDefinition* rhs = mod->getOperand(1);
@@ -417,7 +417,7 @@ LIRGeneratorPPC64LE::lowerUMod(MMod* mod)
     lir->setOperand(0, useRegister(lhs));
     lir->setOperand(1, useRegister(rhs));
     if (mod->fallible())
-        assignSnapshot(lir, Bailout_DoubleOutput);
+        assignSnapshot(lir, mod->bailoutKind());
 
     define(lir, mod);
 }
@@ -759,20 +759,20 @@ LIRGenerator::visitSignExtendInt64(MSignExtendInt64* ins)
 }
 
 void
-LIRGeneratorPPC64LE::defineInt64Phi(MPhi* phi, size_t lirIndex)
+LIRGeneratorPPC64::defineInt64Phi(MPhi* phi, size_t lirIndex)
 {
     defineTypedPhi(phi, lirIndex);
 }
 
 void
-LIRGeneratorPPC64LE::lowerInt64PhiInput(MPhi* phi, uint32_t inputPosition,
+LIRGeneratorPPC64::lowerInt64PhiInput(MPhi* phi, uint32_t inputPosition,
                                        LBlock* block, size_t lirIndex)
 {
     lowerTypedPhiInput(phi, inputPosition, block, lirIndex);
 }
 
 LBoxAllocation
-LIRGeneratorPPC64LE::useBoxFixed(MDefinition* mir, Register reg1, Register reg2, bool useAtStart)
+LIRGeneratorPPC64::useBoxFixed(MDefinition* mir, Register reg1, Register reg2, bool useAtStart)
 {
     MOZ_ASSERT(mir->type() == MIRType::Value);
 
@@ -781,7 +781,7 @@ LIRGeneratorPPC64LE::useBoxFixed(MDefinition* mir, Register reg1, Register reg2,
 }
 
 void
-LIRGeneratorPPC64LE::lowerDivI64(MDiv* div)
+LIRGeneratorPPC64::lowerDivI64(MDiv* div)
 {
     if (div->isUnsigned()) {
         lowerUDivI64(div);
@@ -794,7 +794,7 @@ LIRGeneratorPPC64LE::lowerDivI64(MDiv* div)
 }
 
 void
-LIRGeneratorPPC64LE::lowerModI64(MMod* mod)
+LIRGeneratorPPC64::lowerModI64(MMod* mod)
 {
     if (mod->isUnsigned()) {
         lowerUModI64(mod);
@@ -807,7 +807,7 @@ LIRGeneratorPPC64LE::lowerModI64(MMod* mod)
 }
 
 void
-LIRGeneratorPPC64LE::lowerUDivI64(MDiv* div)
+LIRGeneratorPPC64::lowerUDivI64(MDiv* div)
 {
     LUDivOrModI64* lir = new(alloc()) LUDivOrModI64(useRegister(div->lhs()),
                                                     useRegister(div->rhs()),
@@ -816,7 +816,7 @@ LIRGeneratorPPC64LE::lowerUDivI64(MDiv* div)
 }
 
 void
-LIRGeneratorPPC64LE::lowerUModI64(MMod* mod)
+LIRGeneratorPPC64::lowerUModI64(MMod* mod)
 {
     LUDivOrModI64* lir = new(alloc()) LUDivOrModI64(useRegister(mod->lhs()),
                                                     useRegister(mod->rhs()),
@@ -876,31 +876,30 @@ LIRGenerator::visitUnbox(MUnbox* unbox)
 }
 
 void
-LIRGenerator::visitReturn(MReturn* ret)
+LIRGenerator::visitReturnImpl(MDefinition* opd, bool isGenerator)
 {
-    MDefinition* opd = ret->getOperand(0);
     MOZ_ASSERT(opd->type() == MIRType::Value);
 
-    LReturn* ins = new(alloc()) LReturn;
+    LReturn* ins = new(alloc()) LReturn(isGenerator);
     ins->setOperand(0, useFixed(opd, JSReturnReg));
     add(ins);
 }
 
 void
-LIRGeneratorPPC64LE::defineUntypedPhi(MPhi* phi, size_t lirIndex)
+LIRGeneratorPPC64::defineUntypedPhi(MPhi* phi, size_t lirIndex)
 {
     defineTypedPhi(phi, lirIndex);
 }
 
 void
-LIRGeneratorPPC64LE::lowerUntypedPhiInput(MPhi* phi, uint32_t inputPosition,
+LIRGeneratorPPC64::lowerUntypedPhiInput(MPhi* phi, uint32_t inputPosition,
                                          LBlock* block, size_t lirIndex)
 {
     lowerTypedPhiInput(phi, inputPosition, block, lirIndex);
 }
 
 void
-LIRGeneratorPPC64LE::lowerTruncateDToInt32(MTruncateToInt32* ins)
+LIRGeneratorPPC64::lowerTruncateDToInt32(MTruncateToInt32* ins)
 {
     MDefinition* opd = ins->input();
     MOZ_ASSERT(opd->type() == MIRType::Double);
@@ -910,7 +909,7 @@ LIRGeneratorPPC64LE::lowerTruncateDToInt32(MTruncateToInt32* ins)
 }
 
 void
-LIRGeneratorPPC64LE::lowerTruncateFToInt32(MTruncateToInt32* ins)
+LIRGeneratorPPC64::lowerTruncateFToInt32(MTruncateToInt32* ins)
 {
     MDefinition* opd = ins->input();
     MOZ_ASSERT(opd->type() == MIRType::Float32);
@@ -918,14 +917,6 @@ LIRGeneratorPPC64LE::lowerTruncateFToInt32(MTruncateToInt32* ins)
     define(new(alloc())
            LTruncateFToInt32(useRegister(opd), tempFloat32()), ins);
 }
-
-void
-LIRGenerator::visitRandom(MRandom* ins)
-{
-    LRandom *lir = new(alloc()) LRandom(temp(), temp(), temp());
-    defineFixed(lir, ins, LFloatReg(ReturnDoubleReg));
-}
-
 
 void
 LIRGenerator::visitWasmTruncateToInt64(MWasmTruncateToInt64* ins)
@@ -946,6 +937,7 @@ LIRGenerator::visitInt64ToFloatingPoint(MInt64ToFloatingPoint* ins)
     define(new(alloc()) LInt64ToFloatingPoint(useInt64Register(opd)), ins);
 }
 
+#if 0
 // A beautiful AltiVec and VSX world awaits me if I could only stop procrastinating.
 void
 LIRGenerator::visitSimdInsertElement(MSimdInsertElement*)
@@ -1006,3 +998,4 @@ LIRGenerator::visitSimdGeneralShuffle(MSimdGeneralShuffle*)
 {
     MOZ_CRASH("NYI");
 }
+#endif

@@ -137,6 +137,9 @@
 #  include "jit/mips-shared/Assembler-mips-shared.h"
 #  include "jit/mips64/Assembler-mips64.h"
 #endif
+#if defined(JS_CODEGEN_PPC64)
+#  include "jit/ppc64/Assembler-ppc64.h"
+#endif
 #include "js/ScalarType.h"  // js::Scalar::Type
 #include "util/Memory.h"
 #include "wasm/WasmGC.h"
@@ -6874,7 +6877,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     }
   };
 
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
   using AtomicRMW32Temps = Atomic32Temps<3>;
 #else
   using AtomicRMW32Temps = Atomic32Temps<1>;
@@ -6901,7 +6904,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       case Scalar::Uint16:
       case Scalar::Int32:
       case Scalar::Uint32:
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
         masm.wasmAtomicFetchOp(access, op, rv, srcAddr, temps[0], temps[1],
                                temps[2], rd);
 #else
@@ -6922,7 +6925,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     masm.wasmAtomicFetchOp64(access, op, value, srcAddr, temp, rd);
   }
 
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
   using AtomicCmpXchg32Temps = Atomic32Temps<3>;
 #else
   using AtomicCmpXchg32Temps = Atomic32Temps<0>;
@@ -6950,7 +6953,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       case Scalar::Uint16:
       case Scalar::Int32:
       case Scalar::Uint32:
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
         masm.wasmCompareExchange(access, srcAddr, rexpect, rnew, temps[0],
                                  temps[1], temps[2], rd);
 #else
@@ -6962,7 +6965,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     }
   }
 
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
   using AtomicXchg32Temps = Atomic32Temps<3>;
 #else
   using AtomicXchg32Temps = Atomic32Temps<0>;
@@ -6989,7 +6992,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       case Scalar::Uint16:
       case Scalar::Int32:
       case Scalar::Uint32:
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
         masm.wasmAtomicExchange(access, srcAddr, rv, temps[0], temps[1],
                                 temps[2], rd);
 #else
@@ -7230,7 +7233,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       bc->freeI32(rnew);
       bc->freeI32(rexpect);
     }
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicCmpXchg32Regs(BaseCompiler* bc, ValType type,
                                     Scalar::Type viewType)
         : Base(bc) {
@@ -7307,7 +7310,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       bc->freeI64(rnew);
     }
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicCmpXchg64Regs(BaseCompiler* bc) : Base(bc) {
       rnew = bc->popI64();
       rexpect = bc->popI64();
@@ -7359,7 +7362,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     explicit PopAtomicLoad64Regs(BaseCompiler* bc) : Base(bc) {
       setRd(bc->needI64Pair());
     }
-#  elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#  elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicLoad64Regs(BaseCompiler* bc) : Base(bc) {
       setRd(bc->needI64());
     }
@@ -7446,7 +7449,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       bc->freeI32(rv);
       temps.maybeFree(bc);
     }
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicRMW32Regs(BaseCompiler* bc, ValType type,
                                 Scalar::Type viewType, AtomicOp op)
         : Base(bc) {
@@ -7534,7 +7537,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       bc->freeI64(temp);
     }
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicRMW64Regs(BaseCompiler* bc, AtomicOp) : Base(bc) {
       rv = bc->popI64();
       temp = bc->needI64();
@@ -7589,7 +7592,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       setRd(bc->needI32());
     }
     ~PopAtomicXchg32Regs() { bc->freeI32(rv); }
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicXchg32Regs(BaseCompiler* bc, ValType type,
                                  Scalar::Type viewType)
         : Base(bc) {
@@ -7655,7 +7658,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       setRd(bc->needI64Pair());
     }
     ~PopAtomicXchg64Regs() { bc->freeI64(rv); }
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     explicit PopAtomicXchg64Regs(BaseCompiler* bc) : Base(bc) {
       rv = bc->popI64ToSpecific(bc->needI64());
       setRd(bc->needI64());
@@ -11097,7 +11100,7 @@ RegI32 BaseCompiler::popMemoryAccess(MemoryAccessDesc* access,
 
 void BaseCompiler::pushHeapBase() {
 #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || \
-    defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
   RegI64 heapBase = needI64();
   moveI64(RegI64(Register64(HeapReg)), heapBase);
   pushI64(heapBase);
@@ -15691,7 +15694,8 @@ bool js::wasm::BaselinePlatformSupport() {
 #endif
 #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||   \
     defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
-    defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || \
+    defined(JS_CODEGEN_PPC64)
   return true;
 #else
   return false;

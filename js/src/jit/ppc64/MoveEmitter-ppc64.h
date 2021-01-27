@@ -13,7 +13,7 @@
 namespace js {
 namespace jit {
 
-class MoveEmitterPPC64LE
+class MoveEmitterPPC64
 {
   protected:
     uint32_t inCycle_;
@@ -52,7 +52,7 @@ class MoveEmitterPPC64LE
     void emit(const MoveOp& move);
 
   public:
-    MoveEmitterPPC64LE(MacroAssembler& masm)
+    MoveEmitterPPC64(MacroAssembler& masm)
       : inCycle_(0),
         masm(masm),
         pushedAtStart_(masm.framePushed()),
@@ -61,7 +61,7 @@ class MoveEmitterPPC64LE
         spilledReg_(InvalidReg),
         spilledFloatReg_(InvalidFloatReg)
     { }
-    ~MoveEmitterPPC64LE() {
+    ~MoveEmitterPPC64() {
         assertDone();
     }
     void emit(const MoveResolver& moves);
@@ -70,7 +70,7 @@ class MoveEmitterPPC64LE
     void setScratchRegister(Register reg) {}
 };
 
-typedef MoveEmitterPPC64LE MoveEmitter;
+typedef MoveEmitterPPC64 MoveEmitter;
 
 } // namespace jit
 } // namespace js

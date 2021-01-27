@@ -24,20 +24,24 @@ EmitBaselineTailCallVM(TrampolinePtr target, MacroAssembler& masm, uint32_t argS
     masm.addPtr(Imm32(BaselineFrame::FramePointerOffset), scratch);
     masm.subPtr(BaselineStackReg, scratch);
 
-    // Store frame size without VMFunction arguments for GC marking.
+#ifdef DEBUG
+    // Store frame size without VMFunction arguments for debug assertions.
     masm.subPtr(Imm32(argSize), scratch);
-    masm.store32(scratch, Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfFrameSize()));
+    Address frameSizeAddr(BaselineFrameReg,
+            BaselineFrame::reverseOffsetOfDebugFrameSize());
+    masm.store32(scratch, frameSizeAddr);
     masm.addPtr(Imm32(argSize), scratch);
+#endif
 
     // Push frame descriptor and perform the tail call.
     // ICTailCallReg (LR) already contains the return address (as we
     // keep it there through the stub calls), but the VMWrapper code being
     // called expects the return address to also be pushed on the stack.
-    masm.makeFrameDescriptor(scratch, JitFrame_BaselineJS, ExitFrameLayout::Size());
+    masm.makeFrameDescriptor(scratch, FrameType::BaselineJS, ExitFrameLayout::Size());
     masm.subPtr(Imm32(sizeof(CommonFrameLayout)), StackPointer);
-    masm.xs_mflr(ScratchReg);
+    masm.xs_mflr(ScratchRegister);
     masm.storePtr(scratch, Address(StackPointer, CommonFrameLayout::offsetOfDescriptor()));
-    masm.storePtr(ScratchReg, Address(StackPointer, CommonFrameLayout::offsetOfReturnAddress()));
+    masm.storePtr(ScratchRegister, Address(StackPointer, CommonFrameLayout::offsetOfReturnAddress()));
 
     masm.jump(target);
 }
@@ -52,10 +56,10 @@ EmitIonTailCallVM(TrampolinePtr target, MacroAssembler& masm, uint32_t stackSize
     masm.addPtr(Imm32(stackSize + JitStubFrameLayout::Size() - sizeof(intptr_t)), scratch);
 
     // Push frame descriptor and return address, perform the tail call.
-    masm.makeFrameDescriptor(scratch, JitFrame_IonJS, ExitFrameLayout::Size());
-    masm.xs_mflr(ScratchReg);
+    masm.makeFrameDescriptor(scratch, FrameType::IonJS, ExitFrameLayout::Size());
+    masm.xs_mflr(ScratchRegister);
     masm.push(scratch);
-    masm.push(ScratchReg);
+    masm.push(ScratchRegister);
     masm.jump(target);
 }
 
@@ -68,7 +72,7 @@ EmitBaselineCreateStubFrameDescriptor(MacroAssembler& masm, Register reg, uint32
     masm.addPtr(Imm32(sizeof(intptr_t) * 2), reg);
     masm.subPtr(BaselineStackReg, reg);
 
-    masm.makeFrameDescriptor(reg, JitFrame_BaselineStub, headerSize);
+    masm.makeFrameDescriptor(reg, FrameType::BaselineStub, headerSize);
 }
 
 inline void
@@ -88,17 +92,21 @@ EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch)
     masm.addPtr(Imm32(BaselineFrame::FramePointerOffset), scratch);
     masm.subPtr(BaselineStackReg, scratch);
 
-    masm.store32(scratch, Address(BaselineFrameReg, BaselineFrame::reverseOffsetOfFrameSize()));
+#ifdef DEBUG
+    Address frameSizeAddr(BaselineFrameReg,
+            BaselineFrame::reverseOffsetOfDebugFrameSize());
+    masm.store32(scratch, frameSizeAddr);
+#endif
 
     // Note: when making changes here, don't forget to update
     // BaselineStubFrame if needed.
 
     // Push frame descriptor and return address.
-    masm.makeFrameDescriptor(scratch, JitFrame_BaselineJS, BaselineStubFrameLayout::Size());
+    masm.makeFrameDescriptor(scratch, FrameType::BaselineJS, BaselineStubFrameLayout::Size());
     masm.subPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
-    masm.xs_mflr(ScratchReg);
+    masm.xs_mflr(ScratchRegister);
     masm.storePtr(scratch, Address(StackPointer, offsetof(BaselineStubFrame, descriptor)));
-    masm.storePtr(ScratchReg, Address(StackPointer,
+    masm.storePtr(ScratchRegister, Address(StackPointer,
                                       offsetof(BaselineStubFrame, returnAddress)));
 
     // Save old frame pointer, stack pointer and stub reg.

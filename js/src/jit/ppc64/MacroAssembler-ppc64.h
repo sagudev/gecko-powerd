@@ -100,8 +100,8 @@ class MacroAssemblerPPC64 : public Assembler
     Condition ma_cmp(Register rd, Register lhs, Register rhs, Condition c);
     Condition ma_cmp(Register rd, Register lhs, Imm32 imm, Condition c);
 
-    void compareFloatingPoint(FloatFormat fmt, FloatRegister lhs, FloatRegister rhs,
-                              DoubleCondition c, FloatTestKind* testKind);
+    void compareFloatingPoint(FloatRegister lhs, FloatRegister rhs,
+                              DoubleCondition c);
 
 /* XXX: TO DO: ma_d* variants are probably superfluous */
   public:
@@ -113,6 +113,7 @@ class MacroAssemblerPPC64 : public Assembler
 
     void ma_li(Register dest, CodeLabel* label);
     void ma_li(Register dest, ImmWord imm);
+    void ma_li(Register dest, int64_t imm);
     void ma_liPatchable(Register dest, ImmPtr imm);
     void ma_liPatchable(Register dest, ImmWord imm);
 
@@ -120,14 +121,10 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_sll(Register rd, Register rt, Imm32 shift);
     void ma_srl(Register rd, Register rt, Imm32 shift);
     void ma_sra(Register rd, Register rt, Imm32 shift);
-    void ma_ror(Register rd, Register rt, Imm32 shift);
-    void ma_rol(Register rd, Register rt, Imm32 shift);
 
     void ma_sll(Register rd, Register rt, Register shift);
     void ma_srl(Register rd, Register rt, Register shift);
     void ma_sra(Register rd, Register rt, Register shift);
-    void ma_ror(Register rd, Register rt, Register shift);
-    void ma_rol(Register rd, Register rt, Register shift);
 
     void ma_dsll(Register rd, Register rt, Imm32 shift);
     void ma_dsrl(Register rd, Register rt, Imm32 shift);
@@ -138,8 +135,6 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_dsll(Register rd, Register rt, Register shift);
     void ma_dsrl(Register rd, Register rt, Register shift);
     void ma_dsra(Register rd, Register rt, Register shift);
-    void ma_dror(Register rd, Register rt, Register shift);
-    void ma_drol(Register rd, Register rt, Register shift);
 
     // Negate
     void ma_negu(Register rd, Register rs);
@@ -183,14 +178,18 @@ class MacroAssemblerPPC64 : public Assembler
                   LoadStoreExtension extension = SignExtend);
     void ma_store(Imm32 imm, const BaseIndex& dest, LoadStoreSize size = SizeWord,
                   LoadStoreExtension extension = SignExtend);
+    void ma_store_unaligned(Register data, const Address& dest,
+                            LoadStoreSize size = SizeWord);
+    void ma_store_unaligned(Register data, const BaseIndex& dest,
+                            LoadStoreSize size = SizeWord);
     void ma_store_unaligned(const wasm::MemoryAccessDesc& access, Register data, const BaseIndex& dest, Register temp,
                             LoadStoreSize size, LoadStoreExtension extension);
 
     // arithmetic based ops
     // add
-    void ma_addu(Register rd, Register rs, Imm32 imm);
-    void ma_addu(Register rd, Register rs);
-    void ma_addu(Register rd, Imm32 imm);
+    void ma_add(Register rd, Register rs, Imm32 imm);
+    void ma_add(Register rd, Register rs);
+    void ma_add(Register rd, Imm32 imm);
     void ma_addTestCarry(Condition cond, Register rd, Register rs, Register rt, Label* overflow);
     void ma_addTestCarry(Condition cond, Register rd, Register rs, Imm32 imm, Label* overflow);
 
@@ -216,7 +215,7 @@ class MacroAssemblerPPC64 : public Assembler
 
     // branches when done from within platform-specific code
     void ma_bc(Condition c, Label* l, JumpKind jumpKind = LongJump);
-    //void ma_bc(ConditionRegister cr, Condition c, Label* l, JumpKind jumpKind = LongJump);
+    void ma_bc(CRegisterID cr, Condition c, Label* l, JumpKind jumpKind = LongJump);
 
     void ma_b(Register lhs, Register rhs, Label* l, Condition c, JumpKind jumpKind = LongJump);
     void ma_b(Register lhs, Imm32 imm, Label* l, Condition c, JumpKind jumpKind = LongJump);
@@ -239,8 +238,10 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_ls(FloatRegister dest, const BaseIndex& src);
 
     // FP branches
-    void ma_bc(FloatRegister lhs, FloatRegister rhs, Label* label, DoubleCondition c,
+    void ma_bc(DoubleCondition c, FloatRegister lhs, FloatRegister rhs, Label* label,
                  JumpKind jumpKind = LongJump);
+    void ma_bc(DoubleCondition c, Label* label, JumpKind jumpKind = LongJump);
+    void ma_bc(CRegisterID cr, DoubleCondition c, Label* label, JumpKind jumpKind = LongJump);
     //void ma_bc(FloatRegister lhs, FloatRegister rhs, Label* label,
     //             ConditionRegister cr,
     //             DoubleCondition c, JumpKind jumpKind = LongJump);
@@ -249,10 +250,18 @@ class MacroAssemblerPPC64 : public Assembler
 
     void ma_jump(ImmPtr dest);
 
+    void ma_cmp_set(Register dest, Address lhs, Register rhs, Condition c);
     void ma_cmp_set(Register dst, Register lhs, Register rhs, Condition c);
-    void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c);
+    void ma_cmp_set(Register dst, Register lhs, Imm16 imm, Condition c);
+    void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c) {
+        if (imm.value <= INT16_MAX)
+            ma_cmp_set(dst, lhs, Imm16(imm.value), c);
+        else {
+            ma_li(ScratchRegister, imm);
+            ma_cmp_set(dst, lhs, ScratchRegister, c);
+        }
+    }
     void ma_cmp_set_double(Register dst, FloatRegister lhs, FloatRegister rhs, DoubleCondition c);
-    void ma_cmp_set_float32(Register dst, FloatRegister lhs, FloatRegister rhs, DoubleCondition c);
 
     // Evaluate srcDest = minmax<isMax>{Float32,Double}(srcDest, other).
     // Handle NaN specially if handleNaN is true.
@@ -301,9 +310,6 @@ class MacroAssemblerPPC64 : public Assembler
 
     // arithmetic based ops
     // add
-    void ma_daddu(Register rd, Register rs, Imm32 imm);
-    void ma_daddu(Register rd, Register rs);
-    void ma_daddu(Register rd, Imm32 imm);
     void ma_addTestOverflow(Register rd, Register rs, Register rt, Label* overflow);
     void ma_addTestOverflow(Register rd, Register rs, Imm32 imm, Label* overflow);
 
@@ -382,12 +388,12 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void computeScaledAddress(const BaseIndex& address, Register dest);
 
     void computeEffectiveAddress(const Address& address, Register dest) {
-        ma_daddu(dest, address.base, Imm32(address.offset));
+        ma_add(dest, address.base, Imm32(address.offset));
     }
 
-    inline void computeEffectiveAddress(const BaseIndex& address, Register dest);
+    void computeEffectiveAddress(const BaseIndex& address, Register dest);
 
-    void j(Label* dest) {
+    void j(Condition cond, Label* dest) {
         ma_b(dest);
     }
 
@@ -430,6 +436,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void jump(Label* label) {
         ma_b(label);
     }
+    void jump(ImmPtr ptr) {
+        BufferOffset bo = m_buffer.nextOffset();
+        addPendingJump(bo, ptr, RelocationKind::HARDCODED);
+        ma_jump(ptr);
+    }
     void jump(Register reg) {
         // This could be to any code, so definitely use r12.
         as_or(SecondScratchReg, reg, reg); // make r12 == CTR
@@ -442,12 +453,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         as_nop();
         hop_skip_nop_jump();
     }
-    void jump(TrampolinePtr code)
-    {
-        auto target = ImmPtr(code.value);
-        BufferOffset bo = m_buffer.nextOffset();
-        addPendingJump(bo, target, RelocationKind::HARDCODED);
-        ma_jump(target);
+    void jump(TrampolinePtr code) {
+        jump(ImmPtr(code.value));
     }
     void branch(JitCode* c) {
         // This is to Ion code, but we still use r12 anyway.
@@ -465,6 +472,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void branch(const Register reg) {
         jump(reg);
     }
+    void branchWithCode(InstImm code, Label* label, JumpKind jumpKind);
 
     void nop() {
         as_nop();
@@ -545,7 +553,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
 
     void splitTag(Register src, Register dest) {
-        ma_dsrl(dest, src, Imm32(JSVAL_TAG_SHIFT));
+        x_srwi(dest, src, JSVAL_TAG_SHIFT);
     }
 
     void splitTag(const ValueOperand& operand, Register dest) {
@@ -590,7 +598,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         //ma_dins(dest, zero, Imm32(JSVAL_TAG_SHIFT + 3), Imm32(1));
     }
 
-    void unboxGCThingForPreBarrierTrampoline(const Address& src, Register dest) {
+    void unboxGCThingForGCBarrier(const Address& src, Register dest) {
         loadPtr(src, dest);
         ma_dext(dest, dest, Imm32(0), Imm32(JSVAL_TAG_SHIFT));
     }
@@ -606,12 +614,16 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void unboxDouble(const ValueOperand& operand, FloatRegister dest);
     void unboxDouble(Register src, Register dest);
     void unboxDouble(const Address& src, FloatRegister dest);
+    void unboxDouble(const BaseIndex& src, FloatRegister dest);
     void unboxString(const ValueOperand& operand, Register dest);
     void unboxString(Register src, Register dest);
     void unboxString(const Address& src, Register dest);
     void unboxSymbol(const ValueOperand& src, Register dest);
     void unboxSymbol(Register src, Register dest);
     void unboxSymbol(const Address& src, Register dest);
+    void unboxBigInt(const ValueOperand& operand, Register dest);
+    void unboxBigInt(Register src, Register dest);
+    void unboxBigInt(const Address& src, Register dest);
     void unboxObject(const ValueOperand& src, Register dest);
     void unboxObject(Register src, Register dest);
     void unboxObject(const Address& src, Register dest);
@@ -651,9 +663,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         unboxBoolean(value, scratch);
         return scratch;
     }
-    MOZ_MUST_USE Register extractTag(const Address& address, Register scratch);
-    MOZ_MUST_USE Register extractTag(const BaseIndex& address, Register scratch);
-    MOZ_MUST_USE Register extractTag(const ValueOperand& value, Register scratch) {
+    Register extractTag(const Address& address, Register scratch);
+    Register extractTag(const BaseIndex& address, Register scratch);
+    Register extractTag(const ValueOperand& value, Register scratch) {
         MOZ_ASSERT(scratch != ScratchRegister);
         splitTag(value, scratch);
         return scratch;
@@ -755,6 +767,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         loadValue(dest.toAddress(), val);
     }
     void loadValue(const BaseIndex& addr, ValueOperand val);
+
+    void loadUnalignedValue(const Address& src, ValueOperand dest) {
+        loadValue(src, dest);
+    }
+
     void tagValue(JSValueType type, Register payload, ValueOperand dest);
 
     void pushValue(ValueOperand val);
@@ -774,7 +791,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
     void pushValue(const Address& addr);
 
-    void handleFailureWithHandlerTail(void* handler, Label* profilerExitTail);
+    void handleFailureWithHandlerTail(Label* profilerExitTail);
 
     /////////////////////////////////////////////////////////////////
     // Common interface.
@@ -802,15 +819,40 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void load16SignExtend(const Address& address, Register dest);
     void load16SignExtend(const BaseIndex& src, Register dest);
 
+    template <typename S>
+    void load16UnalignedSignExtend(const S& src, Register dest) {
+        //ma_load_unaligned(dest, src, SizeHalfWord, SignExtend);
+    }
+
     void load16ZeroExtend(const Address& address, Register dest);
     void load16ZeroExtend(const BaseIndex& src, Register dest);
+
+    template <typename S>
+    void load16UnalignedZeroExtend(const S& src, Register dest) {
+        //ma_load_unaligned(dest, src, SizeHalfWord, ZeroExtend);
+    }
 
     void load32(const Address& address, Register dest);
     void load32(const BaseIndex& address, Register dest);
     void load32(AbsoluteAddress address, Register dest);
     void load32(wasm::SymbolicAddress address, Register dest);
+
     void load64(const Address& address, Register64 dest) {
         loadPtr(address, dest.reg);
+    }
+
+    template <typename S>
+    void load32Unaligned(const S& src, Register dest) {
+        //ma_load_unaligned(dest, src, SizeWord, SignExtend);
+    }
+
+    void load64(const BaseIndex& address, Register64 dest) {
+        loadPtr(address, dest.reg);
+    }
+
+    template <typename S>
+    void load64Unaligned(const S& src, Register64 dest) {
+        //ma_load_unaligned(dest.reg, src, SizeDouble, ZeroExtend);
     }
 
     void loadPtr(const Address& address, Register dest);
@@ -868,6 +910,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void store16(Register src, const BaseIndex& address);
     void store16(Imm32 imm, const BaseIndex& address);
 
+    template <typename T>
+    void store16Unaligned(Register src, const T& dest) {
+        ma_store_unaligned(src, dest, SizeHalfWord);
+    }
+
     void store32(Register src, AbsoluteAddress address);
     void store32(Register src, const Address& address);
     void store32(Register src, const BaseIndex& address);
@@ -880,12 +927,26 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         store32(src, address);
     }
 
+    template <typename T>
+    void store32Unaligned(Register src, const T& dest) {
+        ma_store_unaligned(src, dest, SizeWord);
+    }
+
     void store64(Imm64 imm, Address address) {
         storePtr(ImmWord(imm.value), address);
     }
 
     void store64(Register64 src, Address address) {
         storePtr(src.reg, address);
+    }
+
+    void store64(Register64 src, const BaseIndex& address) {
+        storePtr(src.reg, address);
+    }
+
+    template <typename T>
+    void store64Unaligned(Register64 src, const T& dest) {
+        ma_store_unaligned(src.reg, dest, SizeDouble);
     }
 
     template <typename T> void storePtr(ImmWord imm, T address);
@@ -908,6 +969,45 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         as_fsub(reg, reg, reg);
     }
 
+    void moveFromDouble(FloatRegister src, Register dest) {
+#ifdef __POWER8_VECTOR__
+        as_mffprd(dest, src);
+#else
+        // Sigh.
+        as_stfdu(src, StackPointer, -8);
+        as_ld(dest, StackPointer, 0);
+        as_addi(StackPointer, StackPointer, 8);
+#endif
+    }
+
+    void moveToDouble(Register src, FloatRegister dest) {
+#ifdef __POWER8_VECTOR__
+        as_mtfprd(dest, src);
+#else
+        // Sigh.
+        as_std(src, StackPointer, -8);
+        as_lfd(dest, StackPointer, 0);
+        as_addi(StackPointer, StackPointer, 8);
+#endif
+    }
+
+    void moveFromFloat32(FloatRegister src, Register dest) {
+        // Sigh.
+        as_stfsu(src, StackPointer, -4);
+        as_lwz(dest, StackPointer, 0);
+        as_addi(StackPointer, StackPointer, 4);
+    }
+
+    void moveToFloat32(Register src, FloatRegister dest) {
+#ifdef __POWER8_VECTOR__
+        as_mtfprd(dest, src);
+#else
+        // Sigh.
+        as_stw(src, StackPointer, -4);
+        as_lfs(dest, StackPointer, 0);
+        as_addi(StackPointer, StackPointer, 4);
+#endif
+    }
     void convertUInt64ToDouble(Register src, FloatRegister dest);
 
 
@@ -926,7 +1026,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void cmp32Set(Assembler::Condition cond, Register lhs, Address rhs, Register dest);
 
-    void cmp64Set(Assembler::Condition cond, Register lhs, Imm32 rhs, Register dest)
+    void cmp64Set(Assembler::Condition cond, Register lhs, Imm16 rhs, Register dest)
     {
         ma_cmp_set(dest, lhs, rhs, cond);
     }
@@ -945,7 +1045,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
 
     void lea(Operand addr, Register dest) {
-        ma_daddu(dest, addr.baseReg(), Imm32(addr.disp()));
+        ma_add(dest, addr.baseReg(), Imm32(addr.disp()));
     }
 
     void abiret() {

@@ -2224,6 +2224,13 @@ MachineState MachineState::FromBailout(RegisterDump::GPRArray& regs,
         &fpregs[i]);
     // No SIMD support in bailouts, SIMD is internal to wasm
   }
+#elif defined(JS_CODEGEN_PPC64)
+  for (unsigned i = 0; i < FloatRegisters::TotalPhys; i++) {
+    machine.setRegisterLocation(FloatRegister(i), &fpregs[i]);
+#  ifdef ENABLE_WASM_SIMD
+#    error "More care needed here"
+#  endif
+  }
 
 #elif defined(JS_CODEGEN_NONE)
   MOZ_CRASH();

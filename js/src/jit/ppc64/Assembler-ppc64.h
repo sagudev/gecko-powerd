@@ -49,7 +49,7 @@ static constexpr Register r7{ Registers::r7 };
 static constexpr Register r8{ Registers::r8 };
 static constexpr Register r9{ Registers::r9 };
 static constexpr Register r10{ Registers::r10 };
-static constexpr Register lr { Registers::lr }; /* LIE! */
+static constexpr Register r11{ Registers::r11 };
 static constexpr Register r12{ Registers::r12 };
 static constexpr Register r13{ Registers::r13 };
 static constexpr Register r14{ Registers::r14 };
@@ -75,6 +75,34 @@ static constexpr FloatRegister f0{ FloatRegisters::f0 };
 static constexpr FloatRegister f1{ FloatRegisters::f1 };
 static constexpr FloatRegister f2{ FloatRegisters::f2 };
 static constexpr FloatRegister f3{ FloatRegisters::f3 };
+static constexpr FloatRegister f4{ FloatRegisters::f4 };
+static constexpr FloatRegister f5{ FloatRegisters::f5 };
+static constexpr FloatRegister f6{ FloatRegisters::f6 };
+static constexpr FloatRegister f7{ FloatRegisters::f7 };
+static constexpr FloatRegister f8{ FloatRegisters::f8 };
+static constexpr FloatRegister f9{ FloatRegisters::f9 };
+static constexpr FloatRegister f10{ FloatRegisters::f10 };
+static constexpr FloatRegister f11{ FloatRegisters::f11 };
+static constexpr FloatRegister f12{ FloatRegisters::f12 };
+static constexpr FloatRegister f13{ FloatRegisters::f13 };
+static constexpr FloatRegister f14{ FloatRegisters::f14 };
+static constexpr FloatRegister f15{ FloatRegisters::f15 };
+static constexpr FloatRegister f16{ FloatRegisters::f16 };
+static constexpr FloatRegister f17{ FloatRegisters::f17 };
+static constexpr FloatRegister f18{ FloatRegisters::f18 };
+static constexpr FloatRegister f19{ FloatRegisters::f19 };
+static constexpr FloatRegister f20{ FloatRegisters::f20 };
+static constexpr FloatRegister f21{ FloatRegisters::f21 };
+static constexpr FloatRegister f22{ FloatRegisters::f22 };
+static constexpr FloatRegister f23{ FloatRegisters::f23 };
+static constexpr FloatRegister f24{ FloatRegisters::f24 };
+static constexpr FloatRegister f25{ FloatRegisters::f25 };
+static constexpr FloatRegister f26{ FloatRegisters::f26 };
+static constexpr FloatRegister f27{ FloatRegisters::f27 };
+static constexpr FloatRegister f28{ FloatRegisters::f28 };
+static constexpr FloatRegister f29{ FloatRegisters::f29 };
+static constexpr FloatRegister f30{ FloatRegisters::f30 };
+static constexpr FloatRegister f31{ FloatRegisters::f31 };
 // The rest of the FPRs are the business of the allocator, not the assembler.
 // SPRs and CRs are defined in their respective enums (see Architecture-ppc.h).
 
@@ -86,6 +114,7 @@ static constexpr Register addressTempRegister = r12;
 static constexpr Register emergencyTempRegister = r2;
 static constexpr FloatRegister fpTempRegister = f0;
 static constexpr FloatRegister fpConversionRegister = f2;
+static constexpr Register InterpreterPCReg = r17;
 
 // Use the same assignments as PPCBC for simplicity.
 static constexpr Register OsrFrameReg = r6;
@@ -102,6 +131,10 @@ static constexpr Register IntArgReg0 = r3;
 static constexpr Register IntArgReg1 = r4;
 static constexpr Register IntArgReg2 = r5;
 static constexpr Register IntArgReg3 = r6;
+static constexpr Register IntArgReg4 = r7;
+static constexpr Register IntArgReg5 = r8;
+static constexpr Register IntArgReg6 = r9;
+static constexpr Register IntArgReg7 = r10;
 
 static constexpr Register GlobalReg = r20; // used by AsmJS. Allocatable, but non-volatile.
 static constexpr Register HeapReg = r21; // Ditto.
@@ -124,13 +157,15 @@ class ABIArgGenerator
 
     uint32_t stackBytesConsumedSoFar() const { return stackOffset_; }
     void increaseStackOffset(uint32_t bytes) { stackOffset_ += bytes; }
-
-    static const Register NonArgReturnReg0;
-    static const Register NonArgReturnReg1;
-    static const Register NonArg_VolatileReg;
-    static const Register NonReturn_VolatileReg0;
-    static const Register NonReturn_VolatileReg1;
 };
+
+static constexpr Register ABINonArgReg0 = r14;
+static constexpr Register ABINonArgReg1 = r15;
+static constexpr Register ABINonArgReg2 = r16;
+static constexpr Register ABINonArgReturnReg0 = r5;
+static constexpr Register ABINonArgReturnReg1 = r6;
+static constexpr Register ABINonArgReturnVolatileReg = r0;
+static constexpr Register ABINonVolatileReg = r14;
 
 static constexpr Register PreBarrierReg = r4;
 
@@ -143,17 +178,35 @@ static constexpr Register FramePointer = r31;
 static constexpr Register ScratchRegister = r0;
 static constexpr Register SecondScratchReg = r12;
 
-static constexpr Register BaselineFrameReg = FramePointer;
-
 // All return registers must be allocatable.
 static constexpr Register JSReturnReg_Type = r6;
 static constexpr Register JSReturnReg_Data = r5;
 static constexpr Register JSReturnReg = r4;
 static constexpr Register ReturnReg = r3;
+static constexpr Register64 ReturnReg64{ReturnReg};
 static constexpr FloatRegister ReturnFloat32Reg = f1;
 static constexpr FloatRegister ReturnDoubleReg = f1;
+static constexpr FloatRegister ABINonArgDoubleReg = f14;
 
-static constexpr Register WasmTlsReg = r14;
+// Registerd used in RegExpMatcher instruction (do not use JSReturnOperand).
+static constexpr Register RegExpMatcherRegExpReg = r11;
+static constexpr Register RegExpMatcherStringReg = r12;
+static constexpr Register RegExpMatcherLastIndexReg = r0;
+
+// Registerd used in RegExpTester instruction (do not use ReturnReg).
+static constexpr Register RegExpTesterRegExpReg = r11;
+static constexpr Register RegExpTesterStringReg = r12;
+static constexpr Register RegExpTesterLastIndexReg = r0;
+
+static constexpr Register WasmTlsReg = r18;
+static constexpr Register WasmTableCallIndexReg = InvalidReg;
+static constexpr Register WasmTableCallSigReg = InvalidReg;
+static constexpr Register WasmTableCallScratchReg0 = InvalidReg;
+static constexpr Register WasmTableCallScratchReg1 = InvalidReg;
+static constexpr Register WasmJitEntryReturnScratch = InvalidReg;
+
+static constexpr uint32_t WasmCheckedTailEntryOffset = 0u;
+static constexpr uint32_t WasmCheckedCallEntryOffset = 0u;
 
 // Gawd, Mozilla. Must FPRs be vector registers in all your damn architectures?
 static constexpr FloatRegister ReturnSimdReg = InvalidFloatReg;
@@ -215,10 +268,12 @@ struct SecondScratchRegisterScope : public AutoRegisterScope {
 };
 
 // Future.
-static const bool SupportsSimd = false;
-static const uint32_t SimdStackAlignment = 16;
-static const uint32_t SimdMemoryAlignment = 16; // damn AltiVec restrictions
-static const uint32_t AsmJSStackAlignment = 16; // wtf wtf wtf
+static constexpr bool SupportsSimd = false;
+static constexpr uint32_t SimdStackAlignment = 16;
+static constexpr uint32_t SimdMemoryAlignment = 16; // damn AltiVec restrictions
+static constexpr uint32_t AsmJSStackAlignment = 16; // wtf wtf wtf
+
+static constexpr uint32_t WasmStackAlignment = SimdStackAlignment;
 
 static const uint32_t WasmTrapInstructionLength = 4;
 
@@ -244,6 +299,10 @@ enum PPCOpcodes {
     PPC_bctr    = 0x4E800420, // branch to CTR (+/- LR)
     PPC_bcctr   = 0x4C000420, // branch conditional to count register
     PPC_blr     = 0x4E800020, // branch to link register
+    PPC_cmpd    = 0x7C100000, // compare
+    PPC_cmpdi   = 0x2C100000, // compare immediate
+    PPC_cmpld   = 0x7C100040, // compare logical
+    PPC_cmpldi  = 0x28100000, // compare logical immediate
     PPC_cmpw    = 0x7C000000, // compare
     PPC_cmpwi   = 0x2C000000, // compare immediate
     PPC_cmplw   = 0x7C000040, // compare logical
@@ -257,6 +316,10 @@ enum PPCOpcodes {
     PPC_cror    = 0x4C000382, // condition register or
     PPC_crorc   = 0x4C000342, // condition register or-with-complement
     PPC_crxor   = 0x4C000182, // condition register xor
+    PPC_divd    = 0x7C0003D2, // integer divide
+    PPC_divdo   = 0x7C0007D2, // integer divide & OE=1 (can set OV)
+    PPC_divdu   = 0x7C000392, // integer divide unsigned
+    PPC_divduo  = 0x7C000792, // integer divide unsigned & OE=1 (can set OV)
     PPC_divw    = 0x7C0003D6, // integer divide
     PPC_divwo   = 0x7C0007D6, // integer divide & OE=1 (can set OV)
     PPC_divwu   = 0x7C000396, // integer divide unsigned
@@ -269,7 +332,10 @@ enum PPCOpcodes {
     PPC_fadd    = 0xFC00002A, // floating add (double precision)
     PPC_fadds   = 0xEC00002A, // floating add (single precision)
     PPC_fcfid   = 0xFC00069C, // floating convert from integer doubleword
+    PPC_fcfidu  = 0xFC00079C, // floating convert from integer doubleword
     PPC_fctiw   = 0xFC00001C, // floating convert to integer (to -Inf)
+    PPC_fctiwu  = 0xFC00011C, // floating convert to integer (to -Inf)
+    PPC_fctiwuz = 0xFC00011E, // floating convert to integer (to zero)
     PPC_fctiwz  = 0xFC00001E, // floating convert to integer (to zero)
     PPC_fcmpu   = 0xFC000000, // floating compare unordered
     PPC_fdiv    = 0xFC000024, // floating divide (double precision)
@@ -282,13 +348,14 @@ enum PPCOpcodes {
     PPC_fsel    = 0xFC00002E, // floating point select
     PPC_fsub    = 0xFC000028, // floating subtract (double precision)
     PPC_fsubs   = 0xEC000028, // floating subtract (single precision)
-    PPC_fsqrt   = 0xFC00002C, // floating square root (G5 only) (double)
+    PPC_fsqrt   = 0xEC00002C, // floating square root (G5 only) (double)
     PPC_frsqrte = 0xFC000034, // floating reciprocal square root estimate
     PPC_fnmsub  = 0xFC00003C, // floating fused negative multiply-subtract
     PPC_fmadd   = 0xFC00003A, // floating fused multiply-add
     PPC_lbz     = 0x88000000, // load byte and zero
     PPC_lbzx    = 0x7C0000AE, // load byte and zero indexed
     PPC_ld      = 0xE8000000, // load doubleword
+    PPC_ldarx   = 0x7C0000A8, // load doubleword indexed
     PPC_ldx     = 0x7C00002A, // load doubleword indexed
     PPC_lfd     = 0xC8000000, // load floating point double
     PPC_lfdx    = 0x7C0004AE, // load floating-point double indexed
@@ -327,6 +394,9 @@ enum PPCOpcodes {
     PPC_or_     = 0x7C000378, // or
     PPC_ori     = 0x60000000, // or immediate
     PPC_oris    = 0x64000000, // or immediate shifted
+    PPC_popcntb = 0x7C0000F4, // population count doubleword
+    PPC_popcntd = 0x7C0003F4, // population count doubleword
+    PPC_popcntw = 0x7C0002F4, // population count doubleword
     PPC_rlwimi  = 0x50000000, // rotate left word imm then mask insert
     PPC_rlwinm  = 0x54000000, // rotate left word then and with mask
     PPC_rldicl  = 0x78000000, // rotate left doubleword immediate then clear left
@@ -343,6 +413,7 @@ enum PPCOpcodes {
     PPC_stb     = 0x98000000, // store byte
     PPC_stbx    = 0x7C0001AE, // store byte indexed
     PPC_std     = 0xF8000000, // store doubleword
+    PPC_stdcx   = 0xFC0001AC, // store doubleword conditional indexed
     PPC_stdu    = 0xF8000001, // store doubleword with update
     PPC_stdux   = 0x7C00016A, // store doubleword with update indexed
     PPC_stdx    = 0x7C00012A, // store doubleword indexed
@@ -350,6 +421,7 @@ enum PPCOpcodes {
     PPC_stfdu   = 0xDC000000, // store floating-point double with update
     PPC_stfdx   = 0x7C0005AE, // store floating-point double indexed
     PPC_stfs    = 0xD0000000, // store floating-point single
+    PPC_stfsu   = 0xD4000000, // store floating-point single
     PPC_stfsx   = 0x7C00052E, // store floating-point single indexed
     PPC_sth     = 0xB0000000, // store halfword
     PPC_sthx    = 0x7C00032E, // store halfword indexed
@@ -362,6 +434,7 @@ enum PPCOpcodes {
     PPC_subf    = 0x7C000050, // subtract from
     PPC_subfc   = 0x7C000010, // subtract from with carry
     PPC_subfe   = 0x7C000110, // subtract from extended
+    PPC_subfic  = 0x20000000, // subtract from immediate
     PPC_subfze  = 0x7C000190, // subtract from zero extended
     PPC_subfo   = 0x7C000450, // subtract from with overflow
 #ifdef __APPLE__
@@ -506,6 +579,26 @@ class Imm16
     }
     static Imm16 Upper (Imm32 imm) {
         return Imm16((imm.value >> 16) & 0xffff);
+    }
+};
+
+class Imm8
+{
+    uint8_t value;
+
+  public:
+    Imm8();
+    Imm8(uint32_t imm) : value(imm) {}
+    uint32_t encode(uint32_t shift) { return value << shift; }
+    int32_t decodeSigned() { return value; }
+    uint32_t decodeUnsigned() { return value; }
+    static bool IsInSignedRange(int32_t imm) {
+        return imm >= INT8_MIN && imm <= INT8_MAX;
+    }
+    static bool IsInUnsignedRange(uint32_t imm) { return imm <= UINT8_MAX; }
+    static Imm8 Lower(Imm16 imm) { return Imm8(imm.decodeSigned() & 0xff); }
+    static Imm8 Upper(Imm16 imm) {
+        return Imm8((imm.decodeSigned() >> 8) & 0xff);
     }
 };
 
@@ -661,6 +754,9 @@ class Assembler : public AssemblerShared
         // condition in the way Ion conceives of it.
         SOBit = 0x3c,
         NSOBit = 0x34,
+
+        CarrySet = ConditionXERCA,
+        CarryClear = ConditionXERNCA
     };
 
     enum DoubleCondition {
@@ -686,6 +782,8 @@ class Assembler : public AssemblerShared
         DoubleLessThanOrEqualOrUnordered = DoubleLessThanOrEqual | DoubleConditionUnordered,
     };
     
+    enum JumpOrCall { BranchIsJump, BranchIsCall };
+
     enum LinkBit {
     	DontLinkB = 0,
     	LinkB = 1,
@@ -716,6 +814,10 @@ class Assembler : public AssemblerShared
     uint32_t actualOffset(uint32_t) const;
     uint32_t actualIndex(uint32_t) const;
     static uint8_t *PatchableJumpAddress(JitCode *code, uint32_t index);
+    static uint64_t ExtractLoad64Value(Instruction *inst);
+    static void     UpdateLoad64Value(Instruction *inst0, uint64_t value);
+    static void     WriteLoad64Instructions(Instruction* inst0, Register reg,
+                                            uint64_t value);
   protected:
 
     // structure for fixing up pc-relative loads/jumps when a the machine code
@@ -815,6 +917,7 @@ class Assembler : public AssemblerShared
         isFinished(false)
     { }
 
+    void setUnlimitedBuffer() { m_buffer.setUnlimited(); }
     static Condition InvertCondition(Condition cond);
     static DoubleCondition InvertCondition(DoubleCondition cond);
 
@@ -845,10 +948,10 @@ class Assembler : public AssemblerShared
     void setPrinter(Sprinter *sp) {
     }
 
-	static const Register getStackPointer() {
-		// This is stupid.
-		return StackPointer;
-	}
+    static const Register getStackPointer() {
+        // This is stupid.
+        return StackPointer;
+    }
 	
   private:
     bool isFinished;
@@ -857,6 +960,7 @@ class Assembler : public AssemblerShared
 	void spew_with_address(const char *fmt, uint32_t ins, ...);
 #endif
     void finish();
+    bool appendRawCode(const uint8_t* code, size_t numBytes);
     void executableCopy(void *buffer);
     void copyJumpRelocationTable(uint8_t *dest);
     void copyDataRelocationTable(uint8_t *dest);
@@ -899,8 +1003,10 @@ class Assembler : public AssemblerShared
     // (i.e., no as_* prefix). 
     BufferOffset as_nop();
 
+    BufferOffset as_lwsync();
+    BufferOffset as_sync();
     // Branch and jump instructions.
-    BufferOffset b(JOffImm26 off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB);
+    BufferOffset as_b(JOffImm26 off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB);
     BufferOffset as_b(int32_t off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB); // stubs into the above
     BufferOffset as_blr(LinkBit lb = DontLinkB);
     BufferOffset as_bctr(LinkBit lb = DontLinkB);
@@ -916,6 +1022,10 @@ class Assembler : public AssemblerShared
     BufferOffset as_bc(int16_t off, uint32_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
     BufferOffset as_bcctr(uint32_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 
+    InstImm getBranchCode(JumpOrCall jumpOrCall);
+    InstImm getBranchCode(Register s, Register t, Condition c);
+    InstImm getBranchCode(Register s, Condition c);
+
 	// SPR operations.
 	BufferOffset as_mtspr(SPRegisterID spr, Register ra);
 	BufferOffset as_mfspr(Register rd, SPRegisterID spr);
@@ -929,18 +1039,26 @@ class Assembler : public AssemblerShared
         DEF_CRCR(crorc)
         DEF_CRCR(crxor)
 #undef DEF_CRCR
-	BufferOffset mtcrf(uint32_t mask, Register rs);
-	BufferOffset mfcr(Register rd);
-	BufferOffset mfocrf(Register rd, CRegisterID crfs); // G5 only
+	BufferOffset as_mtcrf(uint32_t mask, Register rs);
+	BufferOffset as_mfcr(Register rd);
+	BufferOffset as_mfocrf(Register rd, CRegisterID crfs); // G5 only
 	BufferOffset x_mcrxr(CRegisterID crt, Register temp = r12); // emulated on G5, EEEK!
 	
 	// GPR operations and load-stores.
 	BufferOffset as_neg(Register rd, Register rs);
 	
+	BufferOffset as_cmpd(CRegisterID cr, Register ra, Register rb);
+	BufferOffset as_cmpdi(CRegisterID cr, Register ra, int16_t im);
+	BufferOffset as_cmpld(CRegisterID cr, Register ra, Register rb);
+	BufferOffset as_cmpldi(CRegisterID cr, Register ra, int16_t im);
 	BufferOffset as_cmpw(CRegisterID cr, Register ra, Register rb);
 	BufferOffset as_cmpwi(CRegisterID cr, Register ra, int16_t im);
 	BufferOffset as_cmplw(CRegisterID cr, Register ra, Register rb);
 	BufferOffset as_cmplwi(CRegisterID cr, Register ra, int16_t im);
+	BufferOffset as_cmpd(Register ra, Register rb); // implied cr0
+	BufferOffset as_cmpdi(Register ra, int16_t im);
+	BufferOffset as_cmpld(Register ra, Register rb); // implied cr0
+	BufferOffset as_cmpldi(Register ra, int16_t im);
 	BufferOffset as_cmpw(Register ra, Register rb); // implied cr0
 	BufferOffset as_cmpwi(Register ra, int16_t im);
 	BufferOffset as_cmplw(Register ra, Register rb);
@@ -948,8 +1066,17 @@ class Assembler : public AssemblerShared
 	
 	BufferOffset as_srawi(Register id, Register rs, uint8_t n);
 	
+	BufferOffset as_rldcl(Register ra, Register rs, Register rb, uint8_t mb);
+	BufferOffset as_rldcl_rc(Register ra, Register rs, Register rb, uint8_t mb);
+	BufferOffset as_rldicl(Register ra, Register rs, uint8_t sh, uint8_t mb);
+	BufferOffset as_rldicl_rc(Register ra, Register rs, uint8_t sh, uint8_t mb);
+	BufferOffset as_rldicr(Register ra, Register rs, uint8_t sh, uint8_t mb);
+	BufferOffset as_rldicr_rc(Register ra, Register rs, uint8_t sh, uint8_t mb);
 	BufferOffset as_rlwinm(Register rd, Register rs, uint8_t sh, uint8_t mb, uint8_t me);
 	BufferOffset as_rlwimi(Register rd, Register rs, uint8_t sh, uint8_t mb, uint8_t me); // cracked on G5
+	BufferOffset as_rldimi(Register rd, Register rs, uint8_t sh, uint8_t mb);
+	BufferOffset as_rlwnm(Register rd, Register rs, Register rb, uint8_t mb, uint8_t me);
+	BufferOffset as_sradi(Register rd, Register rs, int n);
 	
 #define DEF_ALU2(op) BufferOffset as_##op(Register rd, Register ra, Register rb); \
                      BufferOffset as_##op##_rc(Register rd, Register ra, Register rb);         
@@ -961,6 +1088,10 @@ class Assembler : public AssemblerShared
         DEF_ALU2(subfc)
         DEF_ALU2(subfe)
         DEF_ALU2(subfo)
+        DEF_ALU2(divd)
+        DEF_ALU2(divdo)
+        DEF_ALU2(divdu)
+        DEF_ALU2(divduo)
         DEF_ALU2(divw)
         DEF_ALU2(divwo)
         DEF_ALU2(divwu)
@@ -984,6 +1115,7 @@ class Assembler : public AssemblerShared
         // NB: mulli is usually strength-reduced, since it can take up to five
         // cycles in the worst case. See x_sr_mulli.
         DEF_ALUI(mulli)
+        DEF_ALUI(subfic)
 #undef DEF_ALUI
 
 #define DEF_ALUE(op) BufferOffset as_##op(Register rd, Register ra); \
@@ -994,6 +1126,10 @@ class Assembler : public AssemblerShared
         DEF_ALUE(cntlzw) // NB: In this case, rd = ra and ra = rs, but no biggie here.
         DEF_ALUE(cntlzd) // NB: In this case, rd = ra and ra = rs, but no biggie here.
         DEF_ALUE(cnttzd) // NB: In this case, rd = ra and ra = rs, but no biggie here.
+        DEF_ALUE(cnttzw) // NB: In this case, rd = ra and ra = rs, but no biggie here.
+
+        BufferOffset as_popcntd(Register ra, Register rs);
+        BufferOffset as_popcntw(Register ra, Register rs);
 #undef DEF_ALUE
 
 #define DEF_BITALU2(op) BufferOffset as_##op(Register rd, Register rs, Register rb); \
@@ -1019,8 +1155,8 @@ class Assembler : public AssemblerShared
         DEF_BITALUI(xori)
         DEF_BITALUI(xoris)
         // There is no Rc-less version of andi/andis.
-        BufferOffset andi_rc(Register rd, Register ra, uint16_t im);
-        BufferOffset andis_rc(Register rd, Register ra, uint16_t im);
+        BufferOffset as_andi_rc(Register rd, Register ra, uint16_t im);
+        BufferOffset as_andis_rc(Register rd, Register ra, uint16_t im);
 #undef DEF_BITALUI
         
 #define DEF_ALUEXT(op) BufferOffset as_##op(Register rd, Register rs); \
@@ -1052,7 +1188,9 @@ class Assembler : public AssemblerShared
         DEF_MEMx(lhbrx)
         DEF_MEMx(lwzx)
         DEF_MEMx(lwbrx)
+        DEF_MEMx(lwarx)
         DEF_MEMx(ldx)
+        DEF_MEMx(ldarx)
 
         DEF_MEMx(stbx)
         DEF_MEMx(stwx)
@@ -1061,12 +1199,18 @@ class Assembler : public AssemblerShared
         DEF_MEMx(sthx)
         DEF_MEMx(sthbrx)
         DEF_MEMx(stdx)
+        DEF_MEMx(stdcx)
         DEF_MEMx(stdux)
+        DEF_MEMx(stwcx)
 #undef DEF_MEMx
 
+    BufferOffset as_isel(Register rt, Register ra, Register rb, uint32_t rc);
+
     // FPR operations and load-stores.
-    BufferOffset fcmpu(CRegisterID cr, FloatRegister ra, FloatRegister rb);
-    BufferOffset fcmpu(FloatRegister ra, FloatRegister rb); // implied cr0
+    BufferOffset as_fcmpo(CRegisterID cr, FloatRegister ra, FloatRegister rb);
+    BufferOffset as_fcmpo(FloatRegister ra, FloatRegister rb); // implied cr0
+    BufferOffset as_fcmpu(CRegisterID cr, FloatRegister ra, FloatRegister rb);
+    BufferOffset as_fcmpu(FloatRegister ra, FloatRegister rb); // implied cr0
 #define DEF_FPUAC(op) BufferOffset as_##op(FloatRegister rd, FloatRegister ra, FloatRegister rc); \
                       BufferOffset as_##op##_rc(FloatRegister rd, FloatRegister ra, FloatRegister rc);
         DEF_FPUAC(fmul)
@@ -1081,6 +1225,7 @@ class Assembler : public AssemblerShared
         DEF_FPUAB(fadds)
         DEF_FPUAB(fdivs)
         DEF_FPUAB(fsubs)
+        DEF_FPUAB(fcpsgn)
 #undef DEF_FPUAB
 
 #define DEF_FPUDS(op) BufferOffset as_##op(FloatRegister rd, FloatRegister rs); \
@@ -1089,13 +1234,21 @@ class Assembler : public AssemblerShared
         DEF_FPUDS(fneg)
         DEF_FPUDS(fmr)
         DEF_FPUDS(fcfid)
+        DEF_FPUDS(fcfidu)
+        DEF_FPUDS(fctid)
+        DEF_FPUDS(fctidz)
+        DEF_FPUDS(fctidu)
+        DEF_FPUDS(fctiduz)
         DEF_FPUDS(fctiw)
         DEF_FPUDS(fctiwz)
+        DEF_FPUDS(fctiwu)
+        DEF_FPUDS(fctiwuz)
         DEF_FPUDS(frsp)
         DEF_FPUDS(frsqrte)
 
         // G5 only
         DEF_FPUDS(fsqrt)
+        DEF_FPUDS(fsqrts)
 #undef DEF_FPUDS
 
 // In Ion, the semantics for this macro are now corrected compared to JM/PPCBC. 
@@ -1113,11 +1266,13 @@ class Assembler : public AssemblerShared
         DEF_FMEMd(stfd)
         DEF_FMEMd(stfs)
         DEF_FMEMd(stfdu)
+        DEF_FMEMd(stfsu)
 #undef DEF_FMEMd
 
 #define DEF_FMEMx(op) BufferOffset as_##op(FloatRegister rd, Register ra, Register rb);
         DEF_FMEMx(lfdx)
         DEF_FMEMx(lfsx)
+        DEF_FMEMx(lfiwax)
         DEF_FMEMx(stfdx)
         DEF_FMEMx(stfsx)
 #undef DEF_FMEMx
@@ -1125,11 +1280,11 @@ class Assembler : public AssemblerShared
 // convert SPRid to 10-bit split encoding (OPPCC appendix A, p.514)
 #define PPC_SPR(x) (((int)x>>5) | ((int)x & 31)<<5)
 
-	BufferOffset mtfsb0(uint8_t bt);
-	BufferOffset mtfsb1(uint8_t bt);
-	BufferOffset mtfsfi(uint8_t fi, uint8_t imm);
-	BufferOffset mcrf(CRegisterID bt, CRegisterID bs);
-	BufferOffset mcrfs(CRegisterID bf, uint8_t bfa);
+	BufferOffset as_mtfsb0(uint8_t bt);
+	BufferOffset as_mtfsb1(uint8_t bt);
+	BufferOffset as_mtfsfi(uint8_t fi, uint8_t imm);
+	BufferOffset as_mcrf(CRegisterID bt, CRegisterID bs);
+	BufferOffset as_mcrfs(CRegisterID bf, uint8_t bfa);
 
 	// Conveniences and generally accepted alternate mnemonics.
 	BufferOffset x_trap();
@@ -1142,9 +1297,12 @@ class Assembler : public AssemblerShared
 	BufferOffset xs_mtlr(Register ra);
 	BufferOffset xs_mflr(Register rd);
 	BufferOffset xs_mtcr(Register rs);
+	BufferOffset xs_mfxer(Register ra);
+	BufferOffset xs_mtxer(Register ra);
 	BufferOffset x_insertbits0_15(Register rd, Register rs);
 	BufferOffset x_bit_value(Register rd, Register rs, unsigned bit);
 	BufferOffset x_slwi(Register rd, Register rs, int n);
+	BufferOffset x_sldi(Register rd, Register rs, int n);
 	BufferOffset x_srwi(Register rd, Register rs, int n);
 	BufferOffset x_subi(Register rd, Register ra, int16_t im);
 	BufferOffset x_sr_mulli(Register rd, Register ra, int16_t im);
@@ -1155,15 +1313,19 @@ class Assembler : public AssemblerShared
 	BufferOffset x_p_li32(Register rd, int32_t im);
 	BufferOffset x_li32(Register rd, int32_t im);
 
+	// Traps
+	BufferOffset as_tw(uint8_t to, Register ra, Register rb);
+	BufferOffset as_twi(uint8_t to, Register ra, int16_t si);
+
     // Label operations.
-    void bind(Label *label, BufferOffset boff = BufferOffset());
-    // void bind(Label *label);
-    void bind(CodeOffset *label) { label->bind(currentOffset()); }
+    void bind(InstImm* inst, uintptr_t branch, uintptr_t target);
+    void bind(Label *label);
+    void bind(CodeLabel *label);
     uint32_t currentOffset() {
         return nextOffset().getOffset();
     }
     void retarget(Label *label, Label *target);
-    void Bind(uint8_t *rawCode, CodeOffset *label, const void *address);
+    static void Bind(uint8_t *rawCode, const CodeLabel& label);
 
     // Fast fixed branches.
 #define SHORT_LABEL(w) BufferOffset w = nextOffset()
@@ -1198,15 +1360,15 @@ class Assembler : public AssemblerShared
 #endif
     }
 
-    static bool SupportsFloatingPoint() {
-        return true;
-    }
-    static bool SupportsSimd() {
-        return false;
-    }
+    static bool SupportsFloatingPoint() { return true; }
+    static bool SupportsSimd() { return false; }
+    static bool SupportsUnalignedAccesses() { return true; }
+    static bool SupportsFastUnalignedAccesses() { return false; }
+
+    static bool HasRoundInstruction(RoundingMode mode) { return false; }
 
   protected:
-    void bind(InstImm *inst, uint32_t branch, uint32_t target);
+    void bind(Instruction *inst, uint32_t branch, uint32_t target);
     void addPendingJump(BufferOffset src, ImmPtr target, RelocationKind kind) {
         enoughMemory_ &= jumps_.append(RelativePatch(src, target.value, kind));
         if (kind == RelocationKind::JITCODE)
@@ -1225,6 +1387,8 @@ class Assembler : public AssemblerShared
         return longJumps_[i];
     }
 
+    void comment(const char *msg) {
+    }
     // Copy the assembly code to the given buffer, and perform any pending
     // relocations relying on the target address.
     void executableCopy(uint8_t *buffer);
@@ -1273,6 +1437,9 @@ class Assembler : public AssemblerShared
     bool asmMergeWith(const Assembler& other) { MOZ_CRASH(); return false; }
     void retargetWithOffset(size_t baseOffset, const LabelBase* label,
                             Label* target) { MOZ_CRASH(); }
+
+    bool swapBuffer(wasm::Bytes& bytes);
+    bool reserve(size_t size) { return !oom(); }
 }; // Assembler
 
 static const uint32_t OpcodeShift = 26;
@@ -1338,6 +1505,10 @@ class InstImm : public Instruction
   // XXX: Assert that at some point.
   public:
   	InstImm (PPCOpcodes op) : Instruction(op) { }
+  	InstImm (PPCOpcodes op, Register ra, Register rs, BOffImm16 off)
+  	    : Instruction(op | ((uint32_t)ra.code() << 21) |
+  	            (uint32_t)rs.code() << 16) {}
+  	     
   	
     void setBOffImm16(BOffImm16 off) {
     	data = (data & 0xFFFF0000) | off.encode();
@@ -1406,6 +1577,14 @@ GetArgStackDisp(uint32_t usedArgSlots)
     MOZ_CRASH("unexpected spill to stack");
     return 0;
 #endif
+}
+
+inline bool IsUnaligned(const wasm::MemoryAccessDesc& access) {
+  if (!access.align()) {
+    return false;
+  }
+
+  return access.align() < access.byteSize();
 }
 
 // For possible future expansion.

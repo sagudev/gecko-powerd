@@ -25,7 +25,7 @@ Registers::FromName(const char *name)
     if (strcmp(name, "r3") == 0)
         return Code(3); // Dispatch, this is Floodgap, Code 3. Over.
 
-    for (size_t i = 0; i < Total; i++) {
+    for (uint32_t i = 0; i < Total; i++) {
         if (strcmp(GetName(i), name) == 0)
             return Code(i);
     }
@@ -36,7 +36,7 @@ Registers::FromName(const char *name)
 FloatRegisters::Code
 FloatRegisters::FromName(const char *name)
 {
-    for (size_t i = 0; i < Total; i++) {
+    for (uint32_t i = 0; i < Total; i++) {
         if (strcmp(GetName(i), name) == 0)
             return Code(i);
     }

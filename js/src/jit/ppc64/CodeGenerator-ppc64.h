@@ -4,27 +4,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef jit_PPC64LE_CodeGenerator_PPC64LE_h
-#define jit_PPC64LE_CodeGenerator_PPC64LE_h
+#ifndef jit_PPC64_CodeGenerator_PPC64_h
+#define jit_PPC64_CodeGenerator_PPC64_h
 
-#include "jit/ppc64le/Assembler-ppc64le.h"
+#include "jit/ppc64/Assembler-ppc64.h"
 #include "jit/shared/CodeGenerator-shared.h"
 
 namespace js {
 namespace jit {
 
-class CodeGeneratorShared;
 class OutOfLineBailout;
 class OutOfLineTableSwitch;
+class CodeGeneratorPPC64;
 
-using OutOfLineWasmTruncateCheck = OutOfLineWasmTruncateCheckBase<CodeGeneratorShared>;
+using OutOfLineWasmTruncateCheck = OutOfLineWasmTruncateCheckBase<CodeGeneratorPPC64>;
 
-class CodeGeneratorPPC64LE : public CodeGeneratorShared
+class CodeGeneratorPPC64 : public CodeGeneratorShared
 {
-    friend class MoveResolverPPC64LE;
+    friend class MoveResolverPPC64;
 
   protected:
-    CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm);
+    CodeGeneratorPPC64(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm);
 
     NonAssertingLabel deoptLabel_;
 
@@ -97,6 +97,9 @@ class CodeGeneratorPPC64LE : public CodeGeneratorShared
         emitBranch(reg, Imm32(0), cond, ifTrue, ifFalse);
     }
 
+    void emitBigIntDiv(LBigIntDiv*, Register, Register, Register, Label*);
+    void emitBigIntMod(LBigIntMod*, Register, Register, Register, Label*);
+
     void emitTableSwitchDispatch(MTableSwitch* mir, Register index, Register base);
 
     template <typename T>
@@ -161,7 +164,7 @@ class CodeGeneratorPPC64LE : public CodeGeneratorShared
     void splitTagForTest(const ValueOperand& value, ScratchTagScope& tag);
 };
 
-typedef CodeGeneratorPPC64LE CodeGeneratorSpecific;
+typedef CodeGeneratorPPC64 CodeGeneratorSpecific;
 
 // An out-of-line bailout thunk.
 class OutOfLineBailout : public OutOfLineCodeBase<CodeGeneratorShared>
@@ -185,4 +188,4 @@ class OutOfLineBailout : public OutOfLineCodeBase<CodeGeneratorShared>
 } // namespace jit
 } // namespace js
 
-#endif /* jit_PPC64LE_CodeGenerator_PPC64LE_h */
+#endif /* jit_PPC64_CodeGenerator_PPC64_h */
