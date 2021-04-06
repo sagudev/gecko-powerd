@@ -76,6 +76,13 @@ MacroAssembler::move32To64SignExtend(Register src, Register64 dest)
     as_extsw(dest.reg, src);
 }
 
+void
+MacroAssembler::move32ZeroExtendToPtr(Register src, Register dest)
+{
+    as_rldicl(dest, src, 0, 32);
+}
+
+
 // ===============================================================
 // Logical instructions
 
@@ -248,6 +255,12 @@ MacroAssembler::add64(Imm64 imm, Register64 dest)
     ma_add(dest.reg, ScratchRegister);
 }
 
+void
+MacroAssembler::notPtr(Register reg)
+{
+    as_nor(reg, reg, reg);
+}
+
 CodeOffset
 MacroAssembler::sub32FromStackPtrWithPatch(Register dest)
 {
@@ -371,6 +384,70 @@ MacroAssembler::neg64(Register64 reg)
     negPtr(reg.reg);
 }
 
+void
+MacroAssembler::quotient32(Register rhs, Register srcDest, bool isUnsigned)
+{
+    if (isUnsigned) {
+        as_divwu(srcDest, srcDest, rhs);
+    } else {
+        as_divw(srcDest, srcDest, rhs);
+    }
+}
+
+// byte swaps
+void
+MacroAssembler::byteSwap16SignExtend(Register reg)
+{
+    x_mr(ScratchRegister, reg);
+    
+    as_rlwinm(reg, ScratchRegister, 8, 16, 23);
+    as_rlwimi(reg, ScratchRegister, 24, 24, 31);
+    as_extsh(reg, reg);
+}
+
+void
+MacroAssembler::byteSwap16ZeroExtend(Register reg)
+{
+    x_mr(ScratchRegister, reg);
+    
+    as_rlwinm(reg, ScratchRegister, 8, 16, 23);
+    as_rlwimi(reg, ScratchRegister, 24, 24, 31);
+}
+
+void
+MacroAssembler::byteSwap32(Register reg)
+{
+    x_mr(ScratchRegister, reg);
+    
+    as_rlwinm(reg, ScratchRegister, 24, 0, 7);    // << 24
+    as_rlwimi(reg, ScratchRegister, 16, 8, 16);   // << 16
+    as_rlwimi(reg, ScratchRegister, 24, 16, 23);  // >> 8
+    as_rlwimi(reg, ScratchRegister, 16, 24, 31);  // >> 16
+}
+
+void
+MacroAssembler::byteSwap64(Register64 reg)
+{
+    Register r = reg.reg;
+    x_mr(ScratchRegister, r);
+    
+    as_rldicr(r, ScratchRegister, 56, 7);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 48, 8);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 40, 16);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 32, 24);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 24, 32);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 16, 40);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 8, 48);
+    x_srdi(ScratchRegister, ScratchRegister, 8);
+    as_rldimi(r, ScratchRegister, 0, 56);
+}
+
 // ===============================================================
 // Shift functions
 
@@ -379,6 +456,12 @@ MacroAssembler::lshiftPtr(Imm32 imm, Register dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
     ma_dsll(dest, dest, imm);
+}
+
+void
+MacroAssembler::lshiftPtr(Register shift, Register dest)
+{
+    as_sld(dest, dest, shift);
 }
 
 void
@@ -399,6 +482,12 @@ MacroAssembler::rshiftPtr(Imm32 imm, Register dest)
 {
     MOZ_ASSERT(0 <= imm.value && imm.value < 64);
     ma_dsrl(dest, dest, imm);
+}
+
+void
+MacroAssembler::rshiftPtr(Register shift, Register dest)
+{
+    as_srd(dest, dest, shift);
 }
 
 void
@@ -634,7 +723,7 @@ MacroAssembler::branchTestInt32Truthy(bool b, const ValueOperand& value, Label* 
 {
     ScratchRegisterScope scratch(*this);
     ma_dext(scratch, value.valueReg(), Imm32(0), Imm32(32));
-    ma_b(scratch, scratch, label, b ? NonZero : Zero);
+    ma_bc(scratch, scratch, label, b ? NonZero : Zero);
 }
 
 void
@@ -642,7 +731,7 @@ MacroAssembler::branchTestDouble(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     Condition actual = (cond == Equal) ? BelowOrEqual : Above;
-    ma_b(tag, ImmTag(JSVAL_TAG_MAX_DOUBLE), label, actual);
+    ma_bc(tag, ImmTag(JSVAL_TAG_MAX_DOUBLE), label, actual);
 }
 
 void
@@ -674,7 +763,7 @@ MacroAssembler::branchTestBooleanTruthy(bool b, const ValueOperand& value, Label
 {
     SecondScratchRegisterScope scratch2(*this);
     unboxBoolean(value, scratch2);
-    ma_b(scratch2, scratch2, label, b ? NonZero : Zero);
+    ma_bc(scratch2, scratch2, label, b ? NonZero : Zero);
 }
 
 void
@@ -691,7 +780,7 @@ MacroAssembler::branchTestStringTruthy(bool b, const ValueOperand& value, Label*
     SecondScratchRegisterScope scratch2(*this);
     unboxString(value, scratch2);
     load32(Address(scratch2, JSString::offsetOfLength()), scratch2);
-    ma_b(scratch2, Imm32(0), label, b ? NotEqual : Equal);
+    ma_bc(scratch2, Imm32(0), label, b ? NotEqual : Equal);
 }
 
 void
@@ -732,7 +821,7 @@ MacroAssembler::branchTestMagic(Condition cond, const ValueOperand& value, L lab
 {
     SecondScratchRegisterScope scratch2(*this);
     splitTag(value, scratch2);
-    ma_b(scratch2, ImmTag(JSVAL_TAG_MAGIC), label, cond);
+    ma_bc(scratch2, ImmTag(JSVAL_TAG_MAGIC), label, cond);
 }
 
 void
@@ -741,7 +830,44 @@ MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr, JSWhyMag
     uint64_t magic = MagicValue(why).asRawBits();
     SecondScratchRegisterScope scratch(*this);
     loadPtr(valaddr, scratch);
-    ma_b(scratch, ImmWord(magic), label, cond);
+    ma_bc(scratch, ImmWord(magic), label, cond);
+}
+
+void
+MacroAssembler::branchTestBigInt(Condition cond, const BaseIndex& address,
+                                 Label* label)
+{
+    SecondScratchRegisterScope scratch2(*this);
+    computeEffectiveAddress(address, scratch2);
+    splitTag(scratch2, scratch2);
+    branchTestBigInt(cond, scratch2, label);
+}
+
+void
+MacroAssembler::branchTestBigInt(Condition cond, const ValueOperand& value,
+                                 Label* label)
+{
+    SecondScratchRegisterScope scratch2(*this);
+    splitTag(value, scratch2);
+    branchTestBigInt(cond, scratch2, label);
+}
+
+void
+MacroAssembler::branchTestBigInt(Condition cond, Register tag,
+                                 Label* label)
+{
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+    ma_bc(tag, ImmTag(JSVAL_TAG_BIGINT), label, cond);
+}
+
+void
+MacroAssembler::branchTestBigIntTruthy(bool b, const ValueOperand& value,
+                                       Label* label)
+{
+    SecondScratchRegisterScope scratch2(*this);
+    unboxBigInt(value, scratch2);
+    load32(Address(scratch2, BigInt::offsetOfDigitLength()), scratch2);
+    ma_bc(scratch2, Imm32(0), label, b ? NotEqual : Equal);
 }
 
 void
@@ -753,7 +879,7 @@ MacroAssembler::branchTruncateDoubleMaybeModUint32(FloatRegister src, Register d
     as_cfc1(ScratchRegister, Assembler::FCSR);
     moveFromDouble(ScratchDoubleReg, dest);
     ma_ext(ScratchRegister, ScratchRegister, Assembler::CauseV, 1);
-    ma_b(ScratchRegister, Imm32(0), fail, Assembler::NotEqual);
+    ma_bc(ScratchRegister, Imm32(0), fail, Assembler::NotEqual);
 #endif
 }
 
@@ -766,7 +892,7 @@ MacroAssembler::branchTruncateFloat32MaybeModUint32(FloatRegister src, Register 
     as_cfc1(ScratchRegister, Assembler::FCSR);
     moveFromDouble(ScratchDoubleReg, dest);
     ma_ext(ScratchRegister, ScratchRegister, Assembler::CauseV, 1);
-    ma_b(ScratchRegister, Imm32(0), fail, Assembler::NotEqual);
+    ma_bc(ScratchRegister, Imm32(0), fail, Assembler::NotEqual);
 #endif
 }
 
@@ -847,13 +973,19 @@ MacroAssembler::moveGPRToFloat32(Register src, FloatRegister dest)
 void
 MacroAssembler::move8SignExtend(Register src, Register dest)
 {
-    ma_seb(dest, src);
+    as_extsb(dest, src);
 }
 
 void
 MacroAssembler::move16SignExtend(Register src, Register dest)
 {
-    ma_seh(dest, src);
+    as_extsh(dest, src);
+}
+
+void
+MacroAssembler::loadAbiReturnAddress(Register dest)
+{
+    xs_mflr(dest);
 }
 
 // ===============================================================
@@ -922,6 +1054,21 @@ void
 MacroAssembler::xor32(Imm32 imm, Register dest)
 {
     ma_xor(dest, imm);
+}
+
+void
+MacroAssembler::xor32(Imm32 imm, const Address &dest)
+{
+    load32(dest, SecondScratchReg);
+    ma_xor(SecondScratchReg, imm);
+    store32(SecondScratchReg, dest);
+}
+
+void
+MacroAssembler::xor32(const Address& src, Register dest)
+{
+    load32(src, SecondScratchReg);
+    as_xor(dest, dest, SecondScratchReg);
 }
 
 // ===============================================================
@@ -1047,15 +1194,6 @@ MacroAssembler::mulDoublePtr(ImmPtr imm, Register temp, FloatRegister dest)
 }
 
 void
-MacroAssembler::quotient32(Register rhs, Register srcDest, bool isUnsigned)
-{
-    if (isUnsigned)
-        as_divwu(srcDest, srcDest, rhs);
-    else
-        as_divw(srcDest, srcDest, rhs);
-}
-
-void
 MacroAssembler::remainder32(Register rhs, Register srcDest, bool isUnsigned)
 {
     if (isUnsigned)
@@ -1161,6 +1299,12 @@ MacroAssembler::lshift32(Imm32 imm, Register dest)
 }
 
 void
+MacroAssembler::flexibleLshift32(Register src, Register dest)
+{
+    lshift32(src, dest);
+}
+
+void
 MacroAssembler::rshift32(Register src, Register dest)
 {
     as_srw(dest, dest, src);
@@ -1173,6 +1317,12 @@ MacroAssembler::rshift32(Imm32 imm, Register dest)
 }
 
 void
+MacroAssembler::flexibleRshift32(Register src, Register dest)
+{
+    rshift32(src, dest);
+}
+
+void
 MacroAssembler::rshift32Arithmetic(Register src, Register dest)
 {
     as_sraw(dest, dest, src);
@@ -1182,6 +1332,12 @@ void
 MacroAssembler::rshift32Arithmetic(Imm32 imm, Register dest)
 {
     as_srawi(dest, dest, imm.value % 32);
+}
+
+void
+MacroAssembler::flexibleRshift32Arithmetic(Register src, Register dest)
+{
+    rshift32Arithmetic(src, dest);
 }
 
 // ===============================================================
@@ -1245,87 +1401,87 @@ template <class L>
 void
 MacroAssembler::branch32(Condition cond, Register lhs, Register rhs, L label)
 {
-    ma_b(lhs, rhs, label, cond);
+    ma_bc(lhs, rhs, label, cond);
 }
 
 template <class L>
 void
 MacroAssembler::branch32(Condition cond, Register lhs, Imm32 imm, L label)
 {
-    ma_b(lhs, imm, label, cond);
+    ma_bc(lhs, imm, label, cond);
 }
 
 void
 MacroAssembler::branch32(Condition cond, const Address& lhs, Register rhs, Label* label)
 {
     load32(lhs, SecondScratchReg);
-    ma_b(SecondScratchReg, rhs, label, cond);
+    ma_bc(SecondScratchReg, rhs, label, cond);
 }
 
 void
 MacroAssembler::branch32(Condition cond, const Address& lhs, Imm32 rhs, Label* label)
 {
     load32(lhs, SecondScratchReg);
-    ma_b(SecondScratchReg, rhs, label, cond);
+    ma_bc(SecondScratchReg, rhs, label, cond);
 }
 
 void
 MacroAssembler::branch32(Condition cond, const AbsoluteAddress& lhs, Register rhs, Label* label)
 {
     load32(lhs, SecondScratchReg);
-    ma_b(SecondScratchReg, rhs, label, cond);
+    ma_bc(SecondScratchReg, rhs, label, cond);
 }
 
 void
 MacroAssembler::branch32(Condition cond, const AbsoluteAddress& lhs, Imm32 rhs, Label* label)
 {
     load32(lhs, SecondScratchReg);
-    ma_b(SecondScratchReg, rhs, label, cond);
+    ma_bc(SecondScratchReg, rhs, label, cond);
 }
 
 void
 MacroAssembler::branch32(Condition cond, const BaseIndex& lhs, Imm32 rhs, Label* label)
 {
     load32(lhs, SecondScratchReg);
-    ma_b(SecondScratchReg, rhs, label, cond);
+    ma_bc(SecondScratchReg, rhs, label, cond);
 }
 
 void
 MacroAssembler::branch32(Condition cond, wasm::SymbolicAddress addr, Imm32 imm, Label* label)
 {
     load32(addr, SecondScratchReg);
-    ma_b(SecondScratchReg, imm, label, cond);
+    ma_bc(SecondScratchReg, imm, label, cond);
 }
 
 template <class L>
 void
 MacroAssembler::branchPtr(Condition cond, Register lhs, Register rhs, L label)
 {
-    ma_b(lhs, rhs, label, cond);
+    ma_bc(lhs, rhs, label, cond);
 }
 
 void
 MacroAssembler::branchPtr(Condition cond, Register lhs, Imm32 rhs, Label* label)
 {
-    ma_b(lhs, rhs, label, cond);
+    ma_bc(lhs, rhs, label, cond);
 }
 
 void
 MacroAssembler::branchPtr(Condition cond, Register lhs, ImmPtr rhs, Label* label)
 {
-    ma_b(lhs, rhs, label, cond);
+    ma_bc(lhs, rhs, label, cond);
 }
 
 void
 MacroAssembler::branchPtr(Condition cond, Register lhs, ImmGCPtr rhs, Label* label)
 {
-    ma_b(lhs, rhs, label, cond);
+    ma_bc(lhs, rhs, label, cond);
 }
 
 void
 MacroAssembler::branchPtr(Condition cond, Register lhs, ImmWord rhs, Label* label)
 {
-    ma_b(lhs, rhs, label, cond);
+    ma_bc(lhs, rhs, label, cond);
 }
 
 template <class L>
@@ -1411,10 +1567,32 @@ MacroAssembler::branchTruncateDoubleToInt32(FloatRegister src, Register dest, La
     MOZ_CRASH();
 }
 
+void
+MacroAssembler::branchAddPtr(Condition cond, Register src, Register dest, Label *overflow)
+{
+    as_add_rc(dest, src, dest);
+    ma_bc(cond, overflow);
+}
+
+void
+MacroAssembler::branchSubPtr(Condition cond, Register src, Register dest, Label *overflow)
+{
+    as_subf_rc(dest, src, dest);
+    ma_bc(cond, overflow);
+}
+
+void
+MacroAssembler::branchMulPtr(Condition cond, Register src, Register dest, Label *overflow)
+{
+    as_mulldo_rc(dest, src, dest);
+    ma_bc(cond, overflow);
+}
+
 template <typename T>
 void
 MacroAssembler::branchAdd32(Condition cond, T src, Register dest, Label* overflow)
 {
+    MOZ_CRASH();
 #if 0
     switch (cond) {
       case Overflow:
@@ -1441,11 +1619,43 @@ MacroAssembler::branchSub32(Condition cond, T src, Register dest, Label* overflo
       case NonZero:
       case Zero:
         ma_subu(dest, src);
-        ma_b(dest, dest, overflow, cond);
+        ma_bc(dest, dest, overflow, cond);
         break;
       default:
         MOZ_CRASH("NYI");
     }
+}
+
+template <>
+inline void
+MacroAssembler::branchMul32(Condition cond, Register src, Register dest, Label* label)
+{
+    as_mullwo_rc(dest, dest, src);
+    ma_bc(cond, label);
+}
+
+template <typename T>
+void
+MacroAssembler::branchMul32(Condition cond, T src, Register dest, Label* label)
+{
+    MOZ_CRASH("NYI");
+}
+
+template <>
+inline void
+MacroAssembler::branchRshift32(Condition cond, Imm32 shift, Register srcDest,
+        Label *label)
+{
+    as_rlwinm_rc(srcDest, srcDest, 32 - shift.value, shift.value, 31);
+    ma_bc(cond, label);
+}
+
+template<typename T>
+void
+MacroAssembler::branchRshift32(Condition cond, T shift, Register srcDest,
+        Label *label)
+{
+    MOZ_CRASH("No default implementation");
 }
 
 void
@@ -1461,10 +1671,10 @@ MacroAssembler::branchTest32(Condition cond, Register lhs, Register rhs, L label
 {
     MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
     if (lhs == rhs) {
-        ma_b(lhs, rhs, label, cond);
+        ma_bc(lhs, rhs, label, cond);
     } else {
         as_and(ScratchRegister, lhs, rhs);
-        ma_b(ScratchRegister, ScratchRegister, label, cond);
+        ma_bc(ScratchRegister, ScratchRegister, label, cond);
     }
 }
 
@@ -1474,7 +1684,7 @@ MacroAssembler::branchTest32(Condition cond, Register lhs, Imm32 rhs, L label)
 {
     MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
     ma_and(ScratchRegister, lhs, rhs);
-    ma_b(ScratchRegister, ScratchRegister, label, cond);
+    ma_bc(ScratchRegister, ScratchRegister, label, cond);
 }
 
 void
@@ -1498,10 +1708,10 @@ MacroAssembler::branchTestPtr(Condition cond, Register lhs, Register rhs, L labe
 {
     MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
     if (lhs == rhs) {
-        ma_b(lhs, rhs, label, cond);
+        ma_bc(lhs, rhs, label, cond);
     } else {
         as_and(ScratchRegister, lhs, rhs);
-        ma_b(ScratchRegister, ScratchRegister, label, cond); // XXX: change to masm.ma_bc()
+        ma_bc(ScratchRegister, ScratchRegister, label, cond);
     }
 }
 
@@ -1510,7 +1720,7 @@ MacroAssembler::branchTestPtr(Condition cond, Register lhs, Imm32 rhs, Label* la
 {
     MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
     ma_and(ScratchRegister, lhs, rhs);
-    ma_b(ScratchRegister, ScratchRegister, label, cond); // XXX: change to masm.ma_bc()
+    ma_bc(ScratchRegister, ScratchRegister, label, cond);
 }
 
 void
@@ -1524,7 +1734,7 @@ void
 MacroAssembler::branchTestUndefined(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_UNDEFINED), label, cond);
+    ma_bc(tag, ImmTag(JSVAL_TAG_UNDEFINED), label, cond);
 }
 
 void
@@ -1547,7 +1757,7 @@ void
 MacroAssembler::branchTestInt32(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_INT32), label, cond); // XXX: change to masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_INT32), label, cond);
 }
 
 void
@@ -1594,16 +1804,15 @@ void
 MacroAssembler::branchTestNumber(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    //Condition actual = cond == Equal ? BelowOrEqual : Above;
-    // TODO: FIXME: What's this?!
-    //ma_b(tag, ImmTag(0), label, actual); // XXX: masm.ma_bc()
+    Condition actual = cond == Equal ? BelowOrEqual : Above;
+    ma_bc(tag, ImmTag(JS::detail::ValueUpperInclNumberTag), label, actual);
 }
 
 void
 MacroAssembler::branchTestBoolean(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_BOOLEAN), label, cond); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_BOOLEAN), label, cond);
 }
 
 void
@@ -1626,7 +1835,7 @@ void
 MacroAssembler::branchTestString(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_STRING), label, cond); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_STRING), label, cond);
 }
 
 void
@@ -1649,7 +1858,7 @@ void
 MacroAssembler::branchTestSymbol(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_SYMBOL), label, cond); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_SYMBOL), label, cond);
 }
 
 void
@@ -1664,7 +1873,7 @@ void
 MacroAssembler::branchTestNull(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_NULL), label, cond); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_NULL), label, cond);
 }
 
 void
@@ -1687,7 +1896,7 @@ void
 MacroAssembler::branchTestObject(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_OBJECT), label, cond); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_OBJECT), label, cond);
 }
 
 void
@@ -1712,8 +1921,8 @@ MacroAssembler::branchTestGCThing(Condition cond, const Address& address, Label*
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     SecondScratchRegisterScope scratch2(*this);
     extractTag(address, scratch2);
-    //ma_b(scratch2, ImmTag(JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET), label,
-    //     (cond == Equal) ? AboveOrEqual : Below); // XXX: masm.ma_bc()
+    ma_bc(scratch2, ImmTag(JS::detail::ValueLowerInclGCThingTag), label,
+         (cond == Equal) ? AboveOrEqual : Below);
 }
 void
 MacroAssembler::branchTestGCThing(Condition cond, const BaseIndex& address, Label* label)
@@ -1721,23 +1930,23 @@ MacroAssembler::branchTestGCThing(Condition cond, const BaseIndex& address, Labe
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     SecondScratchRegisterScope scratch2(*this);
     extractTag(address, scratch2);
-    //ma_b(scratch2, ImmTag(JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET), label,
-    //     (cond == Equal) ? AboveOrEqual : Below); // XXX: masm.ma_bc()
+    ma_bc(scratch2, ImmTag(JS::detail::ValueLowerInclGCThingTag), label,
+         (cond == Equal) ? AboveOrEqual : Below);
 }
 
 void
 MacroAssembler::branchTestPrimitive(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    //ma_b(tag, ImmTag(JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET), label,
-    //     (cond == Equal) ? Below : AboveOrEqual); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JS::detail::ValueUpperExclPrimitiveTag), label,
+         (cond == Equal) ? Below : AboveOrEqual);
 }
 
 void
 MacroAssembler::branchTestMagic(Condition cond, Register tag, Label* label)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
-    ma_b(tag, ImmTag(JSVAL_TAG_MAGIC), label, cond); // XXX: masm.ma_bc()
+    ma_bc(tag, ImmTag(JSVAL_TAG_MAGIC), label, cond);
 }
 
 void
@@ -1778,15 +1987,41 @@ MacroAssembler::cmp32MovePtr(Condition cond, Register lhs, Imm32 rhs, Register s
 }
 
 void
-MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs, Register src,
+MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs,
+                            Register src,
                             Register dest)
 {
     MOZ_CRASH();
 }
 
+
+void MacroAssembler::cmp32Load32(Condition cond, Register lhs,
+                                 const Address& rhs, const Address& src,
+                                 Register dest)
+{
+  MOZ_CRASH("No known use cases");
+}
+
 void
-MacroAssembler::test32LoadPtr(Condition cond, const Address& addr, Imm32 mask, const Address& src,
-                              Register dest)
+MacroAssembler::cmp32Load32(Condition cond, Register lhs, Register rhs,
+                            const Address& src, Register dest)
+{
+  MOZ_CRASH("No known use cases");
+}
+
+void
+MacroAssembler::cmp32LoadPtr(Condition cond, const Address& lhs, Imm32 rhs,
+                             const Address& src, Register dest)
+{
+    Label skip;
+    branch32(Assembler::InvertCondition(cond), lhs, rhs, &skip);
+    loadPtr(src, dest);
+    bind(&skip);
+}
+
+void
+MacroAssembler::test32LoadPtr(Condition cond, const Address& addr, Imm32 mask,
+                              const Address& src, Register dest)
 {
     MOZ_RELEASE_ASSERT(!JitOptions.spectreStringMitigations);
     Label skip;
@@ -1796,23 +2031,23 @@ MacroAssembler::test32LoadPtr(Condition cond, const Address& addr, Imm32 mask, c
 }
 
 void
-MacroAssembler::test32MovePtr(Condition cond, const Address& addr, Imm32 mask, Register src,
-                              Register dest)
+MacroAssembler::test32MovePtr(Condition cond, const Address& addr, Imm32 mask,
+                              Register src, Register dest)
 {
     MOZ_CRASH();
 }
 
 void
-MacroAssembler::spectreBoundsCheck32(Register index, Register length, Register maybeScratch,
-                                     Label* failure)
+MacroAssembler::spectreBoundsCheck32(Register index, Register length,
+                                     Register maybeScratch, Label* failure)
 {
     MOZ_RELEASE_ASSERT(!JitOptions.spectreIndexMasking);
     branch32(Assembler::BelowOrEqual, length, index, failure);
 }
 
 void
-MacroAssembler::spectreBoundsCheck32(Register index, const Address& length, Register maybeScratch,
-                                     Label* failure)
+MacroAssembler::spectreBoundsCheck32(Register index, const Address& length,
+                                     Register maybeScratch, Label* failure)
 {
     MOZ_RELEASE_ASSERT(!JitOptions.spectreIndexMasking);
     branch32(Assembler::BelowOrEqual, length, index, failure);
@@ -1828,6 +2063,40 @@ void
 MacroAssembler::spectreZeroRegister(Condition cond, Register scratch, Register dest)
 {
     MOZ_CRASH();
+}
+
+void
+MacroAssembler::fallibleUnboxPtr(const ValueOperand& src, Register dest,
+                                      JSValueType type, Label* fail)
+{
+    MOZ_ASSERT(type == JSVAL_TYPE_OBJECT || type == JSVAL_TYPE_STRING ||
+            type == JSVAL_TYPE_SYMBOL || type == JSVAL_TYPE_BIGINT);
+    // dest := src XOR mask
+    // scratch := dest >> JSVAL_TAG_SHIFT
+    // fail if scratch != 0
+    //
+    // Note: src and dest can be the same register
+    ScratchRegisterScope scratch(asMasm());
+    mov(ImmWord(JSVAL_TYPE_TO_SHIFTED_TAG(type)), scratch);
+    ma_xor(scratch, src.valueReg());
+    ma_move(dest, scratch);
+    x_srdi(scratch, scratch, JSVAL_TAG_SHIFT);
+    ma_bc(scratch, Imm32(0), fail, Assembler::NotEqual);
+}
+
+void
+MacroAssembler::fallibleUnboxPtr(const Address& src, Register dest,
+                                      JSValueType type, Label* fail)
+{
+    loadValue(src, ValueOperand(dest));
+    fallibleUnboxPtr(ValueOperand(dest), dest, type, fail);
+}
+
+void MacroAssembler::fallibleUnboxPtr(const BaseIndex& src, Register dest,
+                                      JSValueType type, Label* fail)
+{
+    loadValue(src, ValueOperand(dest));
+    fallibleUnboxPtr(ValueOperand(dest), dest, type, fail);
 }
 
 // ========================================================================

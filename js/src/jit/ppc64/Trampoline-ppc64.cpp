@@ -275,7 +275,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
     // stack so they can be accessed from JIT'ed code.
     Label header, footer;
     // If there aren't any arguments, don't do anything.
-    masm.ma_b(SecondScratchReg, reg_argv, &footer, Assembler::BelowOrEqual, ShortJump);
+    masm.ma_bc(SecondScratchReg, reg_argv, &footer, Assembler::BelowOrEqual, ShortJump);
     {
         masm.bind(&header);
 
@@ -288,7 +288,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
         // XXX: Is this usually on stack? Would inserting nops here help?
         masm.as_stfd(f0, StackPointer, 0);
 
-        masm.ma_b(SecondScratchReg, reg_argv, &header, Assembler::Above, ShortJump);
+        masm.ma_bc(SecondScratchReg, reg_argv, &header, Assembler::Above, ShortJump);
     }
     masm.bind(&footer);
 
@@ -317,7 +317,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
         regs.take(JSReturnOperand);
 
         Label notOsr;
-        masm.ma_b(OsrFrameReg, OsrFrameReg, &notOsr, Assembler::Zero, ShortJump);
+        masm.ma_bc(OsrFrameReg, OsrFrameReg, &notOsr, Assembler::Zero, ShortJump);
 
         Register numStackValues = reg_values;
         regs.take(numStackValues);
@@ -630,7 +630,7 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
         masm.subPtr(Imm32(sizeof(Value)), StackPointer);
         masm.storeValue(ValueOperand(tempValue), Address(StackPointer, 0));
 
-        masm.ma_b(numToPush, numToPush, &undefLoopTop, Assembler::NonZero, ShortJump);
+        masm.ma_bc(numToPush, numToPush, &undefLoopTop, Assembler::NonZero, ShortJump);
     }
 
     // Get the topmost argument.
@@ -656,7 +656,7 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
         masm.storeValue(ValueOperand(tempValue), Address(StackPointer, 0));
         masm.subPtr(Imm32(sizeof(Value)), numToPush);
 
-        masm.ma_b(nvRectReg, nvRectReg, &copyLoopTop, Assembler::NonZero, ShortJump);
+        masm.ma_bc(nvRectReg, nvRectReg, &copyLoopTop, Assembler::NonZero, ShortJump);
     }
 
     // If constructing, copy newTarget also.

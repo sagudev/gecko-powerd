@@ -51,11 +51,11 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler& masm)
         masm.unboxInt32(R1, ExtractTemp1);
         masm.ma_mul_branch_overflow(scratchReg, ExtractTemp0, ExtractTemp1, &failure);
 
-        masm.ma_b(scratchReg, Imm32(0), &goodMul, Assembler::NotEqual, ShortJump);
+        masm.ma_bc(scratchReg, Imm32(0), &goodMul, Assembler::NotEqual, ShortJump);
 
         // Result is -0 if operands have different signs.
         masm.as_xor(t8, ExtractTemp0, ExtractTemp1);
-        masm.ma_b(t8, Imm32(0), &failure, Assembler::LessThan, ShortJump);
+        masm.ma_bc(t8, Imm32(0), &failure, Assembler::LessThan, ShortJump);
 
         masm.bind(&goodMul);
         masm.boxValue(JSVAL_TYPE_INT32, scratchReg, R0.valueReg());
@@ -69,8 +69,8 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler& masm)
         // divwo will automatically set overflow is INT_MIN/-1 or x/0 is
         // performed, so all we need to do is check for negative zero, which
         // requires a double.
-        masm.ma_b(ExtractTemp0, Imm32(0), &divTest2, Assembler::NotEqual, ShortJump);
-        masm.ma_b(ExtractTemp1, Imm32(0), &failure, Assembler::LessThan, ShortJump);
+        masm.ma_bc(ExtractTemp0, Imm32(0), &divTest2, Assembler::NotEqual, ShortJump);
+        masm.ma_bc(ExtractTemp1, Imm32(0), &failure, Assembler::LessThan, ShortJump);
         masm.bind(&divTest2);
 
         masm.as_divwo(scratchReg, ExtractTemp0, ExtractTemp1);
@@ -82,15 +82,15 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler& masm)
 
         if (op_ == JSOP_DIV) {
             // Result is a double if the remainder != 0.
-            masm.ma_b(r0, ExtractTemp0, &failure, Assembler::NotEqual, ShortJump);
+            masm.ma_bc(r0, ExtractTemp0, &failure, Assembler::NotEqual, ShortJump);
             masm.tagValue(JSVAL_TYPE_INT32, scratchReg, R0);
         } else {
             Label done;
             MOZ_ASSERT(op_ == JSOP_MOD);
 
             // If X % Y == 0 and X < 0, the result is -0.
-            masm.ma_b(r0, Imm32(0), &done, Assembler::NotEqual, ShortJump);
-            masm.ma_b(ExtractTemp0, Imm32(0), &failure, Assembler::LessThan, ShortJump);
+            masm.ma_bc(r0, Imm32(0), &done, Assembler::NotEqual, ShortJump);
+            masm.ma_bc(ExtractTemp0, Imm32(0), &failure, Assembler::LessThan, ShortJump);
             masm.bind(&done);
             masm.subf(scratchReg, r0, ExtractTemp0); // T = B - A
             masm.tagValue(JSVAL_TYPE_INT32, scratchReg, R0);
@@ -131,7 +131,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler& masm)
         masm.as_srw(scratchReg, ExtractTemp0, ExtractTemp1);
         if (allowDouble_) {
             Label toUint;
-            masm.ma_b(scratchReg, Imm32(0), &toUint, Assembler::LessThan, ShortJump);
+            masm.ma_bc(scratchReg, Imm32(0), &toUint, Assembler::LessThan, ShortJump);
 
             // Move result and box for return.
             masm.tagValue(JSVAL_TYPE_INT32, scratchReg, R0);
@@ -141,7 +141,7 @@ ICBinaryArith_Int32::Compiler::generateStubCode(MacroAssembler& masm)
             masm.convertUInt32ToDouble(scratchReg, FloatReg1);
             masm.boxDouble(FloatReg1, R0, ScratchDoubleReg);
         } else {
-            masm.ma_b(scratchReg, Imm32(0), &failure, Assembler::LessThan, ShortJump);
+            masm.ma_bc(scratchReg, Imm32(0), &failure, Assembler::LessThan, ShortJump);
             // Move result for return.
             masm.tagValue(JSVAL_TYPE_INT32, scratchReg, R0);
         }

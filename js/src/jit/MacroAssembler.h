@@ -1057,7 +1057,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // rhs is preserved, srdDest is clobbered.
   void flexibleQuotient32(Register rhs, Register srcDest, bool isUnsigned,
                           const LiveRegisterSet& volatileLiveRegs)
-      DEFINED_ON(mips_shared, arm, arm64, x86_shared);
+      DEFINED_ON(mips_shared, arm, arm64, x86_shared, ppc64);
 
   // Perform an integer division, returning the integer part rounded toward
   // zero. rhs must not be zero, and the division must not overflow. The

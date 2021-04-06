@@ -65,6 +65,10 @@ class AutoDeBlock
 
 #endif
 
+void OutOfLineBailout::accept(CodeGeneratorPPC64* codegen) {
+  codegen->visitOutOfLineBailout(this);
+}
+
 CodeGeneratorPPC64::CodeGeneratorPPC64(MIRGenerator* gen, LIRGraph* graph, MacroAssembler* masm)
   : CodeGeneratorShared(gen, graph, masm)
 {
@@ -361,6 +365,37 @@ CodeGenerator::visitUDivOrModI64(LUDivOrModI64* lir)
     masm.bind(&done);
 }
 
+void CodeGeneratorPPC64::emitBigIntDiv(LBigIntDiv* ins, Register dividend,
+                                       Register divisor, Register output,
+                                       Label* fail)
+{
+    // Callers handle division by zero and integer overflow.
+
+    masm.as_divd(/* result= */ dividend, dividend, divisor);
+
+    // Create and return the result.
+    masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+    masm.initializeBigInt(output, dividend);
+}
+
+void CodeGeneratorPPC64::emitBigIntMod(LBigIntMod* ins, Register dividend,
+                                       Register divisor, Register output,
+                                       Label* fail)
+{
+    // Callers handle division by zero and integer overflow.
+
+    // Signed division.
+    masm.as_divd(output, dividend, divisor);
+
+    // Compute the remainder: output = dividend - (output * divisor).
+    masm.as_mulld(output, output, divisor);
+    masm.as_subf(dividend, output, dividend);
+
+    // Create and return the result.
+    masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+    masm.initializeBigInt(output, dividend);
+}
+
 template <typename T>
 void
 CodeGeneratorPPC64::emitWasmLoadI64(T* lir)
@@ -444,7 +479,7 @@ CodeGenerator::visitWasmSelectI64(LWasmSelectI64* lir)
         masm.as_isel(out.reg, out.reg, ToRegister(falseExpr.value()), 2); // CR0[EQ]
     } else {
         Label done;
-        masm.ma_b(cond, cond, &done, Assembler::NonZero, ShortJump);
+        masm.ma_bc(cond, cond, &done, Assembler::NonZero, ShortJump);
         masm.loadPtr(ToAddress(falseExpr.value()), out.reg);
         masm.bind(&done);
     }
@@ -870,42 +905,6 @@ CodeGenerator::visitMinMaxF(LMinMaxF* ins)
 }
 
 void
-CodeGenerator::visitAbsD(LAbsD* ins)
-{
-    ADBlock();
-    FloatRegister input = ToFloatRegister(ins->input());
-    MOZ_ASSERT(input == ToFloatRegister(ins->output()));
-    masm.as_fabs(input, input);
-}
-
-void
-CodeGenerator::visitAbsF(LAbsF* ins) // dupe
-{
-    ADBlock();
-    FloatRegister input = ToFloatRegister(ins->input());
-    MOZ_ASSERT(input == ToFloatRegister(ins->output()));
-    masm.as_fabs(input, input);
-}
-
-void
-CodeGenerator::visitSqrtD(LSqrtD* ins)
-{
-    ADBlock();
-    FloatRegister input = ToFloatRegister(ins->input());
-    FloatRegister output = ToFloatRegister(ins->output());
-    masm.as_fsqrt(output, input);
-}
-
-void
-CodeGenerator::visitSqrtF(LSqrtF* ins)
-{
-    ADBlock();
-    FloatRegister input = ToFloatRegister(ins->input());
-    FloatRegister output = ToFloatRegister(ins->output());
-    masm.as_fsqrts(output, input);
-}
-
-void
 CodeGenerator::visitAddI(LAddI* ins)
 {
     ADBlock();
@@ -1107,7 +1106,7 @@ CodeGenerator::visitMulI(LMulI* ins)
 
         if (mul->canBeNegativeZero()) {
             Label done;
-            masm.ma_b(dest, dest, &done, Assembler::NonZero, ShortJump);
+            masm.ma_bc(dest, dest, &done, Assembler::NonZero, ShortJump);
 
             // Result is -0 if lhs or rhs is negative.
             // In that case result must be double value so bailout
@@ -1189,7 +1188,7 @@ CodeGenerator::visitDivI(LDivI* ins)
     // Handle negative 0. (0/-Y)
     if (!mir->canTruncateNegativeZero() && mir->canBeNegativeZero()) {
         Label nonzero;
-        masm.ma_b(lhs, lhs, &nonzero, Assembler::NonZero, ShortJump);
+        masm.ma_bc(lhs, lhs, &nonzero, Assembler::NonZero, ShortJump);
         bailoutCmp32(Assembler::LessThan, rhs, Imm32(0), ins->snapshot());
         masm.bind(&nonzero);
     }
@@ -1331,12 +1330,12 @@ CodeGenerator::visitModI(LModI* ins)
         if (mir->isTruncated()) {
             if (mir->trapOnError()) {
                 Label nonZero;
-                masm.ma_b(rhs, rhs, &nonZero, Assembler::NonZero, ShortJump);
+                masm.ma_bc(rhs, rhs, &nonZero, Assembler::NonZero, ShortJump);
                 masm.wasmTrap(wasm::Trap::IntegerDivideByZero, mir->bytecodeOffset());
                 masm.bind(&nonZero);
             } else {
                 Label skip;
-                masm.ma_b(rhs, Imm32(0), &skip, Assembler::NotEqual, ShortJump);
+                masm.ma_bc(rhs, Imm32(0), &skip, Assembler::NotEqual, ShortJump);
                 masm.move32(Imm32(0), dest);
                 masm.ma_b(&done, ShortJump);
                 masm.bind(&skip);
@@ -1349,11 +1348,11 @@ CodeGenerator::visitModI(LModI* ins)
 
     if (mir->canBeNegativeDividend()) {
         Label notNegative;
-        masm.ma_b(rhs, Imm32(0), &notNegative, Assembler::GreaterThan, ShortJump);
+        masm.ma_bc(rhs, Imm32(0), &notNegative, Assembler::GreaterThan, ShortJump);
         if (mir->isTruncated()) {
             // NaN|0 == 0 and (0 % -X)|0 == 0
             Label skip;
-            masm.ma_b(lhs, Imm32(0), &skip, Assembler::NotEqual, ShortJump);
+            masm.ma_bc(lhs, Imm32(0), &skip, Assembler::NotEqual, ShortJump);
             masm.move32(Imm32(0), dest);
             masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
@@ -1378,7 +1377,7 @@ CodeGenerator::visitModI(LModI* ins)
         if (mir->isTruncated()) {
             // (INT_MIN % -1)|0 == 0
             Label skip;
-            masm.ma_b(rhs, Imm32(-1), &skip, Assembler::NotEqual, ShortJump);
+            masm.ma_bc(rhs, Imm32(-1), &skip, Assembler::NotEqual, ShortJump);
             masm.move32(Imm32(0), dest);
             masm.ma_b(&done, ShortJump);
             masm.bind(&skip);
@@ -1401,7 +1400,7 @@ CodeGenerator::visitModI(LModI* ins)
         } else {
             MOZ_ASSERT(mir->fallible());
             // See if X < 0
-            masm.ma_b(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
+            masm.ma_bc(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
             bailoutCmp32(Assembler::Signed, callTemp, Imm32(0), ins->snapshot());
         }
     }
@@ -1419,10 +1418,10 @@ CodeGenerator::visitModPowTwoI(LModPowTwoI* ins)
     Label negative, done;
 
     masm.move32(in, out);
-    masm.ma_b(in, in, &done, Assembler::Zero, ShortJump);
+    masm.ma_bc(in, in, &done, Assembler::Zero, ShortJump);
     // Switch based on sign of the lhs.
     // Positive numbers are just a bitmask
-    masm.ma_b(in, in, &negative, Assembler::Signed, ShortJump);
+    masm.ma_bc(in, in, &negative, Assembler::Signed, ShortJump);
     {
         masm.and32(Imm32((1 << ins->shift()) - 1), out);
         masm.ma_b(&done, ShortJump);
@@ -1481,7 +1480,7 @@ CodeGenerator::visitBitNotI(LBitNotI* ins)
     const LDefinition* dest = ins->getDef(0);
     MOZ_ASSERT(!input->isConstant());
 
-    masm.ma_not(ToRegister(dest), ToRegister(input));
+    masm.x_not(ToRegister(dest), ToRegister(input));
 }
 
 void
@@ -1698,7 +1697,7 @@ CodeGenerator::visitUrshD(LUrshD* ins)
     FloatRegister out = ToFloatRegister(ins->output());
 
     if (rhs->isConstant()) {
-        masm.ma_srl(temp, lhs, Imm32(ToInt32(rhs)));
+        masm.x_srwi(temp, lhs, ToInt32(rhs));
     } else {
         masm.as_srw(temp, lhs, ToRegister(rhs));
     }
@@ -1836,250 +1835,6 @@ CodeGenerator::visitMathF(LMathF* math)
       default:
         MOZ_CRASH("unexpected opcode");
     }
-}
-
-// Common code for visitFloor/F, visitCeil/F and visitRound/F.
-// This essentially combines branchTruncateDouble and convertDoubleToInt32.
-// The fudge register is considered volatile and may be clobbered if provided.
-static void
-PPCRounder(MacroAssembler &masm,
-           FloatRegister input,
-           FloatRegister scratch,
-           FloatRegister fudge,
-           Register output,
-           Label *bailoutBogusFloat,
-           Label *bailoutOverflow,
-           uint32_t rmode,
-           bool ceilCheck,
-           bool roundCheck)
-{
-    FloatRegister victim = input;
-    Label done, done2, skipCheck, skipCheck2, skipCheck3;
-
-    // Prepare zero checks for the next step.
-    // If fudge is provided, it's ordered, so use a sub to generate zero.
-    if (fudge != InvalidFloatReg) {
-        masm.as_fsub(scratch, fudge, fudge); // faster
-    } else {
-        masm.loadConstantFloat32(0.0f, scratch);
-    }
-    masm.as_fcmpu(input, scratch);
-    // We need the result of this comparison one more time at the end if we are round()ing, so
-    // put another copy in CR1.
-    if (roundCheck)
-        masm.as_fcmpu(cr1, input, scratch);
-
-    // Since we have to invariably put the float on the stack at some point, do it
-    // here so we can schedule better.
-    masm.as_stfdu(input, stackPointerRegister, -8);
-    if (ceilCheck) {
-        // ceil() has an edge case for -1 < x < 0: it should be -0.
-        // We bail out for those values below.
-        
-        masm.ma_bc(Assembler::GreaterThan, &skipCheck, ShortJump);
-        masm.loadConstantFloat32(-1.0f, scratch);
-        masm.as_fcmpu(input, scratch);
-        masm.ma_bc(Assembler::DoubleLessThanOrEqual, &skipCheck2, ShortJump);
-    } else {
-        // Check for equality with zero.
-        // If ordered and non-zero, proceed to truncation.
-        masm.ma_bc(Assembler::DoubleNotEqual, &skipCheck3, ShortJump);
-    }
-    // We are either zero, NaN or negative zero. Analyse the float's upper word.
-    // If it's non-zero, oops.
-    // (We also get here if the ceil check tripped, but we'd be bailing out anyway, so.)
-    masm.as_lwz(tempRegister, stackPointerRegister, 4); // ENDIAN!!!
-    masm.as_cmpdi(tempRegister, 0);
-    masm.as_addi(stackPointerRegister, stackPointerRegister, 8);
-    masm.ma_bc(Assembler::NotEqual, bailoutBogusFloat); // either -0.0 or NaN, or (ceil) non-zero
-    // It's zero; return zero.
-    masm.ma_li(output, 0L);
-    masm.ma_b(&done, ShortJump);
-
-    // Now we have a valid, non-zero float.
-    masm.bind(&skipCheck);
-    masm.bind(&skipCheck2);
-    masm.bind(&skipCheck3);
-    // If a fudge factor was provided, add it now.
-    if (fudge != InvalidFloatReg) {
-        masm.as_fadd(fudge, fudge, input);
-        victim = fudge;
-    }
-
-    masm.as_mtfsb0(23); // whack FPSCR[VXCVI]
-    // Set the current rounding mode, if the mode is not 0x01 (because we can just fctiwz).
-    // Set it back to 0 when we're done.
-    // Don't update the CR; we only want the FPSCR.
-    if (rmode != 0x01) {
-        if (rmode == 0x03) {
-            masm.as_mtfsfi(7,3);
-        } else {
-            MOZ_ASSERT(rmode == 0x02);
-            masm.as_mtfsb1(30);
-        }
-        // Convert.
-        masm.as_fctiw(scratch, victim);
-        if (rmode == 0x03) {
-            masm.as_mtfsfi(7,0);
-        } else {
-            MOZ_ASSERT(rmode == 0x02);
-            masm.as_mtfsb0(30);
-        }
-    } else {
-        // Rounding mode 1 is truncation. fctiwz sets FPSCR[FI]
-        // if the conversion was inexact, and we bailout on that.
-        masm.as_mtfsb0(14); // whack FI
-        masm.as_fctiwz(scratch, victim);
-        masm.as_mcrfs(cr0, 3); // new dispatch group; FI -> cr0::EQ
-        masm.ma_bc(Assembler::Equal, bailoutOverflow);
-    }
-    masm.as_stfd(scratch, StackPointer, 0); // clobber original float on stack
-    masm.as_mcrfs(cr0, 5); // new dispatch group; VXCVI -> cr0::SOBit
-    // Pull out the lower 32 bits. This is the result.
-    masm.as_lwz(output, StackPointer, 0); // ENDIAN!!!
-    masm.as_addi(StackPointer, StackPointer, 8);
-    masm.ma_bc(Assembler::SOBit, bailoutOverflow);
-		
-    // round() must bail out if the result is zero and the input was negative
-    // (copied in CR1 from the beginning). By this point, we can assume the
-    // result was ordered.
-    if (roundCheck) {
-        masm.as_cmpdi(output, 0); // "free"
-        masm.ma_bc(cr1, Assembler::DoubleGreaterThan, &done2, ShortJump);
-        masm.ma_bc(Assembler::Equal, bailoutBogusFloat); // need to return -0.0
-    }
-
-    masm.bind(&done);
-    masm.bind(&done2);
-}
-
-#if 0
-// fctiw can (to our displeasure) round down, not up. For example, in rounding
-// mode 0x00, -3.5 rounds to -4. Arguably that's right, but JS expects -3. The
-// simplest fix for that is to add 0.5 and round towards -Inf, which also
-// works in the positive case. However, we can't add it until after the -0/NaN
-// checks, so we provide it as a "fudge" register.
-void
-CodeGenerator::visitRound(LRound *lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-    FloatRegister input = ToFloatRegister(lir->input());
-    FloatRegister temp = ToFloatRegister(lir->temp());
-	
-    masm.point5Double(temp);
-    PPCRounder(masm, input, ScratchDoubleReg, temp, ToRegister(lir->output()),
-               &bailoutBogusFloat, &bailoutOverflow,
-               /* rounding bits = */ 0x03,
-               /* ceilCheck = */     false,
-               /* roundCheck = */    true);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-void
-CodeGeneratorPPC64::visitRoundF(LRoundF *lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-    FloatRegister input = ToFloatRegister(lir->input());
-    FloatRegister temp = ToFloatRegister(lir->temp());
-	
-    masm.point5Double(temp);
-    PPCRounder(masm, input, ScratchDoubleReg, temp, ToRegister(lir->output()),
-               &bailoutBogusFloat, &bailoutOverflow,
-               /* rounding bits = */ 0x03,
-               /* ceilCheck = */     false,
-               /* roundCheck = */    true);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-
-void
-CodeGeneratorPPC64::visitFloor(LFloor *lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-	
-    PPCRounder(masm, ToFloatRegister(lir->input()), ScratchDoubleReg, InvalidFloatReg,
-              ToRegister(lir->output()), &bailoutBogusFloat, &bailoutOverflow,
-              /* rounding bits = */ 0x03,
-              /* ceilCheck = */     false,
-              /* roundCheck = */    false);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-void
-CodeGeneratorPPC64::visitFloorF(LFloorF *lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-	
-    PPCRounder(masm, ToFloatRegister(lir->input()), ScratchFloat32Reg, InvalidFloatReg,
-              ToRegister(lir->output()), &bailoutBogusFloat, &bailoutOverflow,
-              /* rounding bits = */ 0x03,
-              /* ceilCheck = */     false,
-              /* roundCheck = */    false);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-
-void
-CodeGeneratorPPC64::visitCeil(LCeil *lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-	
-    PPCRounder(masm, ToFloatRegister(lir->input()), ScratchDoubleReg, InvalidFloatReg,
-              ToRegister(lir->output()), &bailoutBogusFloat, &bailoutOverflow,
-              /* rounding bits = */ 0x02,
-              /* ceilCheck = */     true,
-              /* roundCheck = */    false);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-void
-CodeGeneratorPPC64::visitCeilF(LCeilF *lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-	
-    PPCRounder(masm, ToFloatRegister(lir->input()), ScratchFloat32Reg, InvalidFloatReg,
-              ToRegister(lir->output()), &bailoutBogusFloat, &bailoutOverflow,
-              /* rounding bits = */ 0x02,
-              /* ceilCheck = */     true,
-              /* roundCheck = */    false);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-#endif
-
-void
-CodeGenerator::visitTrunc(LTrunc* lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-
-    PPCRounder(masm, ToFloatRegister(lir->input()), ScratchDoubleReg, InvalidFloatReg,
-              ToRegister(lir->output()), &bailoutBogusFloat, &bailoutOverflow,
-              /* rounding bits = */ 0x01,
-              /* ceilCheck = */     false,
-              /* roundCheck = */    false);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
-}
-void
-CodeGenerator::visitTruncF(LTruncF* lir)
-{
-    ADBlock();
-    Label bailoutBogusFloat, bailoutOverflow;
-
-    PPCRounder(masm, ToFloatRegister(lir->input()), ScratchFloat32Reg, InvalidFloatReg,
-              ToRegister(lir->output()), &bailoutBogusFloat, &bailoutOverflow,
-              /* rounding bits = */ 0x01,
-              /* ceilCheck = */     false,
-              /* roundCheck = */    false);
-    bailoutFrom(&bailoutBogusFloat, lir->snapshot());
-    bailoutFrom(&bailoutOverflow, lir->snapshot());
 }
 
 void
@@ -2873,7 +2628,7 @@ CodeGenerator::visitWasmSelect(LWasmSelect* ins)
 
     // We can't use fsel because cond isn't a float register.
     Label done;
-    masm.ma_b(cond, cond, &done, Assembler::NonZero, ShortJump);
+    masm.ma_bc(cond, cond, &done, Assembler::NonZero, ShortJump);
 
     if (mirType == MIRType::Float32)
         masm.loadFloat32(ToAddress(falseExpr), out);
@@ -2941,13 +2696,13 @@ CodeGenerator::visitUDivOrMod(LUDivOrMod* ins)
         if (ins->mir()->isTruncated()) {
             if (ins->trapOnError()) {
                 Label nonZero;
-                masm.ma_b(rhs, rhs, &nonZero, Assembler::NonZero);
+                masm.ma_bc(rhs, rhs, &nonZero, Assembler::NonZero);
                 masm.wasmTrap(wasm::Trap::IntegerDivideByZero, ins->bytecodeOffset());
                 masm.bind(&nonZero);
             } else {
                 // Infinity|0 == 0
                 Label notzero;
-                masm.ma_b(rhs, rhs, &notzero, Assembler::NonZero, ShortJump);
+                masm.ma_bc(rhs, rhs, &notzero, Assembler::NonZero, ShortJump);
                 masm.move32(Imm32(0), output);
                 masm.ma_b(&done, ShortJump);
                 masm.bind(&notzero);
@@ -3035,6 +2790,43 @@ CodeGenerator::visitWasmAddOffset(LWasmAddOffset* lir)
     masm.bind(&ok);
 }
 
+void CodeGenerator::visitNearbyInt(LNearbyInt* lir) {
+  FloatRegister input = ToFloatRegister(lir->input());
+  FloatRegister output = ToFloatRegister(lir->output());
+
+  RoundingMode roundingMode = lir->mir()->roundingMode();
+  masm.nearbyIntDouble(roundingMode, input, output);
+}
+
+void CodeGenerator::visitNearbyIntF(LNearbyIntF* lir) {
+  FloatRegister input = ToFloatRegister(lir->input());
+  FloatRegister output = ToFloatRegister(lir->output());
+
+  RoundingMode roundingMode = lir->mir()->roundingMode();
+  masm.nearbyIntFloat32(roundingMode, input, output);
+}
+
+void CodeGenerator::visitWasmBuiltinTruncateDToInt32(
+    LWasmBuiltinTruncateDToInt32* lir) {
+  MOZ_CRASH("NYI");
+}
+
+void
+CodeGenerator::visitWasmBuiltinTruncateFToInt32(LWasmBuiltinTruncateFToInt32 *lir)
+{
+    MOZ_CRASH("NYI");
+}
+
+void
+CodeGenerator::visitWasmHeapBase(LWasmHeapBase *lir)
+{
+    MOZ_CRASH("NYI");
+}
+
+void
+CodeGenerator::visitWasmRegisterResult(LWasmRegisterResult* lir)
+{
+}
 
 void
 CodeGenerator::visitAtomicTypedArrayElementBinop(LAtomicTypedArrayElementBinop* lir)

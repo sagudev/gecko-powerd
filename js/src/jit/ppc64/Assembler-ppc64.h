@@ -290,7 +290,7 @@ enum PPCOpcodes {
     PPC_addis   = 0x3C000000, // add immediate shifted
     PPC_addme   = 0x7C0001D4, // add -1 extended
     PPC_addze   = 0x7C000194, // add zero extended
-    PPC_and_    = 0x7C000038, // and
+    PPC_and     = 0x7C000038, // and
     PPC_andc    = 0x7C000078, // and with compliment
     PPC_andi    = 0x70000000, // and immediate
     PPC_andis   = 0x74000000, // and immediate shifted
@@ -331,27 +331,37 @@ enum PPCOpcodes {
     PPC_fabs    = 0xFC000210, // floating absolute value (double precision)
     PPC_fadd    = 0xFC00002A, // floating add (double precision)
     PPC_fadds   = 0xEC00002A, // floating add (single precision)
+    PPC_fcpsgn  = 0xFC000010, // floating copy sign
     PPC_fcfid   = 0xFC00069C, // floating convert from integer doubleword
     PPC_fcfidu  = 0xFC00079C, // floating convert from integer doubleword
+    PPC_fcmpo   = 0xFC000040, // floating compare unordered
+    PPC_fcmpu   = 0xFC000000, // floating compare unordered
+    PPC_fctid   = 0xFC00065C, // floating convert to integer (to -Inf)
+    PPC_fctidu  = 0xFC00075C, // floating convert to integer doubleword unsigned
     PPC_fctiw   = 0xFC00001C, // floating convert to integer (to -Inf)
     PPC_fctiwu  = 0xFC00011C, // floating convert to integer (to -Inf)
     PPC_fctiwuz = 0xFC00011E, // floating convert to integer (to zero)
     PPC_fctiwz  = 0xFC00001E, // floating convert to integer (to zero)
-    PPC_fcmpu   = 0xFC000000, // floating compare unordered
     PPC_fdiv    = 0xFC000024, // floating divide (double precision)
     PPC_fdivs   = 0xEC000024, // floating divide (single precision)
     PPC_fmr     = 0xFC000090, // floating move register
     PPC_fmul    = 0xFC000032, // floating multiply (double precision)
     PPC_fmuls   = 0xEC000032, // floating multiply (single precision)
     PPC_fneg    = 0xFC000050, // floating negate
+    PPC_frim    = 0xFC0003d0, // floating round to integer minus
+    PPC_frin    = 0xFC000310, // floating round to integer nearest
+    PPC_frip    = 0xFC000390, // floating round to integer plus
+    PPC_friz    = 0xFC000350, // floating round to integer toward zero
     PPC_frsp    = 0xFC000018, // convert to single precision
     PPC_fsel    = 0xFC00002E, // floating point select
     PPC_fsub    = 0xFC000028, // floating subtract (double precision)
     PPC_fsubs   = 0xEC000028, // floating subtract (single precision)
-    PPC_fsqrt   = 0xEC00002C, // floating square root (G5 only) (double)
+    PPC_fsqrt   = 0xFC00002C, // floating square root (G5 only) (double)
+    PPC_fsqrts  = 0xEC00002C, // floating square root (G5 only) (double)
     PPC_frsqrte = 0xFC000034, // floating reciprocal square root estimate
     PPC_fnmsub  = 0xFC00003C, // floating fused negative multiply-subtract
     PPC_fmadd   = 0xFC00003A, // floating fused multiply-add
+    PPC_isel    = 0x7C00001E, // Integer select
     PPC_lbz     = 0x88000000, // load byte and zero
     PPC_lbzx    = 0x7C0000AE, // load byte and zero indexed
     PPC_ld      = 0xE8000000, // load doubleword
@@ -359,6 +369,8 @@ enum PPCOpcodes {
     PPC_ldx     = 0x7C00002A, // load doubleword indexed
     PPC_lfd     = 0xC8000000, // load floating point double
     PPC_lfdx    = 0x7C0004AE, // load floating-point double indexed
+    PPC_lfiwax  = 0x7C0006AE, // load floating-point as integer word algebraic indexed
+    PPC_lfiwzx  = 0x7C0006EE, // load floating-point as integer word algebraic indexed
     PPC_lfs     = 0xC0000000, // load single precision float
     PPC_lfsx    = 0x7C00042E, // load single precision float indexed
     PPC_lha     = 0xA8000000, // load halfword algebraic
@@ -366,6 +378,7 @@ enum PPCOpcodes {
     PPC_lhz     = 0xA0000000, // load halfword and zero
     PPC_lhzx    = 0x7C00022E, // load halfword and zero indexed
     PPC_lhbrx   = 0x7C00062C, // load hw and zero indexed (byte swapped)
+    PPC_lwarx   = 0x7c000028, // load word and reserve indexed
     PPC_lwz     = 0x80000000, // load word and zero
     PPC_lwzx    = 0x7C00002E, // load word and zero indexed
     PPC_lwbrx   = 0x7C00042C, // load word and zero indexed (byte swapped)
@@ -373,6 +386,7 @@ enum PPCOpcodes {
     PPC_mcrf    = 0x4C000000, // move CR[0-3] to CR[0-3]
     PPC_mcrfs   = 0xFC000080, // move FPSCR fields to CR
     PPC_mfcr    = 0x7C000026, // move from condition register
+    PPC_mfocrf  = 0x7C100120, // move from one condition register field
     PPC_mffs    = 0xFC00048E, // move from fpscr to fpr
     PPC_mfspr   = 0x7C0002A6, // move from spr (special purpose register)
     PPC_mtcrf   = 0x7C000120, // move to condition register field
@@ -386,22 +400,26 @@ enum PPCOpcodes {
     PPC_mulhwu  = 0x7C000016, // multiply high unsigned
     PPC_mulli   = 0x1C000000, // multiply low immediate
     PPC_mulld   = 0x7C0001D2, // multiply low doubleword
+    PPC_mulldo  = 0x7C0005D2, // multiply low doubleword
     PPC_mullw   = 0x7C0001D6, // multiply low word
     PPC_mullwo  = 0x7C0005D6, // multiply low word with overflow
     PPC_nand    = 0x7C0003B8, // nand
     PPC_neg     = 0x7C0000D0, // negate
     PPC_nor     = 0x7C0000F8, // nor
-    PPC_or_     = 0x7C000378, // or
+    PPC_or      = 0x7C000378, // or
     PPC_ori     = 0x60000000, // or immediate
     PPC_oris    = 0x64000000, // or immediate shifted
     PPC_popcntb = 0x7C0000F4, // population count doubleword
     PPC_popcntd = 0x7C0003F4, // population count doubleword
     PPC_popcntw = 0x7C0002F4, // population count doubleword
-    PPC_rlwimi  = 0x50000000, // rotate left word imm then mask insert
-    PPC_rlwinm  = 0x54000000, // rotate left word then and with mask
+    PPC_rldcl   = 0x78000010, // rotate left doubleword then clear left
     PPC_rldicl  = 0x78000000, // rotate left doubleword immediate then clear left
+    PPC_rldcr   = 0x78000012, // rotate left doubleword then clear right
     PPC_rldicr  = 0x78000004, // rotate left doubleword immediate then clear right
     PPC_rldimi  = 0x7800000C, // rotate left doubleword immediate then mask insert
+    PPC_rlwimi  = 0x50000000, // rotate left word imm then mask insert
+    PPC_rlwinm  = 0x54000000, // rotate left word imm then and with mask
+    PPC_rlwnm   = 0x5C000000, // rotate left word then AND with mask
     PPC_sld     = 0x7C000036, // shift left doubleword
     PPC_slw     = 0x7C000030, // shift left word
     PPC_srad    = 0x7C000634, // shift right algebraic doubleword (sign ext)
@@ -420,6 +438,7 @@ enum PPCOpcodes {
     PPC_stfd    = 0xD8000000, // store floating-point double
     PPC_stfdu   = 0xDC000000, // store floating-point double with update
     PPC_stfdx   = 0x7C0005AE, // store floating-point double indexed
+    PPC_stfiwx  = 0x7C0007AE, // Store floating-point as integer word indexed
     PPC_stfs    = 0xD0000000, // store floating-point single
     PPC_stfsu   = 0xD4000000, // store floating-point single
     PPC_stfsx   = 0x7C00052E, // store floating-point single indexed
@@ -431,12 +450,14 @@ enum PPCOpcodes {
     PPC_stwux   = 0x7C00016E, // store word with update indexed
     PPC_stwx    = 0x7C00012E, // store word indexed
     PPC_stwbrx  = 0x7C00052C, // store word indexed (byte swapped)
+    PPC_stwcx   = 0x7C00012D, // store word indexed
     PPC_subf    = 0x7C000050, // subtract from
     PPC_subfc   = 0x7C000010, // subtract from with carry
     PPC_subfe   = 0x7C000110, // subtract from extended
     PPC_subfic  = 0x20000000, // subtract from immediate
     PPC_subfze  = 0x7C000190, // subtract from zero extended
     PPC_subfo   = 0x7C000450, // subtract from with overflow
+    PPC_sync    = 0x7C0004AC, // sync
 #ifdef __APPLE__
     PPC_trap    = 0x7FE00008, // trap word (extended from tw 31,r0,r0)
 #elif defined(__FreeBSD__)
@@ -444,14 +465,17 @@ enum PPCOpcodes {
 #else
 #error Specify the trap word for your PPC operating system
 #endif
-    PPC_xor_    = 0x7C000278, // xor
+    PPC_tw      = 0x7C000008, // trap word immediate
+    PPC_twi     = 0x0C000000, // trap word immediate
+    PPC_xor     = 0x7C000278, // xor
     PPC_xori    = 0x68000000, // xor immediate
     PPC_xoris   = 0x6C000000, // xor immediate shifted
 
     // simplified mnemonics
-    PPC_mr = PPC_or_,
+    PPC_mr = PPC_or,
     PPC_not = PPC_nor,
     PPC_nop = PPC_ori,
+    PPC_lwsync = PPC_sync | (1 << 21),
         
     PPC_MAJOR_OPCODE_MASK = 0xFC000000 // AND with this to get some idea of the opcode
 };
@@ -692,6 +716,7 @@ typedef js::jit::AssemblerBuffer<1024, Instruction> PPCBuffer;
 
 class PPCBufferWithExecutableCopy : public PPCBuffer
 {
+    static const int SliceSize = 1024;
   public:
     void executableCopy(uint8_t* buffer) {
         if (this->oom())
@@ -701,6 +726,19 @@ class PPCBufferWithExecutableCopy : public PPCBuffer
             memcpy(buffer, &cur->instructions, cur->length());
             buffer += cur->length();
         }
+    }
+
+    bool appendRawCode(const uint8_t* code, size_t numBytes) {
+        if (this->oom()) {
+            return false;
+        }
+        while (numBytes > SliceSize) {
+            this->putBytes(SliceSize, code);
+            numBytes -= SliceSize;
+            code += SliceSize;
+        }
+        this->putBytes(numBytes, code);
+        return !this->oom();
     }
 };
 
@@ -966,7 +1004,6 @@ class Assembler : public AssemblerShared
     void copyDataRelocationTable(uint8_t *dest);
     void copyPreBarrierTable(uint8_t *dest);
 
-    void addCodeLabel(CodeLabel label);
     size_t numCodeLabels() const {
         return codeLabels_.length();
     }
@@ -999,8 +1036,6 @@ class Assembler : public AssemblerShared
   	uint32_t computeConditionCode(Condition op, CRegisterID cr = cr0);
   	uint32_t computeConditionCode(DoubleCondition op, CRegisterID cr = cr0);
     
-    // To preserve compatibility with older code, opcode functions emit raw instructions
-    // (i.e., no as_* prefix). 
     BufferOffset as_nop();
 
     BufferOffset as_lwsync();
@@ -1022,9 +1057,6 @@ class Assembler : public AssemblerShared
     BufferOffset as_bc(int16_t off, uint32_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
     BufferOffset as_bcctr(uint32_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 
-    InstImm getBranchCode(JumpOrCall jumpOrCall);
-    InstImm getBranchCode(Register s, Register t, Condition c);
-    InstImm getBranchCode(Register s, Condition c);
 
 	// SPR operations.
 	BufferOffset as_mtspr(SPRegisterID spr, Register ra);
@@ -1042,7 +1074,7 @@ class Assembler : public AssemblerShared
 	BufferOffset as_mtcrf(uint32_t mask, Register rs);
 	BufferOffset as_mfcr(Register rd);
 	BufferOffset as_mfocrf(Register rd, CRegisterID crfs); // G5 only
-	BufferOffset x_mcrxr(CRegisterID crt, Register temp = r12); // emulated on G5, EEEK!
+	BufferOffset as_mcrxr(CRegisterID crt, Register temp = r12); // emulated on G5, EEEK!
 	
 	// GPR operations and load-stores.
 	BufferOffset as_neg(Register rd, Register rs);
@@ -1073,6 +1105,7 @@ class Assembler : public AssemblerShared
 	BufferOffset as_rldicr(Register ra, Register rs, uint8_t sh, uint8_t mb);
 	BufferOffset as_rldicr_rc(Register ra, Register rs, uint8_t sh, uint8_t mb);
 	BufferOffset as_rlwinm(Register rd, Register rs, uint8_t sh, uint8_t mb, uint8_t me);
+	BufferOffset as_rlwinm_rc(Register rd, Register rs, uint8_t sh, uint8_t mb, uint8_t me);
 	BufferOffset as_rlwimi(Register rd, Register rs, uint8_t sh, uint8_t mb, uint8_t me); // cracked on G5
 	BufferOffset as_rldimi(Register rd, Register rs, uint8_t sh, uint8_t mb);
 	BufferOffset as_rlwnm(Register rd, Register rs, Register rb, uint8_t mb, uint8_t me);
@@ -1243,6 +1276,10 @@ class Assembler : public AssemblerShared
         DEF_FPUDS(fctiwz)
         DEF_FPUDS(fctiwu)
         DEF_FPUDS(fctiwuz)
+        DEF_FPUDS(frim)
+        DEF_FPUDS(frin)
+        DEF_FPUDS(frip)
+        DEF_FPUDS(friz)
         DEF_FPUDS(frsp)
         DEF_FPUDS(frsqrte)
 
@@ -1273,6 +1310,7 @@ class Assembler : public AssemblerShared
         DEF_FMEMx(lfdx)
         DEF_FMEMx(lfsx)
         DEF_FMEMx(lfiwax)
+        DEF_FMEMx(stfiwx)
         DEF_FMEMx(stfdx)
         DEF_FMEMx(stfsx)
 #undef DEF_FMEMx
@@ -1304,14 +1342,15 @@ class Assembler : public AssemblerShared
 	BufferOffset x_slwi(Register rd, Register rs, int n);
 	BufferOffset x_sldi(Register rd, Register rs, int n);
 	BufferOffset x_srwi(Register rd, Register rs, int n);
+	BufferOffset x_srdi(Register rd, Register rs, int n);
 	BufferOffset x_subi(Register rd, Register ra, int16_t im);
 	BufferOffset x_sr_mulli(Register rd, Register ra, int16_t im);
+
+	BufferOffset x_not(Register rd, Register ra);
 
 	// Large loads.	
 	BufferOffset x_li(Register rd, int16_t im);
 	BufferOffset x_lis(Register rd, int16_t im);
-	BufferOffset x_p_li32(Register rd, int32_t im);
-	BufferOffset x_li32(Register rd, int32_t im);
 
 	// Traps
 	BufferOffset as_tw(uint8_t to, Register ra, Register rb);
@@ -1320,7 +1359,8 @@ class Assembler : public AssemblerShared
     // Label operations.
     void bind(InstImm* inst, uintptr_t branch, uintptr_t target);
     void bind(Label *label);
-    void bind(CodeLabel *label);
+    void bind(Label *, BufferOffset);
+    void bind(CodeLabel *label) { label->target()->bind(currentOffset()); }
     uint32_t currentOffset() {
         return nextOffset().getOffset();
     }
@@ -1433,11 +1473,6 @@ class Assembler : public AssemblerShared
         // Implement this if we implement a disassembler.
     }
 
-    // Blah
-    bool asmMergeWith(const Assembler& other) { MOZ_CRASH(); return false; }
-    void retargetWithOffset(size_t baseOffset, const LabelBase* label,
-                            Label* target) { MOZ_CRASH(); }
-
     bool swapBuffer(wasm::Bytes& bytes);
     bool reserve(size_t size) { return !oom(); }
 }; // Assembler
@@ -1491,7 +1526,7 @@ class Instruction
     // Get the next instruction in the instruction stream.
     // This will do neat things like ignore constant pools and their guards,
     // if we ever implement those again.
-    Instruction *next();
+    Instruction *next() { return this + 1; };
 
     // Sometimes the backend wants a uint32_t (or a pointer to it) rather than
     // an instruction.  raw() just coerces this into a pointer to a uint32_t.
@@ -1499,15 +1534,54 @@ class Instruction
     uint32_t size() const { return 4; }
 }; // Instruction
 
+class InstReg : public Instruction
+{
+  // Valid for reg/reg/imm instructions only and bc.
+  // XXX: Assert that at some point.
+  public:
+  	InstReg (PPCOpcodes op) : Instruction(op) { }
+  	InstReg (PPCOpcodes op, Register rd, Register ra, Register rb)
+  	    : Instruction(op | ((uint32_t)rd.code() << 21) |
+  	            (uint32_t)ra.code() << 16 | (uint32_t)rb.code() << 11) {}
+  	     
+  	
+    void setBOffImm16(BOffImm16 off) {
+    	data = (data & 0xFFFF0000) | off.encode();
+    }
+    void setImm16(Imm16 off) {
+    	data = (data & 0xFFFF0000) | off.encode();
+    }
+    uint32_t extractImm16Value() {
+    	return (data & 0x0000FFFF);
+    }
+    void setTargetReg(Register rt) {
+    	data = (data & 0xFC1FFFFF) | ((uint32_t)rt.code() << 21);
+    }
+    void setUpperReg(Register ru) {
+    	// Mask out upper register field and put in the new one.
+    	// For addi/addis, this is the DESTINATION.
+    	// For ori/oris, this is the SOURCE.
+    	// For bc, this is BO.
+    	data = (data & 0xFFE0FFFF) | ((uint32_t)ru.code() << 16);
+    }
+    void setLowerReg(Register rl) {
+    	// Mask out lower register field and put in the new one.
+    	// For addi/addis, this is the SOURCE. (For li/lis, this should be ZERO.)
+    	// For ori/oris, this is the DESTINATION.
+    	// For bc, this is BI.
+    	data = (data & 0xFFFF07FF) | ((uint32_t)rl.code() << 11);
+    }
+}; // InstReg
+
 class InstImm : public Instruction
 {
   // Valid for reg/reg/imm instructions only and bc.
   // XXX: Assert that at some point.
   public:
   	InstImm (PPCOpcodes op) : Instruction(op) { }
-  	InstImm (PPCOpcodes op, Register ra, Register rs, BOffImm16 off)
+  	InstImm (PPCOpcodes op, Register ra, Register rs, Imm16 im)
   	    : Instruction(op | ((uint32_t)ra.code() << 21) |
-  	            (uint32_t)rs.code() << 16) {}
+  	            (uint32_t)rs.code() << 16 | im.encode()) {}
   	     
   	
     void setBOffImm16(BOffImm16 off) {

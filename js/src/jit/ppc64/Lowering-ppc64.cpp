@@ -374,25 +374,6 @@ LIRGenerator::visitWasmStore(MWasmStore* ins)
 }
 
 void
-LIRGenerator::visitWasmSelect(MWasmSelect* ins)
-{
-    if (ins->type() == MIRType::Int64) {
-        auto* lir = new(alloc()) LWasmSelectI64(useInt64RegisterAtStart(ins->trueExpr()),
-                                                useInt64(ins->falseExpr()),
-                                                useRegister(ins->condExpr()));
-
-        defineInt64ReuseInput(lir, ins, LWasmSelectI64::TrueExprIndex);
-        return;
-    }
-
-    auto* lir = new(alloc()) LWasmSelect(useRegisterAtStart(ins->trueExpr()),
-                                         use(ins->falseExpr()),
-                                         useRegister(ins->condExpr()));
-
-    defineReuseInput(lir, ins, LWasmSelect::TrueExprIndex);
-}
-
-void
 LIRGeneratorPPC64::lowerUDiv(MDiv* div)
 {
     MDefinition* lhs = div->getOperand(0);
@@ -927,6 +908,44 @@ LIRGenerator::visitWasmTruncateToInt64(MWasmTruncateToInt64* ins)
     defineInt64(new(alloc()) LWasmTruncateToInt64(useRegister(opd)), ins);
 }
 
+void LIRGeneratorPPC64::lowerPowOfTwoI(MPow* mir) {
+  int32_t base = mir->input()->toConstant()->toInt32();
+  MDefinition* power = mir->power();
+
+  auto* lir = new (alloc()) LPowOfTwoI(base, useRegister(power));
+  assignSnapshot(lir, mir->bailoutKind());
+  define(lir, mir);
+}
+
+
+void LIRGeneratorPPC64::lowerBigIntLsh(MBigIntLsh* ins) {
+  auto* lir = new (alloc()) LBigIntLsh(
+      useRegister(ins->lhs()), useRegister(ins->rhs()), temp(), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGeneratorPPC64::lowerBigIntRsh(MBigIntRsh* ins) {
+  auto* lir = new (alloc()) LBigIntRsh(
+      useRegister(ins->lhs()), useRegister(ins->rhs()), temp(), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGeneratorPPC64::lowerBigIntDiv(MBigIntDiv* ins) {
+  auto* lir = new (alloc()) LBigIntDiv(useRegister(ins->lhs()),
+                                       useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
+void LIRGeneratorPPC64::lowerBigIntMod(MBigIntMod* ins) {
+  auto* lir = new (alloc()) LBigIntMod(useRegister(ins->lhs()),
+                                       useRegister(ins->rhs()), temp(), temp());
+  define(lir, ins);
+  assignSafepoint(lir, ins);
+}
+
 void
 LIRGenerator::visitInt64ToFloatingPoint(MInt64ToFloatingPoint* ins)
 {
@@ -936,6 +955,32 @@ LIRGenerator::visitInt64ToFloatingPoint(MInt64ToFloatingPoint* ins)
 
     define(new(alloc()) LInt64ToFloatingPoint(useInt64Register(opd)), ins);
 }
+
+void
+LIRGeneratorPPC64::lowerBuiltinInt64ToFloatingPoint(MBuiltinInt64ToFloatingPoint *)
+{
+    MOZ_CRASH("NYI");
+}
+
+void LIRGeneratorPPC64::lowerWasmBuiltinDivI64(MWasmBuiltinDivI64* div) {
+  MOZ_CRASH("We don't use runtime div for this architecture");
+}
+
+void LIRGeneratorPPC64::lowerWasmBuiltinModI64(MWasmBuiltinModI64* mod) {
+  MOZ_CRASH("We don't use runtime mod for this architecture");
+}
+
+void LIRGeneratorPPC64::lowerWasmBuiltinTruncateToInt32(
+    MWasmBuiltinTruncateToInt32* ins) {
+  MOZ_CRASH("NYI");
+}
+
+void LIRGeneratorPPC64::lowerWasmBuiltinTruncateToInt64(
+    MWasmBuiltinTruncateToInt64* ins) {
+  MOZ_CRASH("NYI");
+}
+
+void LIRGenerator::visitWasmHeapBase(MWasmHeapBase* ins) { MOZ_CRASH("NYI"); }
 
 #if 0
 // A beautiful AltiVec and VSX world awaits me if I could only stop procrastinating.

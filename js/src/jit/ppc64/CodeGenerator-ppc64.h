@@ -73,7 +73,7 @@ class CodeGeneratorPPC64 : public CodeGeneratorShared
     template <typename T>
     void branchToBlock(Register lhs, T rhs, MBasicBlock* mir, Assembler::Condition cond)
     {
-        masm.ma_b(lhs, rhs, skipTrivialBlocks(mir)->lir()->label(), cond);
+        masm.ma_bc(lhs, rhs, skipTrivialBlocks(mir)->lir()->label(), cond);
     }
     void branchToBlock(Assembler::FloatFormat fmt, FloatRegister lhs, FloatRegister rhs,
                        MBasicBlock* mir, Assembler::DoubleCondition cond);
@@ -167,7 +167,7 @@ class CodeGeneratorPPC64 : public CodeGeneratorShared
 typedef CodeGeneratorPPC64 CodeGeneratorSpecific;
 
 // An out-of-line bailout thunk.
-class OutOfLineBailout : public OutOfLineCodeBase<CodeGeneratorShared>
+class OutOfLineBailout : public OutOfLineCodeBase<CodeGeneratorPPC64>
 {
     LSnapshot* snapshot_;
     uint32_t frameSize_;
@@ -178,7 +178,7 @@ class OutOfLineBailout : public OutOfLineCodeBase<CodeGeneratorShared>
         frameSize_(frameSize)
     { }
 
-    void accept(CodeGeneratorShared* codegen) override;
+    void accept(CodeGeneratorPPC64* codegen) override;
 
     LSnapshot* snapshot() const {
         return snapshot_;
