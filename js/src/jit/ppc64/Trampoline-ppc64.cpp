@@ -25,24 +25,24 @@
 #if DEBUG
 
 /* Useful class to print visual guard blocks. */
-class AutoDeBlock
+class TrampolineAutoDeBlock
 {
     private:
         const char *blockname;
 
     public:
-        AutoDeBlock(const char *name) {
+        TrampolineAutoDeBlock(const char *name) {
             blockname = name;
             JitSpew(JitSpew_Codegen, "[[[[[[[[ Trampoline: %s", blockname);
         }
 
-        ~AutoDeBlock() {
+        ~TrampolineAutoDeBlock() {
             JitSpew(JitSpew_Codegen, "         Trampoline: %s ]]]]]]]]", blockname);
         }
 };
 
 #undef ADBlock
-#define ADBlock(x)  AutoDeBlock _adbx(x)
+#define ADBlock(x)  TrampolineAutoDeBlock _adbx(x)
             
 #else
 

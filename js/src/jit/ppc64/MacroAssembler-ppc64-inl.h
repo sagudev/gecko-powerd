@@ -273,11 +273,14 @@ MacroAssembler::sub32FromStackPtrWithPatch(Register dest)
 void
 MacroAssembler::patchSub32FromStackPtr(CodeOffset offset, Imm32 imm)
 {
+MOZ_CRASH();
+#if(0)
     Instruction* lis = (Instruction*) m_buffer.getInst(BufferOffset(offset.offset()));
     MOZ_ASSERT(lis->extractOpcode() == ((uint32_t)op_lis >> OpcodeShift));
     MOZ_ASSERT(lis->next()->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
 
     MacroAssemblerPPC64::UpdateLisOriValue(lis, lis->next(), imm.value);
+#endif
 }
 
 void

@@ -34,28 +34,29 @@ using mozilla::Abs;
 #if DEBUG
 
 /* Useful class to print visual guard blocks. */
-class AutoDeBlock
+class MASMAutoDeBlock
 {
     private:
         const char *blockname;
 
     public:
-        AutoDeBlock(const char *name) {
+        MASMAutoDeBlock(const char *name) {
             blockname = name;
             JitSpew(JitSpew_Codegen, "[[ CGPPC: %s", blockname);
         }
 
-        ~AutoDeBlock() {
+        ~MASMAutoDeBlock() {
             JitSpew(JitSpew_Codegen, "   CGPPC: %s ]]", blockname);
         }
 };
-#define ADBlock()  AutoDeBlock _adbx(__PRETTY_FUNCTION__)
+#define ADBlock()  MASMAutoDeBlock _adbx(__PRETTY_FUNCTION__)
 #else
 
 /* Useful macro to completely elide visual guard blocks. */
 #define ADBlock()  ;
 
 #endif
+
 
 static_assert(sizeof(intptr_t) == 8, "Not 64-bit clean.");
 
@@ -78,7 +79,7 @@ MacroAssemblerPPC64Compat::convertInt32ToDouble(Register src, FloatRegister dest
     ADBlock();
 
 #ifdef __POWER8_VECTOR__
-    as_mtfprd(dest, src);
+    as_mtvsrd(dest, src);
 #else
     // Alternative with no GPR<->FPR moves.
     // Treat src as a 64-bit register (since it is) and spill to stack.
@@ -96,7 +97,7 @@ MacroAssemblerPPC64Compat::convertUInt64ToDouble(Register src, FloatRegister des
     ADBlock();
 
 #ifdef __POWER8_VECTOR__
-    as_mtfprd(dest, src);
+    as_mtvsrd(dest, src);
 #else
     // Alternative with no GPR<->FPR moves.
     as_stdu(src, StackPointer, -8);
@@ -1669,9 +1670,12 @@ MacroAssemblerPPC64Compat::checkStackAlignment()
 #ifdef DEBUG
     Label aligned;
     as_andi_rc(ScratchRegister, sp, ABIStackAlignment - 1);
-    ma_bc(ScratchRegister, zero, &aligned, Equal, ShortJump);
+    xs_trap();
+#if(0)
+    ma_bc(ScratchRegister, Zero, &aligned, Equal, ShortJump);
     as_break(BREAK_STACK_UNALIGNED);
     bind(&aligned);
+#endif
 #endif
 }
 
@@ -3031,7 +3035,7 @@ void
 MacroAssemblerPPC64::ma_load_unaligned(const wasm::MemoryAccessDesc& access, Register dest, const BaseIndex& src, Register temp,
                                             LoadStoreSize size, LoadStoreExtension extension)
 {
-    MOZ_ASSERT(MOZ_LITTLE_ENDIAN, "Wasm-only; wasm is disabled on big-endian.");
+    MOZ_ASSERT(MOZ_LITTLE_ENDIAN(), "Wasm-only; wasm is disabled on big-endian.");
 #if 0
     int16_t lowOffset, hiOffset;
     Register base;
@@ -3148,7 +3152,7 @@ MacroAssemblerPPC64::ma_store_unaligned(const wasm::MemoryAccessDesc& access, Re
                                              const BaseIndex& dest, Register temp,
                                              LoadStoreSize size, LoadStoreExtension extension)
 {
-    MOZ_ASSERT(MOZ_LITTLE_ENDIAN, "Wasm-only; wasm is disabled on big-endian.");
+    MOZ_ASSERT(MOZ_LITTLE_ENDIAN(), "Wasm-only; wasm is disabled on big-endian.");
 #if 0
     int16_t lowOffset, hiOffset;
     Register base;
@@ -3854,7 +3858,7 @@ CodeOffset
 MacroAssembler::wasmTrapInstruction()
 {
     CodeOffset offset(currentOffset());
-    x_trap();
+    xs_trap();
     return offset;
 }
 

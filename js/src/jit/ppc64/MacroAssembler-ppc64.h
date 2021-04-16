@@ -967,7 +967,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void moveFromDouble(FloatRegister src, Register dest) {
 #ifdef __POWER8_VECTOR__
-        as_mffprd(dest, src);
+        as_mfvsrd(dest, src);
 #else
         // Sigh.
         as_stfdu(src, StackPointer, -8);
@@ -978,7 +978,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void moveToDouble(Register src, FloatRegister dest) {
 #ifdef __POWER8_VECTOR__
-        as_mtfprd(dest, src);
+        as_mtvsrd(dest, src);
 #else
         // Sigh.
         as_std(src, StackPointer, -8);
@@ -996,7 +996,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void moveToFloat32(Register src, FloatRegister dest) {
 #ifdef __POWER8_VECTOR__
-        as_mtfprd(dest, src);
+        as_mtvsrd(dest, src);
 #else
         // Sigh.
         as_stw(src, StackPointer, -4);

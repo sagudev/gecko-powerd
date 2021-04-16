@@ -280,7 +280,7 @@ static const uint32_t WasmTrapInstructionLength = 4;
 static const Scale ScalePointer = TimesFour;
 
 enum PPCOpcodes {
-	// Some we don't use yet (but we will).
+    // Some we don't use yet (but we will).
     PPC_add     = 0x7C000214, // add
     PPC_addc    = 0x7C000014, // add carrying
     PPC_adde    = 0x7C000114, // add extended
@@ -356,8 +356,8 @@ enum PPCOpcodes {
     PPC_fsel    = 0xFC00002E, // floating point select
     PPC_fsub    = 0xFC000028, // floating subtract (double precision)
     PPC_fsubs   = 0xEC000028, // floating subtract (single precision)
-    PPC_fsqrt   = 0xFC00002C, // floating square root (G5 only) (double)
-    PPC_fsqrts  = 0xEC00002C, // floating square root (G5 only) (double)
+    PPC_fsqrt   = 0xFC00002C, // floating square root (double)
+    PPC_fsqrts  = 0xEC00002C, // floating square root (double)
     PPC_frsqrte = 0xFC000034, // floating reciprocal square root estimate
     PPC_fnmsub  = 0xFC00003C, // floating fused negative multiply-subtract
     PPC_fmadd   = 0xFC00003A, // floating fused multiply-add
@@ -389,10 +389,12 @@ enum PPCOpcodes {
     PPC_mfocrf  = 0x7C100120, // move from one condition register field
     PPC_mffs    = 0xFC00048E, // move from fpscr to fpr
     PPC_mfspr   = 0x7C0002A6, // move from spr (special purpose register)
+    PPC_mfvsrd  = 0x7C000066, // move from VSR doubleword (used for FPR)
     PPC_mtcrf   = 0x7C000120, // move to condition register field
     PPC_mtfsb0  = 0xFC00008C, // move zero bit into FPSCR
     PPC_mtfsb1  = 0xFC00004C, // move one bit into FPSCR
     PPC_mtfsfi  = 0xFC00010C, // move 4-bit immediate into FPSCR field
+    PPC_mtvsrd  = 0x7C000166, // move to VSR doubleword (used for FPR)
     PPC_mtspr   = 0x7C0003A6, // move to spr
     PPC_mulhd   = 0x7C000092, // multiply high signed doubleword
     PPC_mulhdu  = 0x7C000012, // multiply high signed doubleword
@@ -458,7 +460,7 @@ enum PPCOpcodes {
     PPC_subfze  = 0x7C000190, // subtract from zero extended
     PPC_subfo   = 0x7C000450, // subtract from with overflow
     PPC_sync    = 0x7C0004AC, // sync
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__linux__)
     PPC_trap    = 0x7FE00008, // trap word (extended from tw 31,r0,r0)
 #elif defined(__FreeBSD__)
     PPC_trap    = 0x7C810808, // trap word (tweq r1, r1)
@@ -1073,7 +1075,7 @@ class Assembler : public AssemblerShared
 #undef DEF_CRCR
 	BufferOffset as_mtcrf(uint32_t mask, Register rs);
 	BufferOffset as_mfcr(Register rd);
-	BufferOffset as_mfocrf(Register rd, CRegisterID crfs); // G5 only
+	BufferOffset as_mfocrf(Register rd, CRegisterID crfs);
 	BufferOffset as_mcrxr(CRegisterID crt, Register temp = r12); // emulated on G5, EEEK!
 	
 	// GPR operations and load-stores.
@@ -1282,8 +1284,6 @@ class Assembler : public AssemblerShared
         DEF_FPUDS(friz)
         DEF_FPUDS(frsp)
         DEF_FPUDS(frsqrte)
-
-        // G5 only
         DEF_FPUDS(fsqrt)
         DEF_FPUDS(fsqrts)
 #undef DEF_FPUDS
@@ -1324,8 +1324,13 @@ class Assembler : public AssemblerShared
 	BufferOffset as_mcrf(CRegisterID bt, CRegisterID bs);
 	BufferOffset as_mcrfs(CRegisterID bf, uint8_t bfa);
 
+// VSX
+    BufferOffset as_mfvsrd(Register ra, FloatRegister xs);
+    BufferOffset as_mtvsrd(FloatRegister xs, Register ra);
+
 	// Conveniences and generally accepted alternate mnemonics.
-	BufferOffset x_trap();
+// XXX: change these to xs_
+	BufferOffset xs_trap();
 	BufferOffset x_mtrap(); // Codegen for marking traps in output.
 	BufferOffset x_mr(Register rd, Register ra);
 	BufferOffset x_beq(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
@@ -1391,9 +1396,11 @@ class Assembler : public AssemblerShared
     void assertNoGCThings() const {
 #ifdef DEBUG
         MOZ_ASSERT(dataRelocations_.length() == 0);
+/* XXX: This can only be uint32.
         for (auto& j : longJumps_) {
             MOZ_ASSERT(j.kind == RelocationKind::HARDCODED);
         }
+*/
         for (auto& j : jumps_) {
             MOZ_ASSERT(j.kind == RelocationKind::HARDCODED);
         }

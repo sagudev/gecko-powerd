@@ -493,7 +493,7 @@ CodeGenerator::visitWasmReinterpretFromI64(LWasmReinterpretFromI64* lir)
     MOZ_ASSERT(lir->mir()->input()->type() == MIRType::Int64);
 
 #ifdef __POWER8_VECTOR__
-    masm.as_mtfprd(ToFloatRegister(lir->output()), ToRegister(lir->input()));
+    masm.as_mtvsrd(ToFloatRegister(lir->output()), ToRegister(lir->input()));
 #else
     // Alternative, if we're not assuming POWER8.
     masm.as_stdu(ToRegister(lir->input()), StackPointer, -2); // extend to -8
@@ -510,7 +510,7 @@ CodeGenerator::visitWasmReinterpretToI64(LWasmReinterpretToI64* lir)
     MOZ_ASSERT(lir->mir()->input()->type() == MIRType::Double);
 
 #ifdef __POWER8_VECTOR__
-    masm.as_mffprd(ToRegister(lir->output()), ToFloatRegister(lir->input()));
+    masm.as_mfvsrd(ToRegister(lir->output()), ToFloatRegister(lir->input()));
 #else
     // Sigh.
     masm.as_stfdu(ToFloatRegister(lir->input()), StackPointer, -8);

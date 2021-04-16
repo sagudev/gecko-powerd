@@ -25,6 +25,9 @@ void PrepareJit(js::jit::MacroAssembler& masm) {
 #endif
 #if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
   save.add(js::jit::ra);
+#elif defined(JS_CODEGEN_PPC64)
+  // XXX: Figure out what we'll do here.
+  masm.xs_trap();
 #elif defined(JS_USE_LINK_REGISTER)
   save.add(js::jit::lr);
 #endif
@@ -42,6 +45,9 @@ bool ExecuteJit(JSContext* cx, js::jit::MacroAssembler& masm) {
 #endif
 #if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
   save.add(js::jit::ra);
+#elif defined(JS_CODEGEN_PPC64)
+  // XXX: As above yo
+  masm.xs_trap();
 #elif defined(JS_USE_LINK_REGISTER)
   save.add(js::jit::lr);
 #endif
