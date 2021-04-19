@@ -2849,6 +2849,10 @@ static bool VerifyGlobalNames(JSContext* cx, Handle<GlobalObject*> shg) {
 }
 
 bool JSRuntime::initSelfHosting(JSContext* cx) {
+
+#warning initSelfHosting is disabled, revert for production
+return true;
+
   MOZ_ASSERT(!selfHostingGlobal_);
 
   if (cx->runtime()->parentRuntime) {
