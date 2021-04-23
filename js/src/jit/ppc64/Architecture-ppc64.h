@@ -74,6 +74,9 @@ class Registers
         r29,
         r30,
         r31,
+        spr_xer = 32 + 1,
+        spr_lr = 32 + 8,
+        spr_ctr = 32 + 9,
         invalid_reg
     };
 
@@ -91,7 +94,9 @@ class Registers
              "r0",  "sp",  "toc", "r3",  "r4",  "r5",  "r6",  "r7",
              "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",
              "r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
-             "r24", "r25", "r26", "r27", "r28", "r29", "r30", "r31"};
+             "r24", "r25", "r26", "r27", "r28", "r29", "r30", "r31",
+             "XXX", "xer", "XXX", "XXX", "XXX", "XXX", "XXX", "XXX",
+             "lr",  "ctr"};
         return Names[code];
     }
     static const char *GetName(uint32_t i) {
@@ -104,9 +109,10 @@ class Registers
     static const Encoding StackPointer = sp;
     static const Encoding Invalid = invalid_reg;
 
-    static const uint32_t Total = 32;
+    static const uint32_t Total = 41;
     static const uint32_t Allocatable = 15;
 
+    // NEVER allow SPRs to be allocated. It's just not a Good Thing.
     static const SetType AllMask = 0xffffffffffffffff;
     static const SetType ArgRegMask =
         (1 << Registers::r3) |
@@ -120,11 +126,10 @@ class Registers
 
     static const SetType VolatileMask = ArgRegMask;
 
-    // We use this constant to save registers when entering functions. This
-    // is why fake-LR is added here too.
+    // We use this constant to save registers when entering functions.
     static const SetType NonVolatileMask =
-    	(1 << Registers::r11)  |
     	(1 << Registers::r2)  |
+    	(1 << Registers::r11) |
         (1 << Registers::r13) |
         (1 << Registers::r14) |
         (1 << Registers::r15) |
@@ -143,7 +148,8 @@ class Registers
         (1 << Registers::r28) |
         (1 << Registers::r29) |
         (1 << Registers::r30) |
-        (1 << Registers::r31);
+        (1 << Registers::r31) |
+        (1LL << Registers::spr_lr);
 
     static const SetType WrapperMask =
         VolatileMask |          // = arguments
@@ -151,17 +157,22 @@ class Registers
         (1 << Registers::r15);  // = argBase
 
     static const SetType NonAllocatableMask =
+        // Used by assembler.
         (1 << Registers::r0)  |
         (1 << Registers::sp)  |
-        (1 << Registers::r11)  |
         (1 << Registers::r2)  |
+        (1 << Registers::r11) |
         (1 << Registers::r12) |
-        // These are non-volatile work registers held over from PPCBC.
+        // Non-volatile work registers.
         (1 << Registers::r16) |
         (1 << Registers::r17) |
-        (1 << Registers::r18);
+        (1 << Registers::r18) |
         // Despite its use as a rectifier, r19 must be allocatable (see
         // ICCallScriptedCompiler::generateStubCode).
+        // SPRs, however, must never be allocated.
+        (1LL << Registers::spr_xer) |
+        (1LL << Registers::spr_lr)  |
+        (1LL << Registers::spr_ctr);
 
     // Registers that can be allocated without being saved, generally.
     static const SetType TempMask = VolatileMask & ~NonAllocatableMask;
@@ -194,6 +205,7 @@ class Registers
         (1 << Registers::r23) |
         (1 << Registers::r24) |
         (1 << Registers::r25);
+        // THIS IS AN SPR-FREE ZONE
 
     static uint32_t SetSize(SetType x) {
         static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
@@ -211,6 +223,8 @@ class Registers
 typedef uint64_t PackedRegisterMask;
 
 // FPRs.
+// PowerPC FPRs can be both double and single precision, like MIPS. We tell Ion there are
+// 64 FPRs, but each is an aliased pair.
 class FloatRegisters
 {
   public:
@@ -249,48 +263,60 @@ class FloatRegisters
         f31,
         invalid_freg
     };
-    typedef uint8_t Code;
+    typedef uint32_t Code;
+    typedef uint64_t SetType;
     typedef FPRegisterID Encoding;
-    typedef uint32_t SetType;
+    enum ContentType { Single, Double, NumTypes };
 
-    // Content spilled during bailouts.
-    union RegisterContent {
-        float s;
-    	double d;
-    };
+  // Content spilled during bailouts.
+  union RegisterContent {
+    double d;
+  };
 
-    static const char *GetName(Code code) {
+  // Only the double registers (i.e., the underlying FPRs) need actually be saved, not aliases.
+  static const uint32_t TotalPhys = 32;
+  static const uint32_t Total = TotalPhys * NumTypes;
+  //static const uint32_t TotalWithSimd = TotalPhys;
+  static const uint32_t Allocatable = 58;  // Don't use f0, f2 or f3.
+
+  static_assert(sizeof(SetType) * 8 >= Total,
+                "SetType should be large enough to enumerate all registers.");
+
+  // Magic values which are used to duplicate a mask of physical register for
+  // a specific type of register. A multiplication is used to copy and shift
+  // the bits of the physical register mask.
+  static const SetType SpreadSingle = SetType(1)
+                                      << (uint32_t(Single) * TotalPhys);
+  static const SetType SpreadDouble = SetType(1)
+                                      << (uint32_t(Double) * TotalPhys);
+  static const SetType SpreadScalar = SpreadSingle | SpreadDouble;
+  static const SetType SpreadVector = 0;
+  static const SetType Spread = SpreadScalar | SpreadVector;
+
+  static const SetType AllPhysMask = ((SetType(1) << TotalPhys) - 1);
+  static const SetType AllMask = AllPhysMask * Spread;
+  static const SetType AllSingleMask = AllPhysMask * SpreadSingle;
+  static const SetType AllDoubleMask = AllPhysMask * SpreadDouble;
+
+   static const char *GetName(Encoding code) {
         static const char * const Names[] = { "f0", "f1", "f2", "f3",  "f4", "f5",  "f6", "f7",
                                               "f8", "f9",  "f10", "f11", "f12", "f13",
                                               "f14", "f15", "f16", "f17", "f18", "f19",
                                               "f20", "f21", "f22", "f23", "f24", "f25",
                                               "f26", "f27", "f28", "f29", "f30", "f31"};
+        MOZ_ASSERT(code < TotalPhys);
         return Names[code];
     }
     static const char *GetName(uint32_t i) {
         MOZ_ASSERT(i < Total);
-        return GetName(Code(i % 32));
+        return GetName(Code(i % TotalPhys));
     }
 
-    static Code FromName(const char *name);
+    static Encoding FromName(const char *name);
 
-    static const Code Invalid = invalid_freg;
+    static const Encoding Invalid = invalid_freg;
 
-    static const uint32_t Total = 32;
-    static const uint32_t TotalDouble = 32;
-    static const uint32_t TotalSingle = 32;
-    
-    // By declaring the allocator can only use the volatile FPRs, this
-    // saves us a great deal of complexity in the trampoline because we don't
-    // have to save anything. (Don't allocate f0/1/2, though.)
-    // XXX: This might make spills to the stack for ABI-compliant calls bigger.
-    static const uint32_t Allocatable = 11;
-
-    static const uint32_t TotalPhys = 32;
-    static const uint32_t AllDoubleMask = 0xffffffff;
-    static const uint32_t AllMask = AllDoubleMask;
-
-    static const uint32_t VolatileMask = 
+    static const SetType VolatileMask = (
         (1 << FloatRegisters::f0)  |
         (1 << FloatRegisters::f1)  |
         (1 << FloatRegisters::f2)  |
@@ -304,9 +330,9 @@ class FloatRegisters
         (1 << FloatRegisters::f10) |
         (1 << FloatRegisters::f11) |
         (1 << FloatRegisters::f12) |
-        (1 << FloatRegisters::f13);
+        (1 << FloatRegisters::f13)) * SpreadScalar | AllPhysMask * SpreadVector;
 
-    static const uint32_t NonVolatileMask = 
+    static const SetType NonVolatileMask = (
         (1 << FloatRegisters::f14) |
         (1 << FloatRegisters::f15) |
         (1 << FloatRegisters::f16) |
@@ -324,173 +350,207 @@ class FloatRegisters
         (1 << FloatRegisters::f28) |
         (1 << FloatRegisters::f29) |
         (1 << FloatRegisters::f30) |
-        (1 << FloatRegisters::f31);
+        (1 << FloatRegisters::f31)) * SpreadScalar | AllPhysMask * SpreadVector;
 
-	static const uint32_t VolatileDoubleMask = VolatileMask;
-	static const uint32_t NonVolatileDoubleMask = NonVolatileMask;
+	//static const SetType VolatileDoubleMask = VolatileMask;
+	//static const SetType NonVolatileDoubleMask = NonVolatileMask;
 
-    static const uint32_t WrapperMask = VolatileMask;
+    static const SetType WrapperMask = VolatileMask;
 
-    // The allocator is not allowed to use f0 (the scratch FPR), nor any of
-    // the non-volatile registers, nor f3 for some routines. We also hide
-    // f2 from the allocator in case we need it for convertInt32ToDouble.
     // f1 must be allocatable because Ion may expect to optimize with it.
-    static const uint32_t NonAllocatableMask =
+    static const SetType NonAllocatableMask = (
         (1 << FloatRegisters::f0) |
         (1 << FloatRegisters::f2) |
-        (1 << FloatRegisters::f3) |
-        NonVolatileMask;
-	static const uint32_t NonAllocatableDoubleMask = NonAllocatableMask;
+        (1 << FloatRegisters::f3)) * Spread;
+	//static const SetType NonAllocatableDoubleMask = NonAllocatableMask;
 
     // Registers that can be allocated without being saved, generally.
-    static const uint32_t TempMask = VolatileMask & ~NonAllocatableMask;
+    //static const SetType TempMask = VolatileMask & ~NonAllocatableMask;
 	
-    static const uint32_t AllocatableMask = 
+    static const SetType AllocatableMask = (
         // Be explicit
-        (1 << FloatRegisters::f1) |
-        (1 << FloatRegisters::f4) |
-        (1 << FloatRegisters::f5) |
-        (1 << FloatRegisters::f6) |
-        (1 << FloatRegisters::f7) |
-        (1 << FloatRegisters::f8) |
-        (1 << FloatRegisters::f9) |
+        (1 << FloatRegisters::f1)  |
+        (1 << FloatRegisters::f4)  |
+        (1 << FloatRegisters::f5)  |
+        (1 << FloatRegisters::f6)  |
+        (1 << FloatRegisters::f7)  |
+        (1 << FloatRegisters::f8)  |
+        (1 << FloatRegisters::f9)  |
         (1 << FloatRegisters::f10) |
         (1 << FloatRegisters::f11) |
         (1 << FloatRegisters::f12) |
-        (1 << FloatRegisters::f13);
-    static const uint32_t AllocatableDoubleMask = AllocatableMask;
+        (1 << FloatRegisters::f13) |
+        (1 << FloatRegisters::f14) |
+        (1 << FloatRegisters::f15) |
+        (1 << FloatRegisters::f16) |
+        (1 << FloatRegisters::f17) |
+        (1 << FloatRegisters::f18) |
+        (1 << FloatRegisters::f19) |
+        (1 << FloatRegisters::f20) |
+        (1 << FloatRegisters::f21) |
+        (1 << FloatRegisters::f22) |
+        (1 << FloatRegisters::f23) |
+        (1 << FloatRegisters::f24) |
+        (1 << FloatRegisters::f25) |
+        (1 << FloatRegisters::f26) |
+        (1 << FloatRegisters::f27) |
+        (1 << FloatRegisters::f28) |
+        (1 << FloatRegisters::f29) |
+        (1 << FloatRegisters::f30) |
+        (1 << FloatRegisters::f31)) * Spread;
+    //static const SetType AllocatableDoubleMask = AllocatableMask;
 };
 
 template <typename T>
 class TypedRegisterSet;
 
+// Shamelessly rip off MIPS
 class FloatRegister
 {
-  public:
-    typedef FloatRegisters Codes;
-    typedef Codes::Code Code;
-    typedef Codes::Encoding Encoding;
+ public:
+  typedef FloatRegisters Codes;
+  typedef size_t Code;
+  typedef Codes::Encoding Encoding;
+  typedef Codes::ContentType ContentType;
+  typedef FloatRegisters::SetType SetType;
 
-    static constexpr RegTypeName DefaultType = RegTypeName::Float64;
+  Encoding reg_ : 6;
 
-    Code code_;
+ private:
+  ContentType kind_ : 3;
 
-    MOZ_CONSTEXPR FloatRegister(uint32_t code)
-      : code_ (Code(code))
-    { }
-    MOZ_CONSTEXPR FloatRegister()
-      : code_(Code(FloatRegisters::invalid_freg))
-    { }
+ public:
+  constexpr FloatRegister(uint32_t r, ContentType kind = Codes::Double)
+      : reg_(Encoding(r)), kind_(kind) {}
+  constexpr FloatRegister()
+      : reg_(Encoding(FloatRegisters::invalid_freg)), kind_(Codes::Double) {}
 
-	operator int() const { return code_; } // Man, wish we could do this with Register.
-	
-    bool operator==(const FloatRegister &other) const {
-        MOZ_ASSERT(!isInvalid());
-        MOZ_ASSERT(!other.isInvalid());
-        return code_ == other.code_;
-    }
-    bool isDouble() const { return true; }
-    bool isSingle() const { return true; }
-    // SIMD. These assume that, on architectures with SIMD, that
-    // the FPRs are the vector registers. They are, of course, full of it.
-    bool isInt32x4() const { return false; }
-    bool isFloat32x4() const { return false; }
-    bool isSimd128() const { return false; }
-    bool equiv(const FloatRegister &other) const { return true; }
-    size_t size() const { return 8; }
-    bool isInvalid() const {
-        return code_ == FloatRegisters::invalid_freg;
-    }
-    FloatRegister asSingle() const {
-    	MOZ_ASSERT(!isInvalid());
-    	return FloatRegister(code_);
-    }
-    FloatRegister asDouble() const {
-    	MOZ_ASSERT(!isInvalid());
-    	return FloatRegister(code_);
-    }
-    FloatRegister asInt32x4() const { MOZ_CRASH("NYI"); }
-    FloatRegister asFloat32x4() const { MOZ_CRASH("NYI"); }
+  static uint32_t SetSize(SetType x) {
+    // Count the number of non-aliased registers.
+    x |= x >> Codes::TotalPhys;
+    x &= Codes::AllPhysMask;
+    return mozilla::CountPopulation64(x);
+  }
+  static uint32_t FirstBit(SetType x) {
+    static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
+    return mozilla::CountTrailingZeroes64(x);
+  }
+  static uint32_t LastBit(SetType x) {
+    static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
+    return 63 - mozilla::CountLeadingZeroes64(x);
+  }
 
-    Code code() const {
-        MOZ_ASSERT(!isInvalid());
-        return code_;
-    }
-    Encoding encoding() {
-    	MOZ_ASSERT(!isInvalid());
-        return Encoding(code_);
-    }
-    uint32_t id() const {
-        return code_;
-    }
-    static FloatRegister FromCode(uint32_t i) {
-        MOZ_ASSERT(i < FloatRegisters::Total);
-        return FloatRegister(i);
-    }
+  bool operator==(const FloatRegister& other) const {
+    MOZ_ASSERT(!isInvalid());
+    MOZ_ASSERT(!other.isInvalid());
+    return kind_ == other.kind_ && reg_ == other.reg_;
+  }
+  bool equiv(const FloatRegister& other) const { return other.kind_ == kind_; }
+  size_t size() const {
+    return (kind_ == Codes::Double) ? sizeof(double) : sizeof(float);
+  }
+  // Always push doubles to maintain 8-byte stack alignment.
+  size_t pushSize() const { return sizeof(double); }
+  bool isInvalid() const { return reg_ == FloatRegisters::invalid_freg; }
 
-    bool volatile_() const {
-        return !!((1 << code()) & FloatRegisters::VolatileMask);
-    }
-    const char *name() const {
-        return FloatRegisters::GetName(code_);
-    }
-    bool operator != (const FloatRegister &other) const {
-        return code_ != other.code_;
-    }
-    bool aliases(const FloatRegister &other) {
-    	return code_ == other.code_;
-    }
-    uint32_t numAliased() const {
-        return 1;
-    }
-    uint32_t numAlignedAliased() const {
-    	return 1;
-    }
-    // N.B. FloatRegister is an explicit outparam here because msvc-2010
-    // miscompiled it on win64 when the value was simply returned. We rip
-    // off x86, so we'll do the same, puddin' tame.
-    FloatRegister aliased(uint32_t aliasIdx) {
-        MOZ_ASSERT(aliasIdx == 0);
-        return *this;
-    }
-    FloatRegister alignedAliased(uint32_t aliasIdx) {
-        MOZ_ASSERT(aliasIdx == 0);
-        return *this;
-    }
-    typedef FloatRegisters::SetType SetType;
-    SetType alignedOrDominatedAliasedSet() const {
-    	// Always double, always a single register.
-    	return SetType(1) << code_;
-    }
-    static uint32_t SetSize(SetType x) {
-        static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
-        return mozilla::CountPopulation32(x);
-    }
-    template <RegTypeName Name = DefaultType>
-    static SetType AllocatableAsIndexableSet(SetType s) {
-        static_assert(Name != RegTypeName::Any, "Allocatable set are not iterable");
-        return LiveAsIndexableSet<Name>(s);
-    }
-    static Code FromName(const char *name) {
-        return FloatRegisters::FromName(name);
-    }
-    static TypedRegisterSet<FloatRegister> ReduceSetForPush(const TypedRegisterSet<FloatRegister> &s);
-    static uint32_t GetSizeInBytes(const TypedRegisterSet<FloatRegister> &s);
-    static uint32_t GetPushSizeInBytes(const TypedRegisterSet<FloatRegister> &s);
-    uint32_t getRegisterDumpOffsetInBytes();
-    static uint32_t FirstBit(SetType x) {
-        return mozilla::CountTrailingZeroes32(x);
-    }
-    static uint32_t LastBit(SetType x) {
-        return 31 - mozilla::CountLeadingZeroes32(x);
-    }
+  bool isSingle() const { return kind_ == Codes::Single; }
+  bool isDouble() const { return kind_ == Codes::Double; }
+  bool isSimd128() const { return false; }
 
-    template <RegTypeName = DefaultType>
-    static SetType LiveAsIndexableSet(SetType s) {
-        return SetType(0);
+  FloatRegister singleOverlay() const;
+  FloatRegister doubleOverlay() const;
+
+  FloatRegister asSingle() const { return singleOverlay(); }
+  FloatRegister asDouble() const { return doubleOverlay(); }
+  FloatRegister asSimd128() const { MOZ_CRASH("NYI"); }
+
+  Code code() const {
+    MOZ_ASSERT(!isInvalid());
+    return Code(reg_ | (kind_ << 5));
+  }
+  Encoding encoding() const {
+    MOZ_ASSERT(!isInvalid());
+    MOZ_ASSERT(uint32_t(reg_) < Codes::TotalPhys);
+    return reg_;
+  }
+  uint32_t id() const { return reg_; }
+  static FloatRegister FromCode(uint32_t i) {
+    uint32_t code = i & 0x1f;
+    uint32_t kind = i >> 5;
+    return FloatRegister(Code(code), ContentType(kind));
+  }
+
+  bool volatile_() const {
+    return !!((1 << reg_) & FloatRegisters::VolatileMask);
+  }
+  const char* name() const { return FloatRegisters::GetName(reg_); }
+  bool operator!=(const FloatRegister& other) const {
+    return kind_ != other.kind_ || reg_ != other.reg_;
+  }
+  bool aliases(const FloatRegister& other) { return reg_ == other.reg_; }
+  uint32_t numAliased() const { return 2; }
+  FloatRegister aliased(uint32_t aliasIdx) {
+    if (aliasIdx == 0) {
+      return *this;
     }
+    MOZ_ASSERT(aliasIdx == 1);
+    if (isDouble()) {
+      return singleOverlay();
+    }
+    return doubleOverlay();
+  }
+  uint32_t numAlignedAliased() const { return 2; }
+  FloatRegister alignedAliased(uint32_t aliasIdx) {
+    MOZ_ASSERT(isDouble());
+    if (aliasIdx == 0) {
+      return *this;
+    }
+    MOZ_ASSERT(aliasIdx == 1);
+    return singleOverlay();
+  }
+
+  SetType alignedOrDominatedAliasedSet() const { return Codes::Spread << reg_; }
+
+  static constexpr RegTypeName DefaultType = RegTypeName::Float64;
+
+  template <RegTypeName = DefaultType>
+  static SetType LiveAsIndexableSet(SetType s) {
+    return SetType(0);
+  }
+  template <RegTypeName Name = DefaultType>
+  static SetType AllocatableAsIndexableSet(SetType s) {
+    static_assert(Name != RegTypeName::Any, "Allocatable set are not iterable");
+    return LiveAsIndexableSet<Name>(s);
+  }
+
+  static Code FromName(const char* name) {
+    return FloatRegisters::FromName(name);
+  }
+  static TypedRegisterSet<FloatRegister> ReduceSetForPush(
+      const TypedRegisterSet<FloatRegister>& s);
+  static uint32_t GetPushSizeInBytes(const TypedRegisterSet<FloatRegister>& s);
+  uint32_t getRegisterDumpOffsetInBytes();
 };
 
+template <>
+inline FloatRegister::SetType
+FloatRegister::LiveAsIndexableSet<RegTypeName::Float32>(SetType set) {
+  return set & FloatRegisters::AllSingleMask;
+}
+
+template <>
+inline FloatRegister::SetType
+FloatRegister::LiveAsIndexableSet<RegTypeName::Float64>(SetType set) {
+  return set & FloatRegisters::AllDoubleMask;
+}
+
+template <>
+inline FloatRegister::SetType
+FloatRegister::LiveAsIndexableSet<RegTypeName::Any>(SetType set) {
+  return set;
+}
+
+#warning remove SPR and CR code
 // SPRs (PPC backend specific).
 // These have no peer in lesser chips. That is because PPC has no peer in
 // lesser chips. These don't count against the register cap because the
@@ -553,51 +613,11 @@ class CRs // Class definition not yet supported.
         };
         return Names[code];
     }
-};
 #endif
 
-inline uint32_t GetPPC64Flags() { return 0; }
-
-// All spades are groovy.
-inline bool
-hasFPU() {
-	return true;
-}
-
-// All spades are groovy, I mean, FPRs can be treated as floats or doubles.
-inline bool
-hasUnaliasedDouble() {
-    return false;
-}
-
-inline bool
-hasMultiAlias() {
-    return false;
-}
-
-inline bool
-has_altivec() {
-#ifdef TENFOURFOX_VMX
-    return true;
-#else
-    return false;
-#endif
-}
-
-inline bool
-has_sqrt() {
-#ifdef TENFOURFOX_G5
-    return true;
-#else
-    return false;
-#endif
-}
-
-// See the comments above AsmJSMappedSize in AsmJSValidate.h for more info.
-// TODO: Note that it requires Codegen to respect the
-// offset field of AsmJSHeapAccess.
-static const size_t AsmJSCheckedImmediateRange = 0;
-static const size_t AsmJSImmediateRange = 0;
+inline uint32_t GetPPC64Flags() { return 0; /* XXX? */ }
+inline bool hasUnaliasedDouble() { return false; }
+inline bool hasMultiAlias() { return false; }
 
 } // namespace jit
 } // namespace js

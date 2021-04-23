@@ -40,46 +40,65 @@ Registers::FromName(const char *name)
     return Invalid;
 }
 
-FloatRegisters::Code
+FloatRegisters::Encoding
 FloatRegisters::FromName(const char *name)
 {
     for (uint32_t i = 0; i < Total; i++) {
         if (strcmp(GetName(i), name) == 0)
-            return Code(i);
+            return Encoding(i);
     }
 
     return Invalid;
 }
 
-FloatRegisterSet
-FloatRegister::ReduceSetForPush(const FloatRegisterSet &s)
-{
-#if(0)
-	/* NYI */
-    FloatRegisterSet mod;
-    for (TypedRegisterIterator<FloatRegister> iter(s); iter.more(); iter++) {
-        mod.addUnchecked(*iter);
-    }
-    return mod;
-#else
-	return s;
-#endif
+FloatRegister FloatRegister::singleOverlay() const {
+  MOZ_ASSERT(!isInvalid());
+  if (kind_ == Codes::Double) {
+    return FloatRegister(reg_, Codes::Single);
+  }
+  return *this;
 }
 
-uint32_t
-FloatRegister::GetSizeInBytes(const FloatRegisterSet &s)
-{
-    return s.size() * sizeof(double);
+FloatRegister FloatRegister::doubleOverlay() const {
+  MOZ_ASSERT(!isInvalid());
+  if (kind_ != Codes::Double) {
+    return FloatRegister(reg_, Codes::Double);
+  }
+  return *this;
 }
-uint32_t
-FloatRegister::GetPushSizeInBytes(const FloatRegisterSet &s)
-{
-    return s.size() * sizeof(double);
+
+FloatRegisterSet FloatRegister::ReduceSetForPush(const FloatRegisterSet& s) {
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
+
+  LiveFloatRegisterSet mod;
+  for (FloatRegisterIterator iter(s); iter.more(); ++iter) {
+    if ((*iter).isSingle()) {
+      // Even for floats, save a full double.
+      mod.addUnchecked((*iter).doubleOverlay());
+    } else {
+      mod.addUnchecked(*iter);
+    }
+  }
+  return mod.set();
 }
-uint32_t
-FloatRegister::getRegisterDumpOffsetInBytes()
-{
-    return code() * sizeof(double);
+
+uint32_t FloatRegister::GetPushSizeInBytes(const FloatRegisterSet& s) {
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
+
+  FloatRegisterSet ss = s.reduceSetForPush();
+  uint64_t bits = ss.bits();
+  // We only push double registers.
+  MOZ_ASSERT((bits & 0xffffffff) == 0);
+  uint32_t ret = mozilla::CountPopulation32(bits >> 32) * sizeof(double);
+  return ret;
+}
+
+uint32_t FloatRegister::getRegisterDumpOffsetInBytes() {
+  return id() * sizeof(double);
 }
 
 } // namespace ion
