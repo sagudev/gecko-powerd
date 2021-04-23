@@ -17,20 +17,11 @@
 
 #include "js/Utility.h"
 
-/* The new TenFourFox 32-bit PowerOpen-compliant JIT. */
-
 namespace js {
 namespace jit {
 
 // Not used on PPC.
 static const uint32_t ShadowStackSpace = 0;
-
-// These offsets are specific to nunboxing, and capture offsets into the
-// components of a js::Value.
-// We are big-endian, unlike all those other puny little-endian architectures,
-// so we use different constants. (type == tag)
-static const int32_t NUNBOX32_TYPE_OFFSET = 0;
-static const int32_t NUNBOX32_PAYLOAD_OFFSET = 4;
 
 // Size of each bailout table entry.
 // For PowerPC this is a single bl.
@@ -40,6 +31,9 @@ static const uint32_t BAILOUT_TABLE_ENTRY_SIZE = sizeof(void *);
 static constexpr uint32_t JumpImmediateRange = 32 * 1024 * 1024;
 
 // GPRs.
+// XXX: Now that we can have more than 32 registers defined, use >32 for SPRs
+// so we can "push" LR and others.
+
 class Registers
 {
   public:
@@ -85,7 +79,7 @@ class Registers
 
     typedef uint8_t Code;
     typedef uint32_t Encoding;
-    typedef uint32_t SetType;
+    typedef uint64_t SetType;
     
     // Content spilled during bailouts.
     union RegisterContent {
@@ -113,8 +107,8 @@ class Registers
     static const uint32_t Total = 32;
     static const uint32_t Allocatable = 15;
 
-    static const uint32_t AllMask = 0xffffffff;
-    static const uint32_t ArgRegMask =
+    static const SetType AllMask = 0xffffffffffffffff;
+    static const SetType ArgRegMask =
         (1 << Registers::r3) |
         (1 << Registers::r4) |
         (1 << Registers::r5) |
@@ -124,11 +118,11 @@ class Registers
         (1 << Registers::r9) |
         (1 << Registers::r10);
 
-    static const uint32_t VolatileMask = ArgRegMask;
+    static const SetType VolatileMask = ArgRegMask;
 
     // We use this constant to save registers when entering functions. This
     // is why fake-LR is added here too.
-    static const uint32_t NonVolatileMask =
+    static const SetType NonVolatileMask =
     	(1 << Registers::r11)  |
     	(1 << Registers::r2)  |
         (1 << Registers::r13) |
@@ -151,12 +145,12 @@ class Registers
         (1 << Registers::r30) |
         (1 << Registers::r31);
 
-    static const uint32_t WrapperMask =
+    static const SetType WrapperMask =
         VolatileMask |          // = arguments
         (1 << Registers::r14) | // = outReg
         (1 << Registers::r15);  // = argBase
 
-    static const uint32_t NonAllocatableMask =
+    static const SetType NonAllocatableMask =
         (1 << Registers::r0)  |
         (1 << Registers::sp)  |
         (1 << Registers::r11)  |
@@ -170,19 +164,17 @@ class Registers
         // ICCallScriptedCompiler::generateStubCode).
 
     // Registers that can be allocated without being saved, generally.
-    static const uint32_t TempMask = VolatileMask & ~NonAllocatableMask;
+    static const SetType TempMask = VolatileMask & ~NonAllocatableMask;
 
     // Registers returned from a JS -> JS call.
-    static const uint32_t JSCallMask =
-        (1 << Registers::r5) |
-        (1 << Registers::r6);
+    static const SetType JSCallMask =
+        (1 << Registers::r5);
 
     // Registers returned from a JS -> C call.
-    static const uint32_t CallMask =
-        (1 << Registers::r3) |
-        (1 << Registers::r4);  // used for double-size returns
+    static const SetType CallMask =
+        (1 << Registers::r3);
  
-    static const uint32_t AllocatableMask =
+    static const SetType AllocatableMask =
     	// Be explicit
         (1 << Registers::r3)  |
         (1 << Registers::r4)  |
@@ -204,20 +196,19 @@ class Registers
         (1 << Registers::r25);
 
     static uint32_t SetSize(SetType x) {
-        static_assert(sizeof(SetType) == 4, "SetType must be 32 bits");
-        return mozilla::CountPopulation32(x);
+        static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
+        return mozilla::CountPopulation64(x);
     }
     static uint32_t FirstBit(SetType x) {
-        return mozilla::CountTrailingZeroes32(x);
+        return mozilla::CountTrailingZeroes64(x);
     }
     static uint32_t LastBit(SetType x) {
-        return 31 - mozilla::CountLeadingZeroes32(x);
+        return 63 - mozilla::CountLeadingZeroes64(x);
     }
 };
 
 // Smallest integer type that can hold a register bitmask.
-typedef uint32_t PackedRegisterMask;
-
+typedef uint64_t PackedRegisterMask;
 
 // FPRs.
 class FloatRegisters
@@ -264,6 +255,7 @@ class FloatRegisters
 
     // Content spilled during bailouts.
     union RegisterContent {
+        float s;
     	double d;
     };
 
