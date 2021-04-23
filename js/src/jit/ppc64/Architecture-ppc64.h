@@ -317,7 +317,7 @@ class FloatRegisters
     static const Encoding Invalid = invalid_freg;
 
     static const SetType VolatileMask = (
-        (1 << FloatRegisters::f0)  |
+        // Since we never let it allocate f0, don't let it push it either.
         (1 << FloatRegisters::f1)  |
         (1 << FloatRegisters::f2)  |
         (1 << FloatRegisters::f3)  |
@@ -550,7 +550,8 @@ FloatRegister::LiveAsIndexableSet<RegTypeName::Any>(SetType set) {
   return set;
 }
 
-#warning remove SPR and CR code
+// XXX: This needs to be rolled into somewhere else
+
 // SPRs (PPC backend specific).
 // These have no peer in lesser chips. That is because PPC has no peer in
 // lesser chips. These don't count against the register cap because the
