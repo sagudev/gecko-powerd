@@ -56,6 +56,13 @@ ABIArgGenerator::next(MIRType type)
     return current_;
 }
 
+bool Assembler::isGPR(Register r) const {
+    return r.code() <  Registers::SPRStart;
+}
+bool Assembler::isSPR(Register r) const {
+    return r.code() >= Registers::SPRStart;
+}
+
 uintptr_t
 Assembler::GetPointer(uint8_t* instPtr)
 {
@@ -136,6 +143,7 @@ Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
 void
 Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
 {
+    __asm__("trap\n");
 #if 0 // TODO: Assembler::bind()
     int64_t offset = target - branch;
     InstImm inst_bgezal = InstImm(op_regimm, r0, rt_bgezal, BOffImm16(0));
@@ -196,7 +204,7 @@ Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
 void
 Assembler::bind(Label* label)
 {
-    MOZ_CRASH();
+    __asm__("trap\n");
 #if 0
     BufferOffset dest = nextOffset();
     if (label->used() && !oom()) {
@@ -494,6 +502,7 @@ Assembler::ToggleToJmp(CodeLocationLabel inst_)
 {
     InstImm* inst = (InstImm*)inst_.raw();
 
+    __asm__("trap\n");
     MOZ_ASSERT(inst->extractOpcode() == PPC_andis);
 #if 0 // TODO
     // We converted beq to andi, so now we restore it.
@@ -507,6 +516,7 @@ Assembler::ToggleToCmp(CodeLocationLabel inst_)
 {
     InstImm* inst = (InstImm*)inst_.raw();
 
+    __asm__("trap\n");
     // toggledJump is allways used for short jumps.
     MOZ_ASSERT(inst->extractOpcode() == PPC_bc);
 #if 0 // TODO

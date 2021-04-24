@@ -480,8 +480,10 @@ void
 MacroAssemblerPPC64::ma_load(Register dest, Address address,
                               LoadStoreSize size, LoadStoreExtension extension)
 {
+    // ADBlock(); // spammy
     int16_t encodedOffset;
     Register base;
+    MOZ_ASSERT(isGPR(dest));
 
     MOZ_ASSERT(extension == ZeroExtend || extension == SignExtend);
 
@@ -527,8 +529,10 @@ void
 MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size,
                                LoadStoreExtension extension)
 {
+    //ADBlock(); // spammy
     int16_t encodedOffset;
     Register base;
+    MOZ_ASSERT(isGPR(data));
 
     // XXX: as above
     if (!Imm16::IsInSignedRange(address.offset) || address.base == ScratchRegister) {
@@ -577,7 +581,9 @@ MacroAssemblerPPC64Compat::computeScaledAddress(const BaseIndex& address, Regist
 void
 MacroAssemblerPPC64::ma_pop(Register r)
 {
+    ADBlock();
     MOZ_ASSERT(sizeof(uintptr_t) == 8);
+    MOZ_ASSERT(isGPR(r)); // XXX: implement this for SPRs
     as_ld(r, StackPointer, 0);
     as_addi(StackPointer, StackPointer, sizeof(uintptr_t));
 }
@@ -585,7 +591,9 @@ MacroAssemblerPPC64::ma_pop(Register r)
 void
 MacroAssemblerPPC64::ma_push(Register r)
 {
+    ADBlock();
     MOZ_ASSERT(sizeof(uintptr_t) == 8);
+    MOZ_ASSERT(isGPR(r)); // XXX: implement this for SPRs
     as_stdu(r, StackPointer, (int32_t)-sizeof(intptr_t));
 }
 
@@ -618,6 +626,7 @@ template <typename T>
 void
 MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
 {
+    ADBlock();
     // Branch on the condition bit in the specified condition register.
     spew("bc .Llabel %p\n", label);
     if (label->bound()) {
@@ -1185,6 +1194,7 @@ MacroAssemblerPPC64Compat::storeUnalignedDouble(const wasm::MemoryAccessDesc& ac
 void
 MacroAssembler::clampDoubleToUint8(FloatRegister input, Register output)
 {
+    ADBlock();
     Label done, tooLow;
 
     as_fctiwz(ScratchDoubleReg, input);
@@ -1438,6 +1448,7 @@ MacroAssemblerPPC64Compat::loadConstantFloat32(float f, FloatRegister dest)
 void
 MacroAssemblerPPC64Compat::loadInt32OrDouble(const Address& src, FloatRegister dest)
 {
+    ADBlock();
     Label notInt32, end;
     // If it's an int, convert it to double.
     loadPtr(Address(src.base, src.offset), ScratchRegister);
@@ -1456,6 +1467,7 @@ MacroAssemblerPPC64Compat::loadInt32OrDouble(const Address& src, FloatRegister d
 void
 MacroAssemblerPPC64Compat::loadInt32OrDouble(const BaseIndex& addr, FloatRegister dest)
 {
+    ADBlock();
     Label notInt32, end;
 
     // If it's an int, convert it to double.
@@ -1639,7 +1651,7 @@ MacroAssemblerPPC64Compat::popValue(ValueOperand val)
 void
 MacroAssemblerPPC64Compat::breakpoint()
 {
-    as_tw(31, r0, r0);
+    xs_trap();
 }
 
 void
@@ -1921,12 +1933,14 @@ MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest, Register)
 void
 MacroAssembler::setupUnalignedABICall(Register scratch)
 {
-    MOZ_ASSERT(!IsCompilingWasm(), "wasm should only use aligned ABI calls");
+    ADBlock();
+    MOZ_ASSERT(!IsCompilingWasm(), "wasm should only use aligned ABI calls"); // XXX?? arm doesn't do this
+    setupNativeABICall();
     dynamicAlignment_ = true;
 
     ma_move(scratch, StackPointer);
 
-    // Force sp to be aligned
+    // Save SP. (XXX: ARM saves LR here too?)
     asMasm().subPtr(Imm32(sizeof(uintptr_t)), StackPointer);
     ma_and(StackPointer, StackPointer, Imm32(~(ABIStackAlignment - 1)));
     storePtr(scratch, Address(StackPointer, 0));
@@ -1935,15 +1949,17 @@ MacroAssembler::setupUnalignedABICall(Register scratch)
 void
 MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
 {
+    ADBlock();
     MOZ_ASSERT(inCall_);
     uint32_t stackForCall = abiArgs_.stackBytesConsumedSoFar();
 
-    // Reserve place for $ra.
+    // Reserve place for LR.
     stackForCall += sizeof(intptr_t);
 
     if (dynamicAlignment_) {
         stackForCall += ComputeByteAlignment(stackForCall, ABIStackAlignment);
     } else {
+        MOZ_CRASH("NYI");
         uint32_t alignmentAtPrologue = callFromWasm ? sizeof(wasm::Frame) : 0;
         stackForCall += ComputeByteAlignment(stackForCall + framePushed() + alignmentAtPrologue,
                                              ABIStackAlignment);
@@ -1951,12 +1967,6 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
 
     *stackAdjust = stackForCall;
     reserveStack(stackForCall);
-
-    // Save $lr because call is going to clobber it. Restore it in
-    // callWithABIPost. NOTE: This is needed for calls from SharedIC.
-    // Maybe we can do this differently.
-    xs_mflr(ScratchRegister);
-    storePtr(ScratchRegister, Address(StackPointer, stackForCall - sizeof(intptr_t)));
 
     // Position all arguments.
     {
@@ -1969,14 +1979,19 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
         emitter.finish();
     }
 
+    // SP is now set, so save LR to the correct location in the new frame.
+    xs_mflr(ScratchRegister);
+    storePtr(ScratchRegister, Address(StackPointer, 16));
+
     assertStackAlignment(ABIStackAlignment);
 }
 
 void
 MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool callFromWasm)
 {
-    // Restore ra value (as stored in callWithABIPre()).
-    loadPtr(Address(StackPointer, stackAdjust - sizeof(intptr_t)), ScratchRegister);
+    ADBlock();
+    // Restore LR.
+    loadPtr(Address(StackPointer, 16), ScratchRegister);
     xs_mtlr(ScratchRegister);
 
     if (dynamicAlignment_) {
@@ -1985,6 +2000,7 @@ MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool 
         // Use adjustFrame instead of freeStack because we already restored sp.
         adjustFrame(-stackAdjust);
     } else {
+        MOZ_CRASH("NYI");
         freeStack(stackAdjust);
     }
 

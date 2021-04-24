@@ -37,6 +37,7 @@ static constexpr uint32_t JumpImmediateRange = 32 * 1024 * 1024;
 class Registers
 {
   public:
+    static const uint32_t SPRStart = 32;
     enum RegisterID {
         r0 = 0,
         tempRegister = r0,
@@ -74,9 +75,9 @@ class Registers
         r29,
         r30,
         r31,
-        spr_xer = 32 + 1,
-        spr_lr = 32 + 8,
-        spr_ctr = 32 + 9,
+        spr_xer = SPRStart + 1,
+        spr_lr = SPRStart + 8,
+        spr_ctr = SPRStart + 9,
         invalid_reg
     };
 
@@ -187,6 +188,7 @@ class Registers
  
     static const SetType AllocatableMask =
     	// Be explicit
+        // THIS IS AN SPR-FREE ZONE
         (1 << Registers::r3)  |
         (1 << Registers::r4)  |
         (1 << Registers::r5)  |
@@ -205,7 +207,6 @@ class Registers
         (1 << Registers::r23) |
         (1 << Registers::r24) |
         (1 << Registers::r25);
-        // THIS IS AN SPR-FREE ZONE
 
     static uint32_t SetSize(SetType x) {
         static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
