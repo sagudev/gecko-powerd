@@ -260,27 +260,27 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
     // Handle trivial 16-bit quantities.
     if (value > -32769 && value < 32768) {
         // fits in 16 low bits
-        x_li(dest, value); // mscdfr0 asserts
+        xs_li(dest, value); // mscdfr0 asserts
         return;
     }
     if ((bits & 0xffffffff0000ffff) == 0 ||
             (bits & 0xffffffff0000ffff) == 0xffffffff00000000) {
         // fits in 16 high bits
-        x_lis(dest, value >> 16); // mscdfr0 asserts
+        xs_lis(dest, value >> 16); // mscdfr0 asserts
         return;
     }
 
     // Emit optimized sequence based on occupied bits.
     if (bits & 0xffff000000000000) {
         // Need to set upper word and shift.
-        x_lis(dest, bits >> 48);
+        xs_lis(dest, bits >> 48);
         if (bits & 0x0000ffff00000000) {
             as_ori(dest, dest, (bits >> 32) & 0xffff);
         }
         as_rldicr(dest, dest, 32, 31);
         loweronly = false;
     } else if (bits & 0x0000ffff00000000) {
-        x_li(dest, (bits >> 32) & 0xffff);
+        xs_li(dest, (bits >> 32) & 0xffff);
         as_rldicr(dest, dest, 32, 31);
         loweronly = false;
     }
@@ -289,7 +289,7 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
     bits &= 0x00000000ffffffff;
     if (bits & 0xffff0000) {
         if (loweronly) {
-            x_lis(dest, bits >> 16);
+            xs_lis(dest, bits >> 16);
         } else {
             as_oris(dest, dest, bits >> 16);
         }
@@ -298,7 +298,7 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
         }
     } else if (bits & 0x0000ffff) {
         if (loweronly) {
-            x_li(dest, bits & 0xffff);
+            xs_li(dest, bits & 0xffff);
         } else {
             as_ori(dest, dest, bits & 0xffff);
         }
@@ -323,7 +323,7 @@ MacroAssemblerPPC64::ma_liPatchable(Register dest, ImmWord imm)
 {
     // 64-bit load.
     m_buffer.ensureSpace(5 * sizeof(uint32_t));
-    x_lis(dest, Imm16::Upper(Imm32(imm.value >> 32)).encode());
+    xs_lis(dest, Imm16::Upper(Imm32(imm.value >> 32)).encode());
     as_ori(dest, dest, Imm16::Lower(Imm32(imm.value >> 32)).encode());
     as_rldicr(dest, dest, 32, 31);
     as_oris(dest, dest, Imm16::Upper(Imm32(imm.value)).encode());
@@ -417,7 +417,7 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Register rt, L
     MOZ_ASSERT(rs != ScratchRegister);
     MOZ_ASSERT(rt != ScratchRegister);
     // Whack XER[SO].
-    x_li(ScratchRegister, 0);
+    xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
 
     as_addo_rc(rd, rs, rt); // XER[SO] -> CR0[SO]
@@ -467,7 +467,7 @@ MacroAssemblerPPC64::ma_subTestOverflow(Register rd, Register rs, Register rt, L
     MOZ_ASSERT(rs != ScratchRegister);
     MOZ_ASSERT(rt != ScratchRegister);
     // Whack XER[SO].
-    x_li(ScratchRegister, 0);
+    xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
 
     as_subfo_rc(rd, rt, rs); // T = B - A; XER[SO] -> CR0[SO]
@@ -2801,7 +2801,7 @@ void
 MacroAssemblerPPC64::ma_li(Register dest, Imm32 imm)
 {
     if (Imm16::IsInSignedRange(imm.value)) {
-        as_addi(dest, r0, imm.value);
+        xs_li(dest, imm.value);
     } else if (Imm16::IsInUnsignedRange(imm.value)) {
         as_ori(dest, r0, Imm16::Lower(imm).encode());
     } else if (Imm16::Lower(imm).encode() == 0) {

@@ -1213,9 +1213,53 @@ DEF_ALU2(eqv) // NB: Implemented differently.
     BufferOffset Assembler::as_##op##_rc(Register rd, Register ra, int16_t im) { \
         spew(#op ".\t%3s,%3s,%d", rd.name(), ra.name(), im); \
         return writeInst(InstImm(PPC_##op, rd, ra, im).encode() | 0x1); }
-DEF_ALUI(addi)
+// mscdfr0
+BufferOffset Assembler::as_addi(Register rd, Register ra, int16_t im, bool actually_li) {
+#if DEBUG
+    if (actually_li) {
+        spew("li\t%3s,%d", rd.name(), im);
+    } else {
+        MOZ_ASSERT(ra != r0); // Because that would be li
+        spew("addi\t%3s,%3s,%d", rd.name(), ra.name(), im);
+    }
+#endif
+    return writeInst(InstImm(PPC_addi, rd, ra, im).encode());
+}
+BufferOffset Assembler::as_addi_rc(Register rd, Register ra, int16_t im, bool actually_li) {
+#if DEBUG
+    if (actually_li) {
+        spew("li.\t%3s,%d", rd.name(), im);
+    } else {
+        MOZ_ASSERT(ra != r0); // Because that would be li
+        spew("addi.\t%3s,%3s,%d", rd.name(), ra.name(), im);
+    }
+#endif
+    return writeInst(InstImm(PPC_addi, rd, ra, im).encode() | 0x01);
+}
+BufferOffset Assembler::as_addis(Register rd, Register ra, int16_t im, bool actually_lis) {
+#if DEBUG
+    if (actually_lis) {
+        spew("lis\t%3s,%d", rd.name(), im);
+    } else {
+        MOZ_ASSERT(ra != r0); // Because that would be lis
+        spew("addis\t%3s,%3s,%d", rd.name(), ra.name(), im);
+    }
+#endif
+    return writeInst(InstImm(PPC_addis, rd, ra, im).encode());
+}
+BufferOffset Assembler::as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis) {
+#if DEBUG
+    if (actually_lis) {
+        spew("lis.\t%3s,%d", rd.name(), im);
+    } else {
+        MOZ_ASSERT(ra != r0); // Because that would be lis
+        spew("addis.\t%3s,%3s,%d", rd.name(), ra.name(), im);
+    }
+#endif
+    return writeInst(InstImm(PPC_addis, rd, ra, im).encode() | 0x01);
+}
+
 DEF_ALUI(addic)
-DEF_ALUI(addis)
 // NB: mulli is usually strength-reduced, since it can take up to five
 // cycles in the worst case.
 DEF_ALUI(mulli)
@@ -1535,15 +1579,14 @@ BufferOffset Assembler::x_subi(Register rd, Register ra, int16_t im)
     return as_addi(rd, ra, -im);
 }
 
-// Large loads.	
-BufferOffset Assembler::x_li(Register rd, int16_t im)
+BufferOffset Assembler::xs_li(Register rd, int16_t im)
 {
-    return as_ori(rd, r0, im);
+    return as_addi(rd, r0, im, true /* actually_li */);
 }
 
-BufferOffset Assembler::x_lis(Register rd, int16_t im)
+BufferOffset Assembler::xs_lis(Register rd, int16_t im)
 {
-    return as_oris(rd, r0, im);
+    return as_addis(rd, r0, im, true /* actually_lis */);
 }
 
 BufferOffset Assembler::x_not(Register rd, Register ra)

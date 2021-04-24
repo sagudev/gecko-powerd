@@ -249,12 +249,10 @@ static constexpr Register AsmJSIonExitRegD0 = r3;
 static constexpr Register AsmJSIonExitRegD1 = r4;
 static constexpr Register AsmJSIonExitRegD2 = r7;
 
-// Try to favour word alignment, though we consider the ABI stack-smashed in Ion code.
-static const uint32_t ABIStackAlignment = 4;
+static const uint32_t ABIStackAlignment = 16;
 static const uint32_t CodeAlignment = 16;
-// As of Mozilla 40, the JIT requires Value alignment at minimum, which is stupid and unnecessary.
-static const uint32_t JitStackAlignment = 8;
-static const uint32_t JitStackValueAlignment = 1;
+static const uint32_t JitStackAlignment = 16;
+static const uint32_t JitStackValueAlignment = 2;
 
 // Helper classes for ScratchRegister usage. Asserts that only one piece
 // of code thinks it has exclusive ownership of each scratch register.
@@ -1146,11 +1144,15 @@ class Assembler : public AssemblerShared
         DEF_ALU2(eqv) // NB: Implemented differently.
 #undef DEF_ALU2
 
+// Special handling due to mscdfr0
+BufferOffset as_addi(Register rd, Register ra, int16_t im, bool actually_li = false);
+BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = false);
+BufferOffset as_addi_rc(Register rd, Register ra, int16_t im, bool actually_li = false);
+BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis = false);
+
 #define DEF_ALUI(op) BufferOffset as_##op(Register rd, Register ra, int16_t im); \
                      BufferOffset as_##op##_rc(Register rd, Register ra, int16_t im);
-        DEF_ALUI(addi)
         DEF_ALUI(addic)
-        DEF_ALUI(addis)
         // NB: mulli is usually strength-reduced, since it can take up to five
         // cycles in the worst case. See x_sr_mulli.
         DEF_ALUI(mulli)
@@ -1358,8 +1360,8 @@ class Assembler : public AssemblerShared
 	BufferOffset x_not(Register rd, Register ra);
 
 	// Large loads.	
-	BufferOffset x_li(Register rd, int16_t im);
-	BufferOffset x_lis(Register rd, int16_t im);
+	BufferOffset xs_li(Register rd, int16_t im);
+	BufferOffset xs_lis(Register rd, int16_t im);
 
 	// Traps
 	BufferOffset as_tw(uint8_t to, Register ra, Register rb);
