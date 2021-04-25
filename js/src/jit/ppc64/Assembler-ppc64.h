@@ -7,15 +7,7 @@
 #ifndef jit_ppc_Assembler_ppc_h
 #define jit_ppc_Assembler_ppc_h
 
-/*
-
-   IonPower (C)2015 Contributors to TenFourFox. All rights reserved.
- 
-   Authors: Cameron Kaiser <classilla@floodgap.com>
-   with thanks to Ben Stuhl and David Kilbridge 
-   and the authors of the ARM and MIPS ports
- 
- */
+/* Mostly derived from TenFourFox IonPower (r.i.p.). */
 
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Attributes.h"
@@ -1337,7 +1329,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
 	// Conveniences and generally accepted alternate mnemonics.
 // XXX: change these to xs_
 	BufferOffset xs_trap();
-	BufferOffset x_mtrap(); // Codegen for marking traps in output.
+	BufferOffset xs_trap_tagged(uint8_t tag); // Codegen for marking traps in output.
 	BufferOffset x_mr(Register rd, Register ra);
 	BufferOffset x_beq(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bne(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);

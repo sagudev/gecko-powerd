@@ -2800,16 +2800,7 @@ MacroAssemblerPPC64::ma_li(Register dest, ImmGCPtr ptr)
 void
 MacroAssemblerPPC64::ma_li(Register dest, Imm32 imm)
 {
-    if (Imm16::IsInSignedRange(imm.value)) {
-        xs_li(dest, imm.value);
-    } else if (Imm16::IsInUnsignedRange(imm.value)) {
-        as_ori(dest, r0, Imm16::Lower(imm).encode());
-    } else if (Imm16::Lower(imm).encode() == 0) {
-        as_oris(dest, r0, Imm16::Upper(imm).encode());
-    } else {
-        as_oris(dest, r0, Imm16::Upper(imm).encode());
-        as_ori(dest, dest, Imm16::Lower(imm).encode());
-    }
+    asMasm().ma_li(dest, (uint64_t)imm.value);
 }
 
 // This method generates lis and ori instruction pair that can be modified by
@@ -2819,7 +2810,7 @@ void
 MacroAssemblerPPC64::ma_liPatchable(Register dest, Imm32 imm)
 {
     m_buffer.ensureSpace(2 * sizeof(uint32_t));
-    as_oris(dest, r0, Imm16::Upper(imm).encode());
+    xs_lis(dest, Imm16::Upper(imm).encode());
     as_ori(dest, dest, Imm16::Lower(imm).encode());
 }
 
@@ -3262,6 +3253,20 @@ MacroAssemblerPPC64::ma_bc(Register lhs, ImmPtr imm, Label* l, Condition c, Jump
 void
 MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
 {
+    ADBlock();
+    if (!label->bound()) {
+        // Emit an unbound branch to be bound later by |Assembler::bind|.
+        if (jumpKind == ShortJump) {
+            xs_trap_tagged(4); // turned into b
+        } else {
+            ma_liPatchable(ScratchRegister, ImmWord(-1));
+            xs_trap_tagged(4); // turned into mtctr
+            xs_trap(); // turned into bctr
+        }
+        return;
+    }
+
+    // Label is bound, emit final code.
     if (jumpKind == ShortJump)
         as_b(label->offset());
     else {

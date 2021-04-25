@@ -124,6 +124,7 @@ Assembler::TraceDataRelocations(JSTracer* trc, JitCode* code, CompactBufferReade
 void
 Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
 {
+    __asm__("trap\n");
     if (label.patchAt().bound()) {
 
         auto mode = label.linkMode();
@@ -272,6 +273,7 @@ Assembler::bind(Label* label)
 void
 Assembler::bind(Label* label, BufferOffset boff)
 {
+    __asm__("trap\n");
     spew(".set Llabel %p", label);
     // If our caller didn't give us an explicit target to bind to
     // then we want to bind to the location of the next instruction
@@ -353,6 +355,7 @@ Assembler::PatchWrite_NearCallSize()
 void
 Assembler::PatchWrite_NearCall(CodeLocationLabel start, CodeLocationLabel toCall)
 {
+    __asm__("trap\n");
     Instruction* inst = (Instruction*) start.raw();
     uint8_t* dest = toCall.raw();
 
@@ -1496,6 +1499,13 @@ BufferOffset Assembler::xs_trap()
 {
     spew("trap");
     return writeInst(PPC_trap);
+}
+// trap with metadata encoded as register
+BufferOffset Assembler::xs_trap_tagged(uint8_t tag) {
+    // FreeBSD and others may use r1 in their trap word, so don't allow bit 0 or > 15.
+    spew("trap ; MARK %d", tag);
+    MOZ_ASSERT(!(tag & 1) && (tag < 16));
+    return writeInst(PPC_trap | (tag << 21) | (tag << 16));
 }
 
 BufferOffset Assembler::x_mr(Register rd, Register ra)
