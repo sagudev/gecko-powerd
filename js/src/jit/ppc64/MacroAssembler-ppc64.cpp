@@ -2917,10 +2917,12 @@ void
 MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, Register rt,
                                           Label* overflow)
 {
+// Needs code check
+__asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     MOZ_ASSERT_IF(rd == rs, rt != rd);
     as_addc(rd, rs, rt);
-    as_mcrxr(cr0);
+    as_mcrxrx(cr0);
     ma_bc(SecondScratchReg, SecondScratchReg, overflow,
          cond == Assembler::CarrySet ? Assembler::Zero : Assembler::NonZero);
 }
@@ -2929,6 +2931,7 @@ void
 MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, Imm32 imm,
                                           Label* overflow)
 {
+__asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     if (!Imm16::IsInSignedRange(imm.value)) {
         ma_li(ScratchRegister, imm);
@@ -2937,7 +2940,7 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, I
     }
     ma_addTestCarry(cond, rd, rs, ScratchRegister, overflow);
     as_addic(rd, rs, imm.value);
-    as_mcrxr(cr0);
+    as_mcrxrx(cr0);
     ma_bc(SecondScratchReg, SecondScratchReg, overflow,
          cond == Assembler::CarrySet ? Assembler::Zero : Assembler::NonZero);
 }
@@ -3229,7 +3232,7 @@ void
 MacroAssemblerPPC64::ma_bc(Register lhs, Imm32 imm, Label* label, Condition c, JumpKind jumpKind)
 {
     MOZ_ASSERT(c != Overflow);
-    if (c == Always || c == AboveOrEqual)
+    if (c == Always || c == AboveOrEqual) // XXX?
         ma_b(label, jumpKind);
     else {
         if (imm.value <= INT16_MAX) {
@@ -3256,8 +3259,9 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
     ADBlock();
     if (!label->bound()) {
         // Emit an unbound branch to be bound later by |Assembler::bind|.
+        spew(".Llabel %p", label);
         if (jumpKind == ShortJump) {
-            xs_trap_tagged(4); // turned into b
+            xs_trap_tagged(2); // turned into b
         } else {
             ma_liPatchable(ScratchRegister, ImmWord(-1));
             xs_trap_tagged(4); // turned into mtctr
@@ -3267,7 +3271,8 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
     }
 
     // Label is bound, emit final code.
-    if (jumpKind == ShortJump)
+    int64_t offset = currentOffset() - (label->offset());
+    if (jumpKind == ShortJump || JOffImm26::IsInRange(offset))
         as_b(label->offset());
     else {
         ma_li(ScratchRegister, label->offset());

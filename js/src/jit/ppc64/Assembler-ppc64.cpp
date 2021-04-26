@@ -205,14 +205,27 @@ Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
 void
 Assembler::bind(Label* label)
 {
-    __asm__("trap\n");
-#if 0
     BufferOffset dest = nextOffset();
     if (label->used() && !oom()) {
         // If the label has a use, then change this use to refer to
-        // the bound label;
+        // the bound label.
         BufferOffset b(label->offset());
         InstImm* inst = (InstImm*)editSrc(b);
+        int64_t offset = dest.getOffset() - label->offset();
+        spew(".set Llabel %p %08x ; %08x", label, label->offset(), inst[0].encode());
+        MOZ_ASSERT(!(offset & 3));
+
+        if(inst[0].isOpcode(PPC_addis)) { // lis
+            addLongJump(BufferOffset(label->offset()));
+        } else if (inst[0].isOpcode(PPC_tw)) { // Unpatched short branch
+            MOZ_ASSERT(inst[0].traptag() == 2);
+            MOZ_ASSERT(JOffImm26::IsInRange(offset));
+            inst[0].setData(PPC_b | JOffImm26(offset).encode());
+        } else {
+            MOZ_CRASH("Unhandled bind()");
+        }
+
+#if(0)
         InstImm inst_beq = InstImm(op_beq, r0, r0, BOffImm16(0));
         uint64_t offset = dest.getOffset() - label->offset();
 
@@ -265,9 +278,9 @@ Assembler::bind(Label* label)
             Assembler::WriteLoad64Instructions(&inst[1], ScratchRegister, LabelBase::INVALID_OFFSET);
             inst[5] = InstReg(op_special, ScratchRegister, r0, r0, ff_jr).encode();
         }
+#endif
     }
     label->bind(dest.getOffset());
-#endif
 }
 
 void
@@ -772,66 +785,120 @@ BufferOffset Assembler::as_bctr(LinkBit lb)
     spew("bctr%s", lb ? "l" : "");
     return writeInst(PPC_blr | lb);
 }
-    
-static uint32_t makeOpMask(Assembler::DoubleCondition cond, CRegisterID cr)
-{
-}
-
-static uint32_t makeOpMask(Assembler::Condition cond, CRegisterID cr)
-{
-}
 
 // Conditional branches.
 BufferOffset Assembler::as_bc(BOffImm16 off, Condition cond, CRegisterID cr,
         LikelyBit lkb, LinkBit lb)
 {
+    // fall through to the next one
     return as_bc(off.encode(), cond, cr, lkb, lb);
 }
 
 BufferOffset Assembler::as_bc(int16_t off, Condition cond, CRegisterID cr,
         LikelyBit lkb, LinkBit lb)
 {
-    return as_bc(off, makeOpMask(cond, cr), lkb, lb);
+    return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
 }
 
 BufferOffset Assembler::as_bc(BOffImm16 off, DoubleCondition cond,
         CRegisterID cr, LikelyBit lkb, LinkBit lb)
 {
+    // fall through to the next one
     return as_bc(off.encode(), cond, cr, lkb, lb);
 }
 
 BufferOffset Assembler::as_bc(int16_t off, DoubleCondition cond, CRegisterID cr,
         LikelyBit lkb, LinkBit lb)
 {
-    return as_bc(off, makeOpMask(cond, cr), lkb, lb);
+    return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
 }
 
 BufferOffset Assembler::as_bcctr(Condition cond, CRegisterID cr, LikelyBit lkb,
         LinkBit lb)
 {
-    return as_bcctr(makeOpMask(cond, cr), lkb, lb);
+    return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
 }
 
 BufferOffset Assembler::as_bcctr(DoubleCondition cond, CRegisterID cr,
         LikelyBit lkb, LinkBit lb)
 {
-    return as_bcctr(makeOpMask(cond, cr), lkb, lb);
-}
-    
-static uint32_t makeOpMask(uint32_t op)
-{
-    return ((op & 0x0f) << 21) | ((op & 0xf0) << 12);
+    return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
 }
 
-BufferOffset Assembler::as_bc(int16_t off, uint32_t op, LikelyBit lkb, LinkBit lb)
+// Turn a condition (possibly synthetic) and CR field number into BO _|_ BI.
+// These may issue instructions.
+uint16_t Assembler::computeConditionCode(DoubleCondition op, CRegisterID cr)
 {
-    spew("bc");
+	// Use condition register logic to combine the FU (FUUUU-! I mean, unordered)
+	// bit with the actual condition bit.
+	const uint8_t condBit = crBit(cr, op);
+	const uint8_t fuBit = crBit(cr, DoubleUnordered);
+	uint32_t newop = (uint32_t)op & 255;
+
+	if (op & DoubleConditionUnordered) {
+		// branch if condition true OR Unordered
+		if ((op & BranchOptionMask) == BranchOnClear) {
+			// invert the condBit, or it with fuBit, and branch on Set
+			as_crorc(condBit, fuBit, condBit);
+			newop |= BranchOnSet;
+		} else {
+			// or the condBit with fuBit, and then branch on Set
+			if (condBit != fuBit)
+				as_cror(condBit, fuBit, condBit);
+		}
+	} else {
+		// branch if condition true AND ordered
+		if ((op & BranchOptionMask) == BranchOnClear) {
+			// or the condBit with fuBit, and branch on Clear
+			if (condBit != fuBit)
+				as_cror(condBit, fuBit, condBit);
+		} else {
+			// and the condBit with (!fuBit), and branch on Set, but
+			// don't clear SO if this is actually DoubleUnordered
+			// (fuBit == condBit), which is NOT a synthetic condition.
+			if (condBit != fuBit)
+				as_crandc(condBit, condBit, fuBit);
+		}
+	}
+
+	// Set BIF to the proper CR. In cr0, the normal state, this just returns newop.
+	return (newop + ((uint8_t)cr << 6));
+}
+
+uint16_t Assembler::computeConditionCode(Condition op, CRegisterID cr)
+{
+	// Mask off the unsigned bit, if present. Hopefully we handled this already!
+	uint32_t newop = (uint32_t)op & 255;
+
+	// If this is an XER-mediated condition, then extract it.
+	if (op & ConditionOnlyXER) {
+		MOZ_ASSERT(op == Overflow);
+		// Get XER into CR.
+		as_mcrxrx(cr);
+		// Convert op to LT (using the 64-bit OV bit).
+		newop = (uint32_t)LessThan;
+	}
+
+	// Set BIF to the proper CR. In cr0, the normal state, this just returns newop.
+	return (newop + ((uint8_t)cr << 6));
+}
+
+// Given BO _|_ BI in a 16-bit quantity, emit the two halves suitable for bit masking.
+static uint32_t makeOpMask(uint16_t op)
+{
+    MOZ_ASSERT(!(op & 0xfc00)); // must fit in 10 bits
+    return ((op & 0x0f) << 21) | ((op & 0xfff0) << 12);
+}
+
+BufferOffset Assembler::as_bc(int16_t off, uint16_t op, LikelyBit lkb, LinkBit lb)
+{
+    spew("bc%s%s %d,%d", (lb) ? "l" : "", (lkb) ? "+" : "", op, off);
     return writeInst(Instruction(PPC_bc | makeOpMask(op) | lkb << 21 | off | lb).encode());
 }
 
-BufferOffset Assembler::as_bcctr(uint32_t op, LikelyBit lkb, LinkBit lb)
+BufferOffset Assembler::as_bcctr(uint16_t op, LikelyBit lkb, LinkBit lb)
 {
-    spew("bcctr");
+    spew("bcctr%s%s", (lb) ? "l" : "", (lkb) ? "+" : "");
     return writeInst(PPC_bcctr | makeOpMask(op) | lkb << 21 | lb);
 }
 
@@ -877,11 +944,10 @@ BufferOffset Assembler::as_mfocrf(Register rd, CRegisterID crfs)
     return writeInst(PPC_mfocrf | rd.code() << 21 | crfs << 12);
 }
 
-// XXX: This should now be mcrxrx
-BufferOffset Assembler::as_mcrxr(CRegisterID crt, Register temp)
+BufferOffset Assembler::as_mcrxrx(CRegisterID cr)
 {
-    spew("mcrxr\tcr%d", crt);
-    return writeInst(PPC_mcrxr | crt << 23);
+    spew("mcrxrx\tcr%d", cr);
+    return writeInst(PPC_mcrxrx | cr << 23);
 }
 
 // GPR operations and load-stores.
@@ -1505,7 +1571,14 @@ BufferOffset Assembler::xs_trap_tagged(uint8_t tag) {
     // FreeBSD and others may use r1 in their trap word, so don't allow bit 0 or > 15.
     spew("trap ; MARK %d", tag);
     MOZ_ASSERT(!(tag & 1) && (tag < 16));
-    return writeInst(PPC_trap | (tag << 21) | (tag << 16));
+    return writeInst(PPC_trap | (tag << 16) | (tag << 11));
+}
+uint8_t InstImm::traptag() {
+    // Extract a tag from a tagged trap instruction.
+    uint8_t r = ((data & 0x001f000) >> 16);
+    MOZ_ASSERT(isOpcode(PPC_tw)); // not a trap
+    MOZ_ASSERT(r == ((data & 0x0000f800) >> 11)); // probably not a tagged trap
+    return (r & 0xfe); // mask bit 0
 }
 
 BufferOffset Assembler::x_mr(Register rd, Register ra)

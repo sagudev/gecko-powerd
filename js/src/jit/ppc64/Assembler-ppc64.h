@@ -372,7 +372,7 @@ enum PPCOpcodes {
     PPC_lwz     = 0x80000000, // load word and zero
     PPC_lwzx    = 0x7C00002E, // load word and zero indexed
     PPC_lwbrx   = 0x7C00042C, // load word and zero indexed (byte swapped)
-    PPC_mcrxr   = 0x7C000400, // move XER[0-3] to CR[0-3] (G4 and earlier)
+    PPC_mcrxrx  = 0x7C000480, // move XER[OV, OV32, CA, CA32] to CR[0-3]
     PPC_mcrf    = 0x4C000000, // move CR[0-3] to CR[0-3]
     PPC_mcrfs   = 0xFC000080, // move FPSCR fields to CR
     PPC_mfcr    = 0x7C000026, // move from condition register
@@ -752,8 +752,13 @@ class Assembler : public AssemblerShared
         ConditionUnsigned   = 0x100,        // Computation only
         ConditionUnsignedHandled = 0x2ff,	// Mask off bit 8 but not 9 or 0-7
 
-        // XER-only codes. We need to have XER in the CR using mcrxr or
-        // an equivalent first, but we don't need to check CR itself.
+        // Bit flag for Zero and NonZero. These are turned into Equal and
+        // NotEqual, but the MacroAssembler uses this bit to reason about
+        // the intent of generated instructions. This is a synthetic code.
+        ConditionZero       = 0x400,        // Computation only
+
+        // Bit flag for XER-only codes. We need to have XER in the CR using mcrxrx or
+        // an equivalent first, but we don't need to check any CR bits otherwise.
         // This is a synthetic code.
         ConditionOnlyXER    = 0x200,        // Computation only
         ConditionXERCA      = 0x22c,        // same as EQ bit
@@ -778,8 +783,8 @@ class Assembler : public AssemblerShared
         NotSigned = GreaterThan,
 // XXX: We lost information by doing it this way. Zero and NonZero codes
 // should be synthetic and generate comparisons when necessary.
-        Zero = Equal,
-        NonZero = NotEqual,
+        Zero = Equal, // | ConditionZero
+        NonZero = NotEqual, // | ConditionZero
         Always = 0x1f,
         
         // This is specific to the SO bits in the CR, not the general overflow
@@ -1029,14 +1034,14 @@ class Assembler : public AssemblerShared
 
   public:
     BufferOffset align(int alignment, bool useTrap = false);
-  	uint32_t computeConditionCode(Condition op, CRegisterID cr = cr0);
-  	uint32_t computeConditionCode(DoubleCondition op, CRegisterID cr = cr0);
-    
-    BufferOffset as_nop();
 
+    BufferOffset as_nop();
     BufferOffset as_lwsync();
     BufferOffset as_sync();
+
     // Branch and jump instructions.
+    uint16_t computeConditionCode(Condition op, CRegisterID cr = cr0);
+    uint16_t computeConditionCode(DoubleCondition cond, CRegisterID cr = cr0);
     BufferOffset as_b(JOffImm26 off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB);
     BufferOffset as_b(int32_t off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB); // stubs into the above
     BufferOffset as_blr(LinkBit lb = DontLinkB);
@@ -1050,8 +1055,8 @@ class Assembler : public AssemblerShared
     BufferOffset as_bcctr(Condition cond, CRegisterID cr = cr0, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
     BufferOffset as_bcctr(DoubleCondition cond, CRegisterID cr = cr0, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
     
-    BufferOffset as_bc(int16_t off, uint32_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-    BufferOffset as_bcctr(uint32_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
+    BufferOffset as_bc(int16_t off, uint16_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
+    BufferOffset as_bcctr(uint16_t op, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 
 
 	// SPR operations.
@@ -1070,7 +1075,7 @@ class Assembler : public AssemblerShared
 	BufferOffset as_mtcrf(uint32_t mask, Register rs);
 	BufferOffset as_mfcr(Register rd);
 	BufferOffset as_mfocrf(Register rd, CRegisterID crfs);
-	BufferOffset as_mcrxr(CRegisterID crt, Register temp = r12); // emulated on G5, EEEK!
+	BufferOffset as_mcrxrx(CRegisterID crt);
 	
 	// GPR operations and load-stores.
 	BufferOffset as_neg(Register rd, Register rs);
@@ -1370,6 +1375,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
     void retarget(Label *label, Label *target);
     static void Bind(uint8_t *rawCode, const CodeLabel& label);
 
+/* Remove bindS*, those are TenFourFox-specific and we aren't going to implement them */
     // Fast fixed branches.
 #define SHORT_LABEL(w) BufferOffset w = nextOffset()
 #define SHORT_LABEL_MASM(w) BufferOffset w = masm.nextOffset()
@@ -1612,6 +1618,7 @@ class InstImm : public Instruction
     	// For bc, this is BI.
     	data = (data & 0xFFE0FFFF) | ((uint32_t)rl.code() << 16);
     }
+    uint8_t traptag();
 }; // InstImm
 
 // If this assert is not satisfied, we can't use Instruction to patch in-place.
