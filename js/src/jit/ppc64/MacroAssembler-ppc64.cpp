@@ -2428,13 +2428,12 @@ CompareExchange64(MacroAssembler& masm, const Synchronization& sync, const T& me
 
     masm.bind(&tryAgain);
 
-#if 0 // TODO: CompareExchange64
-    masm.as_ldarx(output.reg, SecondScratchReg, 0);
+    // 'r0' for 'ra' indicates hard 0, not GPR r0
+    masm.as_ldarx(output.reg, r0, SecondScratchReg);
     masm.ma_bc(output.reg, expect.reg, &exit, Assembler::NotEqual, ShortJump);
     masm.movePtr(replace.reg, ScratchRegister);
-    masm.as_scd(ScratchRegister, SecondScratchReg, 0);
-    masm.ma_bc(ScratchRegister, ScratchRegister, &tryAgain, Assembler::Zero, ShortJump);
-#endif
+    masm.as_stdcx(ScratchRegister, r0, SecondScratchReg);
+    masm.ma_bc(ScratchRegister, ScratchRegister, &tryAgain, Assembler::NotEqual, ShortJump);
 
     masm.memoryBarrierAfter(sync);
 
@@ -2461,6 +2460,7 @@ AtomicExchange64(MacroAssembler& masm, const Synchronization& sync, const T& mem
 
     masm.bind(&tryAgain);
 
+    // 'r0' for 'ra' indicates hard 0, not GPR r0
     masm.as_ldarx(output.reg, r0, SecondScratchReg);
     masm.as_stdcx(src.reg, r0, SecondScratchReg);
     masm.ma_bc(cr0, Assembler::NotEqual, &tryAgain, ShortJump);
@@ -2488,15 +2488,15 @@ AtomicFetchOp64(MacroAssembler& masm, const Synchronization& sync, AtomicOp op, 
 
     masm.bind(&tryAgain);
 
-#if 0 // TODO: AtomicFetchOp64
-    masm.as_ld(output.reg, SecondScratchReg, 0);
+    // 'r0' for 'ra' indicates hard 0, not GPR r0
+    masm.as_ldarx(output.reg, r0, SecondScratchReg);
 
     switch(op) {
       case AtomicFetchAddOp:
         masm.as_add(temp.reg, output.reg, value.reg);
         break;
       case AtomicFetchSubOp:
-        masm.as_sub(temp.reg, output.reg, value.reg);
+        masm.as_subf(temp.reg, value.reg, output.reg);
         break;
       case AtomicFetchAndOp:
         masm.as_and(temp.reg, output.reg, value.reg);
@@ -2511,9 +2511,8 @@ AtomicFetchOp64(MacroAssembler& masm, const Synchronization& sync, AtomicOp op, 
         MOZ_CRASH();
     }
 
-    masm.as_scd(temp.reg, SecondScratchReg, 0);
-    masm.ma_bc(temp.reg, temp.reg, &tryAgain, Assembler::Zero, ShortJump);
-#endif
+    masm.as_stdcx(temp.reg, r0, SecondScratchReg);
+    masm.ma_bc(temp.reg, temp.reg, &tryAgain, Assembler::NotEqual, ShortJump);
 
     masm.memoryBarrierAfter(sync);
 }
