@@ -628,7 +628,7 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
 {
     ADBlock();
     // Branch on the condition bit in the specified condition register.
-    spew("bc .Llabel %p\n", label);
+    spew("bc .Llabel %p @ %08x", label, currentOffset());
     if (label->bound()) {
         int32_t offset = label->offset() - m_buffer.nextOffset().getOffset();
 
@@ -643,7 +643,8 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
 
         // Generate a long branch stanza, but invert the sense so that we usually
         // run a short branch, assuming the "real" branch is not taken.
-        as_bc(7 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
+        m_buffer.ensureSpace(10 * sizeof(uint32_t)); // Worst case if as_bc emits CR twiddle ops.
+        as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
         //addLongJump(nextOffset(), BufferOffset(label->offset()));
         addLongJump(nextOffset());
         ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET)); // 5
@@ -660,11 +661,12 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
         // Store the condition with a dummy branch, plus the next in chain. Unfortunately
         // there is no way to make this take up less than two instructions, so we end up
         // burning a nop at link time. Make the whole branch continuous in the buffer.
-        m_buffer.ensureSpace(2 * sizeof(uint32_t));
+        m_buffer.ensureSpace(4 * sizeof(uint32_t));
 
         // Use a dummy short jump. This includes all the branch encoding, so we just have
         // to change the offset at link time.
         BufferOffset bo = as_bc(4, c, cr, NotLikelyB, DontLinkB);
+        spew(".long %08x ; next in chain", nextInChain);
         writeInst(nextInChain);
         if (!oom())
             label->use(bo.getOffset());
@@ -672,16 +674,19 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     }
 
     // As above with a reverse-sense long stanza.
-    m_buffer.ensureSpace(7 * sizeof(uint32_t));
-    as_bc(7 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
-    BufferOffset bo = as_tw(31, ScratchRegister, ScratchRegister); // encode non-call
+    m_buffer.ensureSpace(10 * sizeof(uint32_t)); // Worst case if as_bc emits CR twiddle ops.
+    as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
+    BufferOffset bo = xs_trap_tagged(LongJumpTag); // encode non-call
+    spew(".long %08x ; next in chain", nextInChain);
+    // The tagged trap must be the offset, not the leading bc. See Assembler::bind and
+    // Assembler::retarget for why.
     writeInst(nextInChain);
     if (!oom())
         label->use(bo.getOffset());
     // Leave space for potential long jump.
-    as_nop();
-    as_nop();
-    as_nop();
+    as_nop(); // rldicr
+    as_nop(); // oris
+    as_nop(); // ori
     as_nop(); // mtctr
     as_nop(); // bctr
 }
@@ -3260,11 +3265,12 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
     if (!label->bound()) {
         // Emit an unbound branch to be bound later by |Assembler::bind|.
         spew(".Llabel %p", label);
-        if (jumpKind == ShortJump) {
-            xs_trap_tagged(2); // turned into b
+        if (jumpKind == ShortJump) { // We know this branch must be short.
+            xs_trap_tagged(StaticShortJumpTag); // turned into b
         } else {
+            m_buffer.ensureSpace(7 * sizeof(uint32_t));
             ma_liPatchable(ScratchRegister, ImmWord(-1));
-            xs_trap_tagged(4); // turned into mtctr
+            xs_trap_tagged(LongJumpTag); // turned into mtctr
             xs_trap(); // turned into bctr
         }
         return;

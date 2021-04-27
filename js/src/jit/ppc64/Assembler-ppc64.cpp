@@ -216,11 +216,68 @@ Assembler::bind(Label* label)
         MOZ_ASSERT(!(offset & 3));
 
         if(inst[0].isOpcode(PPC_addis)) { // lis
+            spew("# pending long jump");
             addLongJump(BufferOffset(label->offset()));
-        } else if (inst[0].isOpcode(PPC_tw)) { // Unpatched short branch
-            MOZ_ASSERT(inst[0].traptag() == 2);
-            MOZ_ASSERT(JOffImm26::IsInRange(offset));
-            inst[0].setData(PPC_b | JOffImm26(offset).encode());
+        } else if (inst[0].isOpcode(PPC_tw)) { // tagged trap
+            if (inst[0].traptag() == StaticShortJumpTag) { // guaranteed short jump
+                spew("# writing in static short jump");
+                MOZ_ASSERT(JOffImm26::IsInRange(offset));  // (well, *we* will guarantee it)
+                inst[0].setData(PPC_b | JOffImm26(offset).encode());
+            } else if (inst[0].traptag() == LongJumpTag) {
+                // Reverse-sense long stanza:
+                // bc inverted, fail
+                // tagged trap       << inst[0]    patch to lis
+                // .long next_in_chain             patch to ori
+                // nop                             patch to rldicr
+                // nop                             patch to oris
+                // nop                             patch to ori
+                // nop                             patch to mtctr
+                // nop                             patch to bctr
+
+                // The negative index is required because of an invariant in ::retarget() that
+                // always expects the next-in-chain word in slot 1 (any value there could be
+                // potentially valid, including a trap word, so no sentinel value can
+                // disambiguate).
+                MOZ_ASSERT(inst[-1].isOpcode(PPC_bc));
+
+                // See if it's a short jump after all.
+                if (BOffImm16::IsInRange(offset + sizeof(uint32_t))) { // see below
+                    // It's a short jump after all.
+                    // It's a short jump after all.
+                    // It's a short jump after all.
+                    // It's a short, short jump.
+                    // Patch bc directly by inverting the sense, adding an instruction to
+                    // offset the negative index.
+
+                    spew("# writing in long jump as short jump bc");
+                    // Weirdo instructions like bdnz shouldn't come through here, just any
+                    // bc with a BO of 0x04 or 0x0c (i.e., CR bit set or CR bit not set).
+                    MOZ_ASSERT((inst[-1].encode() & 0x03e00000) == 0x00800000 ||
+                               (inst[-1].encode() & 0x03e00000) == 0x01800000);
+                    // XXX: should invert likely bits, too.
+                    inst[-1].setData(((inst[-1].encode() ^ 0x01000000) & (0xffff0003)) | BOffImm16(offset+sizeof(uint32_t)).encode());
+                    inst[0].setData(PPC_nop); // obliterate tagged trap
+                    inst[1].setData(PPC_nop); // obliterate next in chain
+                } else if (JOffImm26::IsInRange(offset)) {
+                    // It's a short(er) jump after all.
+                    // It's a short(er) jump after all.
+                    // It's ... why did you pick up that chainsaw?
+                    // Why is it running?
+
+                    spew("# writing in long jump as short jump bc/b");
+                    inst[0].setData(PPC_b | JOffImm26(offset).encode());
+                    inst[1].setData(PPC_nop); // obliterate next in chain
+                } else {
+                    // Dang, no Disney songs for this.
+
+                    spew("# writing in and pending long jump");
+                    addLongJump(BufferOffset(label->offset()));
+                    Assembler::WriteLoad64Instructions(inst, ScratchRegister, LabelBase::INVALID_OFFSET);
+                    inst[5].makeOp_mtctr(ScratchRegister);
+                }   inst[6].makeOp_bctr(DontLinkB);
+            } else {
+                MOZ_CRASH("unhandled traptag in slot 0");
+            }
         } else {
             MOZ_CRASH("Unhandled bind()");
         }
@@ -399,7 +456,7 @@ void
 Assembler::UpdateLisOriValue(Instruction *inst0, Instruction *inst1,
                              uint32_t value)
 {
-    MOZ_ASSERT(inst0->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(inst0->extractOpcode() == (uint32_t)PPC_addis);
     MOZ_ASSERT(inst1->extractOpcode() == (uint32_t)PPC_ori);
 
     reinterpret_cast<InstImm*>(inst0)->setImm16(value >> 16);
@@ -413,16 +470,16 @@ Assembler::ExtractLoad64Value(Instruction* inst0)
     InstImm* i1 = (InstImm*) i0->next();
     Instruction* i2 = (Instruction*) i1->next();
     InstImm* i3 = (InstImm*) i2->next();
-    InstImm* i5 = (InstImm*) i3->next()->next();
+    InstImm* i4 = (InstImm*) i3->next()->next();
 
-    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_addis);
     MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
     MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
-    MOZ_ASSERT(i5->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
     uint64_t value = (uint64_t(i0->extractImm16Value()) << 48) |
                      (uint64_t(i1->extractImm16Value()) << 32) |
                      (uint64_t(i3->extractImm16Value()) << 16) |
-                     uint64_t(i5->extractImm16Value());
+                     uint64_t(i4->extractImm16Value());
     return value;
 }
 
@@ -433,17 +490,17 @@ Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value)
     InstImm* i1 = (InstImm*) i0->next();
     Instruction* i2 = (Instruction*) i1->next();
     InstImm* i3 = (InstImm*) i2->next();
-    InstImm* i5 = (InstImm*) i3->next()->next();
+    InstImm* i4 = (InstImm*) i3->next()->next();
 
-    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_oris);
+    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_addis);
     MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
     MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
-    MOZ_ASSERT(i5->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
 
     i0->setImm16(Imm16::Upper(Imm32(value >> 32)));
     i1->setImm16(Imm16::Lower(Imm32(value >> 32)));
     i3->setImm16(Imm16::Upper(Imm32(value)));
-    i5->setImm16(Imm16::Lower(Imm32(value)));
+    i4->setImm16(Imm16::Lower(Imm32(value)));
 }
 
 void
@@ -454,8 +511,8 @@ Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg, uint64_t va
     Instruction* inst3 = inst2->next();
     Instruction* inst4 = inst3->next();
 
-    *inst0 = InstImm(PPC_ori, reg, r0, Imm16::Lower(Imm32(value >> 32)).encode());
-    *inst1 = InstImm(PPC_oris, reg, reg, Imm16::Upper(Imm32(value >> 32)).encode());
+    *inst0 = InstImm(PPC_addis, reg, r0, Imm16::Lower(Imm32(value >> 32)).encode()); // mscdfr0
+    *inst1 = InstImm(PPC_ori, reg, reg, Imm16::Upper(Imm32(value >> 32)).encode());
     // Manually construct 'sldi reg, reg, 32'
     *inst2 = InstImm(PPC_rldicr, reg, reg, Imm16((32 << 11)  | (31 << 4) | (1 << 2)));
     *inst3 = InstImm(PPC_oris, reg, reg, Imm16::Upper(Imm32(value)).encode());
@@ -489,6 +546,7 @@ Assembler::PatchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newVal
 void
 Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled)
 {
+__asm__("trap\n");
     Instruction* inst = (Instruction*)inst_.raw();
     InstImm* i0 = (InstImm*) inst;
     InstImm* i1 = (InstImm*) i0->next();
@@ -867,7 +925,7 @@ uint16_t Assembler::computeConditionCode(DoubleCondition op, CRegisterID cr)
 
 uint16_t Assembler::computeConditionCode(Condition op, CRegisterID cr)
 {
-	// Mask off the unsigned bit, if present. Hopefully we handled this already!
+	// Mask off the synthetic bits, if present. Hopefully we handled them already!
 	uint32_t newop = (uint32_t)op & 255;
 
 	// If this is an XER-mediated condition, then extract it.
@@ -1563,22 +1621,21 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
 // XXX: change these to xs_
 BufferOffset Assembler::xs_trap()
 {
-    spew("trap");
+    spew("trap @ %08x", currentOffset());
     return writeInst(PPC_trap);
 }
 // trap with metadata encoded as register
-BufferOffset Assembler::xs_trap_tagged(uint8_t tag) {
-    // FreeBSD and others may use r1 in their trap word, so don't allow bit 0 or > 15.
-    spew("trap ; MARK %d", tag);
-    MOZ_ASSERT(!(tag & 1) && (tag < 16));
-    return writeInst(PPC_trap | (tag << 16) | (tag << 11));
+BufferOffset Assembler::xs_trap_tagged(TrapTag tag) {
+    uint32_t tv = PPC_trap | ((uint8_t)tag << 16) | ((uint8_t)tag << 11);
+    spew("trap @ %08x ; MARK %d %08x", currentOffset(), (uint8_t)tag, tv);
+    return writeInst(tv);
 }
-uint8_t InstImm::traptag() {
+Assembler::TrapTag InstImm::traptag() {
     // Extract a tag from a tagged trap instruction.
-    uint8_t r = ((data & 0x001f000) >> 16);
+    uint8_t r = ((data & 0x001f0000) >> 16);
     MOZ_ASSERT(isOpcode(PPC_tw)); // not a trap
     MOZ_ASSERT(r == ((data & 0x0000f800) >> 11)); // probably not a tagged trap
-    return (r & 0xfe); // mask bit 0
+    return (Assembler::TrapTag)(r & 0xfe); // mask bit 0
 }
 
 BufferOffset Assembler::x_mr(Register rd, Register ra)

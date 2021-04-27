@@ -737,6 +737,11 @@ class PPCBufferWithExecutableCopy : public PPCBuffer
 class Assembler : public AssemblerShared
 {
   public:
+    enum TrapTag { // FreeBSD and others may use r1 in their trap word, so don't allow bit 0 or > 15.
+        StaticShortJumpTag = 2,
+        LongJumpTag = 4
+    };
+
     enum BranchBits {
         BranchOnClear = 0x04,
         BranchOnSet = 0x0c,
@@ -1334,7 +1339,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
 	// Conveniences and generally accepted alternate mnemonics.
 // XXX: change these to xs_
 	BufferOffset xs_trap();
-	BufferOffset xs_trap_tagged(uint8_t tag); // Codegen for marking traps in output.
+	BufferOffset xs_trap_tagged(TrapTag tag); // Codegen for marking traps in output.
 	BufferOffset x_mr(Register rd, Register ra);
 	BufferOffset x_beq(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bne(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
@@ -1618,7 +1623,7 @@ class InstImm : public Instruction
     	// For bc, this is BI.
     	data = (data & 0xFFE0FFFF) | ((uint32_t)rl.code() << 16);
     }
-    uint8_t traptag();
+    Assembler::TrapTag traptag();
 }; // InstImm
 
 // If this assert is not satisfied, we can't use Instruction to patch in-place.
