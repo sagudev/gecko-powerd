@@ -483,8 +483,6 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
     // ADBlock(); // spammy
     int16_t encodedOffset;
     Register base;
-    MOZ_ASSERT(isGPR(dest));
-
     MOZ_ASSERT(extension == ZeroExtend || extension == SignExtend);
 
     // XXX: Consider spinning this off into a separate function since the
@@ -532,7 +530,6 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
     //ADBlock(); // spammy
     int16_t encodedOffset;
     Register base;
-    MOZ_ASSERT(isGPR(data));
 
     // XXX: as above
     if (!Imm16::IsInSignedRange(address.offset) || address.base == ScratchRegister) {
@@ -583,7 +580,6 @@ MacroAssemblerPPC64::ma_pop(Register r)
 {
     ADBlock();
     MOZ_ASSERT(sizeof(uintptr_t) == 8);
-    MOZ_ASSERT(isGPR(r)); // XXX: implement this for SPRs
     as_ld(r, StackPointer, 0);
     as_addi(StackPointer, StackPointer, sizeof(uintptr_t));
 }
@@ -593,7 +589,6 @@ MacroAssemblerPPC64::ma_push(Register r)
 {
     ADBlock();
     MOZ_ASSERT(sizeof(uintptr_t) == 8);
-    MOZ_ASSERT(isGPR(r)); // XXX: implement this for SPRs
     as_stdu(r, StackPointer, (int32_t)-sizeof(intptr_t));
 }
 
@@ -631,12 +626,13 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     spew("bc .Llabel %p @ %08x", label, currentOffset());
     if (label->bound()) {
         int32_t offset = label->offset() - m_buffer.nextOffset().getOffset();
+        spew("# target offset: %08x (diff: %d)\n", label->offset(), offset);
 
-        if (BOffImm16::IsInRange(offset))
+        if (BOffImm16::IsInSignedRange(offset))
             jumpKind = ShortJump;
 
         if (jumpKind == ShortJump) {
-            MOZ_ASSERT(BOffImm16::IsInRange(offset));
+            MOZ_ASSERT(BOffImm16::IsInSignedRange(offset));
             as_bc(offset, c, cr, NotLikelyB, DontLinkB); // likely bits exposed for future expansion
             return;
         }
@@ -1964,7 +1960,6 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
     if (dynamicAlignment_) {
         stackForCall += ComputeByteAlignment(stackForCall, ABIStackAlignment);
     } else {
-        MOZ_CRASH("NYI");
         uint32_t alignmentAtPrologue = callFromWasm ? sizeof(wasm::Frame) : 0;
         stackForCall += ComputeByteAlignment(stackForCall + framePushed() + alignmentAtPrologue,
                                              ABIStackAlignment);
@@ -2005,7 +2000,6 @@ MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool 
         // Use adjustFrame instead of freeStack because we already restored sp.
         adjustFrame(-stackAdjust);
     } else {
-        MOZ_CRASH("NYI");
         freeStack(stackAdjust);
     }
 

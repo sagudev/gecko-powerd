@@ -853,8 +853,6 @@ class Assembler : public AssemblerShared
         return m_buffer.getInst(bo);
     }
   public:
-    bool isGPR(Register r) const;
-    bool isSPR(Register r) const;
     uint32_t actualOffset(uint32_t) const;
     uint32_t actualIndex(uint32_t) const;
     static uint8_t *PatchableJumpAddress(JitCode *code, uint32_t index);

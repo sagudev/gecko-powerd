@@ -31,13 +31,9 @@ static const uint32_t BAILOUT_TABLE_ENTRY_SIZE = sizeof(void *);
 static constexpr uint32_t JumpImmediateRange = 32 * 1024 * 1024;
 
 // GPRs.
-// XXX: Now that we can have more than 32 registers defined, use >32 for SPRs
-// so we can "push" LR and others.
-
 class Registers
 {
   public:
-    static const uint32_t SPRStart = 32;
     enum RegisterID {
         r0 = 0,
         tempRegister = r0,
@@ -75,9 +71,6 @@ class Registers
         r29,
         r30,
         r31,
-        spr_xer = SPRStart + 1,
-        spr_lr = SPRStart + 8,
-        spr_ctr = SPRStart + 9,
         invalid_reg
     };
 
@@ -95,9 +88,7 @@ class Registers
              "r0",  "sp",  "toc", "r3",  "r4",  "r5",  "r6",  "r7",
              "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",
              "r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",
-             "r24", "r25", "r26", "r27", "r28", "r29", "r30", "r31",
-             "XXX", "xer", "XXX", "XXX", "XXX", "XXX", "XXX", "XXX",
-             "lr",  "ctr"};
+             "r24", "r25", "r26", "r27", "r28", "r29", "r30", "r31"};
         return Names[code];
     }
     static const char *GetName(uint32_t i) {
@@ -110,11 +101,12 @@ class Registers
     static const Encoding StackPointer = sp;
     static const Encoding Invalid = invalid_reg;
 
-    static const uint32_t Total = 41;
-    static const uint32_t Allocatable = 15;
+    // If we decide to implement any virtual registers or subsume SPRs
+    // into the GPR space, we have the headroom for it.
+    static const uint32_t Total = 32;
+    static const uint32_t Allocatable = 24;
 
-    // NEVER allow SPRs to be allocated. It's just not a Good Thing.
-    static const SetType AllMask = 0xffffffffffffffff;
+    static const SetType AllMask = 0x00000000ffffffff;
     static const SetType ArgRegMask =
         (1 << Registers::r3) |
         (1 << Registers::r4) |
@@ -149,8 +141,7 @@ class Registers
         (1 << Registers::r28) |
         (1 << Registers::r29) |
         (1 << Registers::r30) |
-        (1 << Registers::r31) |
-        (1LL << Registers::spr_lr);
+        (1 << Registers::r31);
 
     static const SetType WrapperMask =
         VolatileMask |          // = arguments
@@ -167,13 +158,9 @@ class Registers
         // Non-volatile work registers.
         (1 << Registers::r16) |
         (1 << Registers::r17) |
-        (1 << Registers::r18) |
+        (1 << Registers::r18);
         // Despite its use as a rectifier, r19 must be allocatable (see
         // ICCallScriptedCompiler::generateStubCode).
-        // SPRs, however, must never be allocated.
-        (1LL << Registers::spr_xer) |
-        (1LL << Registers::spr_lr)  |
-        (1LL << Registers::spr_ctr);
 
     // Registers that can be allocated without being saved, generally.
     static const SetType TempMask = VolatileMask & ~NonAllocatableMask;
@@ -188,7 +175,6 @@ class Registers
  
     static const SetType AllocatableMask =
     	// Be explicit
-        // THIS IS AN SPR-FREE ZONE
         (1 << Registers::r3)  |
         (1 << Registers::r4)  |
         (1 << Registers::r5)  |
@@ -206,7 +192,13 @@ class Registers
         (1 << Registers::r22) |
         (1 << Registers::r23) |
         (1 << Registers::r24) |
-        (1 << Registers::r25);
+        (1 << Registers::r25) |
+        (1 << Registers::r26) |
+        (1 << Registers::r27) |
+        (1 << Registers::r28) |
+        (1 << Registers::r29) |
+        (1 << Registers::r30) |
+        (1 << Registers::r31);
 
     static uint32_t SetSize(SetType x) {
         static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
@@ -224,8 +216,8 @@ class Registers
 typedef uint64_t PackedRegisterMask;
 
 // FPRs.
-// PowerPC FPRs can be both double and single precision, like MIPS. We tell Ion there are
-// 64 FPRs, but each is an aliased pair.
+// PowerPC FPRs can be both double and single precision, like MIPS. We tell
+// Ion there are 64 FPRs, but each is an aliased pair.
 class FloatRegisters
 {
   public:
@@ -271,6 +263,7 @@ class FloatRegisters
 
   // Content spilled during bailouts.
   union RegisterContent {
+    float s;
     double d;
   };
 
@@ -283,7 +276,7 @@ class FloatRegisters
   static_assert(sizeof(SetType) * 8 >= Total,
                 "SetType should be large enough to enumerate all registers.");
 
-  // Magic values which are used to duplicate a mask of physical register for
+  // Magic values which are used to duplicate a mask of physical registers for
   // a specific type of register. A multiplication is used to copy and shift
   // the bits of the physical register mask.
   static const SetType SpreadSingle = SetType(1)

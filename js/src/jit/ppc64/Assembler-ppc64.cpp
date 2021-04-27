@@ -56,13 +56,6 @@ ABIArgGenerator::next(MIRType type)
     return current_;
 }
 
-bool Assembler::isGPR(Register r) const {
-    return r.code() <  Registers::SPRStart;
-}
-bool Assembler::isSPR(Register r) const {
-    return r.code() >= Registers::SPRStart;
-}
-
 uintptr_t
 Assembler::GetPointer(uint8_t* instPtr)
 {
@@ -241,7 +234,7 @@ Assembler::bind(Label* label)
                 MOZ_ASSERT(inst[-1].isOpcode(PPC_bc));
 
                 // See if it's a short jump after all.
-                if (BOffImm16::IsInRange(offset + sizeof(uint32_t))) { // see below
+                if (BOffImm16::IsInSignedRange(offset + sizeof(uint32_t))) { // see below
                     // It's a short jump after all.
                     // It's a short jump after all.
                     // It's a short jump after all.
