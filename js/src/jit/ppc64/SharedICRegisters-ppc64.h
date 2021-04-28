@@ -13,7 +13,7 @@ namespace js {
 namespace jit {
 
 // The frame register should be allocatable but non-volatile.
-static constexpr Register BaselineFrameReg = r13;
+static constexpr Register BaselineFrameReg = r20;
 // This is just an alias for the stack pointer currently.
 static constexpr Register BaselineStackReg = r1;
 

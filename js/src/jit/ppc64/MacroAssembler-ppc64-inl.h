@@ -1100,9 +1100,10 @@ MacroAssembler::add32(Imm32 imm, const Address& dest)
 void
 MacroAssembler::addPtr(Imm32 imm, const Address& dest)
 {
-    loadPtr(dest, ScratchRegister);
-    addPtr(imm, ScratchRegister);
-    storePtr(ScratchRegister, dest);
+    MOZ_ASSERT(dest.base != SecondScratchReg);
+    loadPtr(dest, SecondScratchReg);
+    addPtr(imm, SecondScratchReg);
+    storePtr(SecondScratchReg, dest);
 }
 
 void
@@ -1979,14 +1980,17 @@ void
 MacroAssembler::cmp32Move32(Condition cond, Register lhs, Register rhs, Register src,
                             Register dest)
 {
-    MOZ_CRASH();
+    ma_cmp32(lhs, rhs, cond);
+    // Assume that ma_cmp32 selected the correct compare, and mask off any synthetic bits.
+    as_isel(dest, src, dest, (cond & 0xff));
 }
 
 void
 MacroAssembler::cmp32MovePtr(Condition cond, Register lhs, Imm32 rhs, Register src,
                              Register dest)
 {
-    MOZ_CRASH();
+    ma_cmp32(lhs, rhs, cond);
+    as_isel(dest, src, dest, (cond & 0xff));
 }
 
 void
@@ -1994,7 +1998,8 @@ MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs,
                             Register src,
                             Register dest)
 {
-    MOZ_CRASH();
+    ma_cmp32(lhs, rhs, cond);
+    as_isel(dest, src, dest, (cond & 0xff));
 }
 
 

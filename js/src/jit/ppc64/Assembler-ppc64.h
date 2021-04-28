@@ -98,17 +98,6 @@ static constexpr FloatRegister f31{ FloatRegisters::f31 };
 // The rest of the FPRs are the business of the allocator, not the assembler.
 // SPRs and CRs are defined in their respective enums (see Architecture-ppc.h).
 
-// Old JM holdovers for convenience.
-static constexpr Register stackPointerRegister = r1;
-static constexpr Register tempRegister = r0;
-static constexpr Register addressTempRegister = r12;
-// The OS X ABI documentation recommends r2 for this, not r11 like we used to.
-static constexpr Register emergencyTempRegister = r2;
-static constexpr FloatRegister fpTempRegister = f0;
-static constexpr FloatRegister fpConversionRegister = f2;
-static constexpr Register InterpreterPCReg = r17;
-
-// Use the same assignments as PPCBC for simplicity.
 static constexpr Register OsrFrameReg = r6;
 static constexpr Register ArgumentsRectifierReg = r19;
 static constexpr Register CallTempReg0 = r8;
@@ -117,6 +106,8 @@ static constexpr Register CallTempReg2 = r10;
 static constexpr Register CallTempReg3 = r7;
 static constexpr Register CallTempReg4 = r5; // Bad things! Try not to use these!
 static constexpr Register CallTempReg5 = r6;
+
+static constexpr Register InterpreterPCReg = r17;
 
 // irregexp
 static constexpr Register IntArgReg0 = r3;
@@ -169,6 +160,7 @@ static constexpr Register FramePointer = r31;
 
 static constexpr Register ScratchRegister = r0;
 static constexpr Register SecondScratchReg = r12;
+static constexpr Register ThirdScratchReg = r11; // EMERGENCY! RESCUE r11!
 
 // All return registers must be allocatable.
 static constexpr Register JSReturnReg_Type = r6;
@@ -176,19 +168,23 @@ static constexpr Register JSReturnReg_Data = r5;
 static constexpr Register JSReturnReg = r4;
 static constexpr Register ReturnReg = r3;
 static constexpr Register64 ReturnReg64{ReturnReg};
-static constexpr FloatRegister ReturnFloat32Reg = f1;
-static constexpr FloatRegister ReturnDoubleReg = f1;
-static constexpr FloatRegister ABINonArgDoubleReg = f14;
+static constexpr FloatRegister ReturnFloat32Reg = {FloatRegisters::f1,
+                                                   FloatRegisters::Single};
+static constexpr FloatRegister ReturnDoubleReg = {FloatRegisters::f1,
+                                                  FloatRegisters::Double};
+static constexpr FloatRegister ABINonArgDoubleReg = {FloatRegisters::f14,
+                                                     FloatRegisters::Double};
+static constexpr ValueOperand JSReturnOperand = ValueOperand(JSReturnReg);
 
-// Registerd used in RegExpMatcher instruction (do not use JSReturnOperand).
-static constexpr Register RegExpMatcherRegExpReg = r11;
-static constexpr Register RegExpMatcherStringReg = r12;
-static constexpr Register RegExpMatcherLastIndexReg = r0;
+// Registers used in RegExpMatcher instruction (do not use JSReturnOperand).
+static constexpr Register RegExpMatcherRegExpReg = CallTempReg0;
+static constexpr Register RegExpMatcherStringReg = CallTempReg1;
+static constexpr Register RegExpMatcherLastIndexReg = CallTempReg2;
 
-// Registerd used in RegExpTester instruction (do not use ReturnReg).
-static constexpr Register RegExpTesterRegExpReg = r11;
-static constexpr Register RegExpTesterStringReg = r12;
-static constexpr Register RegExpTesterLastIndexReg = r0;
+// Registers used in RegExpTester instruction (do not use ReturnReg).
+static constexpr Register RegExpTesterRegExpReg = CallTempReg0;
+static constexpr Register RegExpTesterStringReg = CallTempReg1;
+static constexpr Register RegExpTesterLastIndexReg = CallTempReg2;
 
 static constexpr Register WasmTlsReg = r18;
 static constexpr Register WasmTableCallIndexReg = InvalidReg;
@@ -200,7 +196,7 @@ static constexpr Register WasmJitEntryReturnScratch = InvalidReg;
 static constexpr uint32_t WasmCheckedTailEntryOffset = 0u;
 static constexpr uint32_t WasmCheckedCallEntryOffset = 0u;
 
-// Gawd, Mozilla. Must FPRs be vector registers in all your damn architectures?
+// Good grief. Must FPRs be vector registers on every architecture?
 static constexpr FloatRegister ReturnSimdReg = InvalidFloatReg;
 static constexpr FloatRegister ReturnSimd128Reg = InvalidFloatReg;
 static constexpr FloatRegister ReturnInt32x4Reg = InvalidFloatReg;
@@ -208,10 +204,14 @@ static constexpr FloatRegister ReturnFloat32x4Reg = InvalidFloatReg;
 static constexpr FloatRegister ScratchSimdReg = InvalidFloatReg;
 static constexpr FloatRegister ScratchSimd128Reg = InvalidFloatReg;
 
-static constexpr FloatRegister ScratchFloat32Reg = f0;
-static constexpr FloatRegister ScratchDoubleReg = f0;
-static constexpr FloatRegister SecondScratchFloat32Reg = f2;
-static constexpr FloatRegister SecondScratchDoubleReg = f2;
+static constexpr FloatRegister ScratchFloat32Reg = {FloatRegisters::f0,
+                                                    FloatRegisters::Single};
+static constexpr FloatRegister ScratchDoubleReg = {FloatRegisters::f0,
+                                                   FloatRegisters::Double};
+static constexpr FloatRegister SecondScratchFloat32Reg = {FloatRegisters::f2,
+                                                    FloatRegisters::Single};
+static constexpr FloatRegister SecondScratchDoubleReg = {FloatRegisters::f2,
+                                                   FloatRegisters::Double};
 
 struct ScratchFloat32Scope : public AutoFloatRegisterScope {
   explicit ScratchFloat32Scope(MacroAssembler& masm)
@@ -758,7 +758,7 @@ class Assembler : public AssemblerShared
         ConditionUnsignedHandled = 0x2ff,	// Mask off bit 8 but not 9 or 0-7
 
         // Bit flag for Zero and NonZero. These are turned into Equal and
-        // NotEqual, but the MacroAssembler uses this bit to reason about
+        // NotEqual, but the MacroAssembler may use this bit to reason about
         // the intent of generated instructions. This is a synthetic code.
         ConditionZero       = 0x400,        // Computation only
 
@@ -768,7 +768,7 @@ class Assembler : public AssemblerShared
         ConditionOnlyXER    = 0x200,        // Computation only
         ConditionXERCA      = 0x22c,        // same as EQ bit
         ConditionXERNCA     = 0x224,
-        ConditionXEROV      = 0x21c,        // same as GT bit
+        ConditionXEROV      = 0x20c,        // same as LT bit
 
     	// These are off pp370-1 in OPPCC. The top nybble is the offset
     	// to the CR field (the x in BIF*4+x), and the bottom is the BO.
@@ -786,10 +786,8 @@ class Assembler : public AssemblerShared
         Overflow = ConditionXEROV,
         Signed = LessThan,
         NotSigned = GreaterThan,
-// XXX: We lost information by doing it this way. Zero and NonZero codes
-// should be synthetic and generate comparisons when necessary.
-        Zero = Equal, // | ConditionZero
-        NonZero = NotEqual, // | ConditionZero
+        Zero = Equal | ConditionZero,
+        NonZero = NotEqual | ConditionZero,
         Always = 0x1f,
         
         // This is specific to the SO bits in the CR, not the general overflow
@@ -1245,7 +1243,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
         DEF_MEMx(stwcx)
 #undef DEF_MEMx
 
-    BufferOffset as_isel(Register rt, Register ra, Register rb, uint32_t rc);
+    BufferOffset as_isel(Register rt, Register ra, Register rb, uint16_t rc, CRegisterID cr = cr0);
 
     // FPR operations and load-stores.
     BufferOffset as_fcmpo(CRegisterID cr, FloatRegister ra, FloatRegister rb);

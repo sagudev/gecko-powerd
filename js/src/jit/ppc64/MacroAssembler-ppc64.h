@@ -61,8 +61,6 @@ struct ImmTag : public Imm32
     { }
 };
 
-static constexpr ValueOperand JSReturnOperand{JSReturnReg};
-
 static const int defaultShift = 3;
 static_assert(1 << defaultShift == sizeof(JS::Value), "The defaultShift is wrong");
 
@@ -97,9 +95,10 @@ class MacroAssemblerPPC64 : public Assembler
     MacroAssembler& asMasm();
     const MacroAssembler& asMasm() const;
 
+/*
     Condition ma_cmp(Register rd, Register lhs, Register rhs, Condition c);
     Condition ma_cmp(Register rd, Register lhs, Imm32 imm, Condition c);
-
+*/
     void compareFloatingPoint(FloatRegister lhs, FloatRegister rhs,
                               DoubleCondition c);
 
@@ -244,6 +243,9 @@ class MacroAssemblerPPC64 : public Assembler
 
     void ma_jump(ImmPtr dest);
 
+    void ma_cmp32(Register lhs, Register rhs, Condition c);
+    void ma_cmp32(Register lhs, Imm32 rhs, Condition c);
+    void ma_cmp32(Register lhs, const Address& rhs, Condition c);
     void ma_cmp_set(Register dest, Address lhs, Register rhs, Condition c);
     void ma_cmp_set(Register dst, Register lhs, Register rhs, Condition c);
     void ma_cmp_set(Register dst, Register lhs, Imm16 imm, Condition c);
@@ -251,6 +253,7 @@ class MacroAssemblerPPC64 : public Assembler
         if (imm.value <= INT16_MAX)
             ma_cmp_set(dst, lhs, Imm16(imm.value), c);
         else {
+            MOZ_ASSERT(lhs != ScratchRegister);
             ma_li(ScratchRegister, imm);
             ma_cmp_set(dst, lhs, ScratchRegister, c);
         }

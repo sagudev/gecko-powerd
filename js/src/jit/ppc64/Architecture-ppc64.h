@@ -117,12 +117,12 @@ class Registers
         (1 << Registers::r9) |
         (1 << Registers::r10);
 
+    // Don't bother saving r0, r1, r11 or r12.
     static const SetType VolatileMask = ArgRegMask;
 
     // We use this constant to save registers when entering functions.
     static const SetType NonVolatileMask =
     	(1 << Registers::r2)  |
-    	(1 << Registers::r11) |
         (1 << Registers::r13) |
         (1 << Registers::r14) |
         (1 << Registers::r15) |
@@ -143,18 +143,19 @@ class Registers
         (1 << Registers::r30) |
         (1 << Registers::r31);
 
-    static const SetType WrapperMask =
-        VolatileMask |          // = arguments
-        (1 << Registers::r14) | // = outReg
-        (1 << Registers::r15);  // = argBase
+    // Also uses r11.
+    static const SetType WrapperMask = VolatileMask;
 
     static const SetType NonAllocatableMask =
         // Used by assembler.
         (1 << Registers::r0)  |
         (1 << Registers::sp)  |
         (1 << Registers::r2)  |
+        // Temp registers.
         (1 << Registers::r11) |
         (1 << Registers::r12) |
+        // r13 is the pointer for TLS in ELF v2.
+        (1 << Registers::r13) |
         // Non-volatile work registers.
         (1 << Registers::r16) |
         (1 << Registers::r17) |
@@ -183,7 +184,6 @@ class Registers
         (1 << Registers::r8)  |
         (1 << Registers::r9)  |
         (1 << Registers::r10) |
-        (1 << Registers::r13) |
         (1 << Registers::r14) |
         (1 << Registers::r15) |
         (1 << Registers::r19) |
@@ -593,10 +593,13 @@ class CRs // Class definition not yet supported.
     enum CRegisterID {
       cr0 = 0,
       cr1,
+/*
+Suppress CR2-CR4 because these are non-volatile.
       cr2,
       cr3,
       cr4,
-      cr5,
+*/
+      cr5 = 5,
       cr6,
       cr7,
       invalid_creg

@@ -180,7 +180,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
     const Register reg_code = IntArgReg0; // r3
     const Register reg_argc = IntArgReg1; // r4
     const Register reg_argv = IntArgReg2; // r5
-    const mozilla::DebugOnly<Register> reg_frame = IntArgReg3; // r6
+    const Register reg_frame = IntArgReg3; // r6
     const Register reg_token = IntArgReg4; // r7
     const Register reg_chain = IntArgReg5; // r8
     const Register reg_values = IntArgReg6; // r9
@@ -282,11 +282,9 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
         masm.subPtr(Imm32(sizeof(Value)), SecondScratchReg);
         masm.subPtr(Imm32(sizeof(Value)), StackPointer);
 
-        // Because we know we are aligned to at least doubleword, it's safe
-        // to use FPU loads and stores and not clobber any GPR argregs yet.
-        masm.as_lfd(f0, SecondScratchReg, 0);
+        masm.as_ld(ScratchRegister, SecondScratchReg, 0);
         // XXX: Is this usually on stack? Would inserting nops here help?
-        masm.as_stfd(f0, StackPointer, 0);
+        masm.as_std(ScratchRegister, StackPointer, 0);
 
         masm.ma_bc(SecondScratchReg, reg_argv, &header, Assembler::Above, ShortJump);
     }
@@ -313,7 +311,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
         regs.take(OsrFrameReg);
         regs.take(BaselineFrameReg);
         regs.take(reg_code);
-        regs.take(ReturnReg);
+        MOZ_ASSERT(reg_code == ReturnReg); // regs.take(ReturnReg);
         regs.take(JSReturnOperand);
 
         Label notOsr;
@@ -805,6 +803,7 @@ JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
                               uint32_t* wrapperOffset)
 {
     ADBlock("generateVMWrapper");
+    *wrapperOffset = startTrampolineCode(masm);
 
     AllocatableGeneralRegisterSet regs(Register::Codes::WrapperMask);
 
@@ -826,8 +825,7 @@ JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
     // Save the base of the argument set stored on the stack.
     Register argsBase = InvalidReg;
     if (f.explicitArgs) {
-        argsBase = ScratchRegister; // Use temporary register.
-        regs.take(argsBase);
+        argsBase = ThirdScratchReg; // It can't be r0, r1, r2, r12 or an argsreg, so ...
         masm.as_addi(argsBase, StackPointer, ExitFrameLayout::SizeWithFooter());
     }
 
@@ -996,6 +994,7 @@ JitRuntime::generatePreBarrier(JSContext* cx, MacroAssembler& masm, MIRType type
 
     // Explicitly save LR, since we can't use it in PushRegsInMask.
     masm.xs_mflr(ScratchRegister);
+    masm.push(ScratchRegister);
     LiveRegisterSet save;
     save.set() = RegisterSet(GeneralRegisterSet(Registers::VolatileMask),
                              FloatRegisterSet(FloatRegisters::VolatileMask));
@@ -1009,8 +1008,7 @@ JitRuntime::generatePreBarrier(JSContext* cx, MacroAssembler& masm, MIRType type
     masm.callWithABI(JitMarkFunction(type));
 
     masm.PopRegsInMask(save);
-    // Explicitly restore LR.
-    masm.xs_mtlr(ScratchRegister);
+    // ret() pops LR for us.
     masm.ret();
 
     masm.bind(&noBarrier);

@@ -208,7 +208,7 @@ Assembler::bind(Label* label)
         spew(".set Llabel %p %08x ; %08x", label, label->offset(), inst[0].encode());
         MOZ_ASSERT(!(offset & 3));
 
-        if(inst[0].isOpcode(PPC_addis)) { // lis
+        if (inst[0].isOpcode(PPC_addis)) { // lis
             spew("# pending long jump");
             addLongJump(BufferOffset(label->offset()));
         } else if (inst[0].isOpcode(PPC_tw)) { // tagged trap
@@ -232,6 +232,12 @@ Assembler::bind(Label* label)
                 // potentially valid, including a trap word, so no sentinel value can
                 // disambiguate).
                 MOZ_ASSERT(inst[-1].isOpcode(PPC_bc));
+                // I always like a clean stanza.
+                MOZ_ASSERT(inst[2].encode() == PPC_nop);
+                MOZ_ASSERT(inst[3].encode() == PPC_nop);
+                MOZ_ASSERT(inst[4].encode() == PPC_nop);
+                MOZ_ASSERT(inst[5].encode() == PPC_nop);
+                MOZ_ASSERT(inst[6].encode() == PPC_nop);
 
                 // See if it's a short jump after all.
                 if (BOffImm16::IsInSignedRange(offset + sizeof(uint32_t))) { // see below
@@ -271,6 +277,14 @@ Assembler::bind(Label* label)
             } else {
                 MOZ_CRASH("unhandled traptag in slot 0");
             }
+        } else if (inst[0].isOpcode(PPC_b)) {
+            MOZ_CRASH("b");
+        } else if (inst[0].isOpcode(PPC_bc)) {
+            // Short jump emitted by ma_bc. Set the bc target and nop out the next-in-chain.
+            spew("# setting short jump");
+            MOZ_ASSERT(BOffImm16::IsInSignedRange(offset));
+            inst[0].setData((inst[0].encode() & 0xffff0000) | BOffImm16(offset).encode());
+            inst[1].setData(PPC_nop); // obliterate next-in-chain
         } else {
             MOZ_CRASH("Unhandled bind()");
         }
@@ -616,6 +630,10 @@ Assembler::InvertCondition( Condition cond)
             return AboveOrEqual;
         case BelowOrEqual:
             return Above;
+        case Zero:
+            return NonZero;
+        case NonZero:
+            return Zero;
         default:
             MOZ_CRASH("unexpected condition");
     }
@@ -1470,10 +1488,15 @@ DEF_MEMx(stdux)
 DEF_MEMx(stwcx)
 #undef DEF_MEMx
 
-BufferOffset Assembler::as_isel(Register rt, Register ra, Register rb, uint32_t bc)
+BufferOffset Assembler::as_isel(Register rt, Register ra, Register rb, uint16_t bc, CRegisterID cr)
 {
-    spew("isel\t%3s,%3s,%3s,%d", rt.name(), ra.name(), rb.name(), bc);
-    return writeInst(PPC_isel | rt.code() << 21 | ra.code() << 16 | rb.code() << 11 | bc << 6);
+    spew("isel\t%3s,%3s,%3s,cr%d:%d", rt.name(), ra.name(), rb.name(), cr, bc);
+    MOZ_ASSERT(ra != r0); // mscdfr0
+    // Only bits that can be directly tested for in the CR are valid.
+    // The upper nybble of the condition contains the CR bit.
+    MOZ_ASSERT((bc < 0x40) && ((bc & 0x0f) == 0x0c));
+    uint16_t nbc = (bc >> 4) + (cr << 2);
+    return writeInst(PPC_isel | rt.code() << 21 | ra.code() << 16 | rb.code() << 11 | nbc << 6);
 }
 
 // FPR operations and load-stores.

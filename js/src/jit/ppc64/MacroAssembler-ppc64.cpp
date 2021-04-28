@@ -40,16 +40,16 @@ class MASMAutoDeBlock
         const char *blockname;
 
     public:
-        MASMAutoDeBlock(const char *name) {
+        MASMAutoDeBlock(const char *name, int line) {
             blockname = name;
-            JitSpew(JitSpew_Codegen, "[[ CGPPC: %s", blockname);
+            JitSpew(JitSpew_Codegen, "[[ CGPPC line %d: %s", line, blockname);
         }
 
         ~MASMAutoDeBlock() {
             JitSpew(JitSpew_Codegen, "   CGPPC: %s ]]", blockname);
         }
 };
-#define ADBlock()  MASMAutoDeBlock _adbx(__PRETTY_FUNCTION__)
+#define ADBlock()  MASMAutoDeBlock _adbx(__PRETTY_FUNCTION__, __LINE__)
 #else
 
 /* Useful macro to completely elide visual guard blocks. */
@@ -1855,6 +1855,8 @@ MacroAssembler::subFromStackPtr(Imm32 imm32)
 // ===============================================================
 // Stack manipulation functions.
 
+// XXX: Check usage of this routine in Ion and see what assumes LR is a GPR. If so, then
+// maybe we need to find a way to abstract away SPRs vs GPRs after all.
 void
 MacroAssembler::PushRegsInMask(LiveRegisterSet set)
 {
@@ -1979,9 +1981,9 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
         emitter.finish();
     }
 
-    // SP is now set, so save LR to the correct location in the new frame.
+    // SP is now set, so save LR in the frame.
     xs_mflr(ScratchRegister);
-    storePtr(ScratchRegister, Address(StackPointer, 16));
+    storePtr(ScratchRegister, Address(StackPointer, 0));
 
     assertStackAlignment(ABIStackAlignment);
 }
@@ -1991,7 +1993,7 @@ MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool 
 {
     ADBlock();
     // Restore LR.
-    loadPtr(Address(StackPointer, 16), ScratchRegister);
+    loadPtr(Address(StackPointer, 0), ScratchRegister);
     xs_mtlr(ScratchRegister);
 
     if (dynamicAlignment_) {
@@ -3037,7 +3039,16 @@ MacroAssemblerPPC64::ma_load(Register dest, const BaseIndex& src,
     }
 
     asMasm().computeScaledAddress(src, SecondScratchReg);
-    asMasm().ma_load(dest, Address(SecondScratchReg, src.offset), size, extension);
+
+    // If src.offset is out of 16-bit signed range, we will hit an assert
+    // doing the next ma_load() because the second scratch register is needed
+    // again. In that case, hoist the add up since we can freely clobber it.
+    if (!Imm16::IsInSignedRange(src.offset)) {
+        ma_add(SecondScratchReg, SecondScratchReg, Imm32(src.offset));
+        ma_load(dest, Address(SecondScratchReg, 0), size, extension);
+    } else {
+        asMasm().ma_load(dest, Address(SecondScratchReg, src.offset), size, extension);
+    }
 }
 
 void
@@ -3282,8 +3293,61 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
 }
 
 void
+MacroAssemblerPPC64::ma_cmp32(Register lhs, Register rhs, Condition c)
+{
+    ADBlock();
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    MOZ_ASSERT(!(c & ConditionZero));
+
+    if (c & ConditionUnsigned) {
+        as_cmplw(lhs, rhs);
+    } else {
+        as_cmpw(lhs, rhs);
+    }
+}
+
+void
+MacroAssemblerPPC64::ma_cmp32(Register lhs, Imm32 rhs, Condition c)
+{
+    ADBlock();
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    MOZ_ASSERT_IF((c & ConditionZero), (rhs.value == 0));
+
+    if (c & ConditionZero) {
+        as_cmpwi(lhs, 0);
+    } else {
+        if (c & ConditionUnsigned) {
+            if (Imm16::IsInUnsignedRange(rhs.value)) {
+                as_cmplwi(lhs, rhs.value);
+            } else {
+                MOZ_ASSERT(lhs != ScratchRegister);
+                ma_li(ScratchRegister, rhs);
+                as_cmplw(lhs, ScratchRegister);
+            }
+        } else {
+            if (Imm16::IsInSignedRange(rhs.value)) {
+                as_cmpwi(lhs, rhs.value);
+            } else {
+                MOZ_ASSERT(lhs != ScratchRegister);
+                ma_li(ScratchRegister, rhs);
+                as_cmpw(lhs, ScratchRegister);
+            }
+        }
+    }
+}
+
+void
+MacroAssemblerPPC64::ma_cmp32(Register lhs, const Address& rhs, Condition c)
+{
+    MOZ_ASSERT(lhs != ScratchRegister);
+    ma_load(ScratchRegister, rhs, SizeWord);
+    ma_cmp32(lhs, ScratchRegister, c);
+}
+
+void
 MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition c)
 {
+    ADBlock();
     int shift;
 
     as_mfcr(rd);
