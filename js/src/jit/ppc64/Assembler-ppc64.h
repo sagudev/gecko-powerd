@@ -739,7 +739,8 @@ class Assembler : public AssemblerShared
   public:
     enum TrapTag { // FreeBSD and others may use r1 in their trap word, so don't allow bit 0 or > 15.
         StaticShortJumpTag = 2,
-        LongJumpTag = 4
+        LongJumpTag = 4,
+        CallTag = 6
     };
 
     enum BranchBits {
@@ -757,9 +758,9 @@ class Assembler : public AssemblerShared
         ConditionUnsigned   = 0x100,        // Computation only
         ConditionUnsignedHandled = 0x2ff,	// Mask off bit 8 but not 9 or 0-7
 
-        // Bit flag for Zero and NonZero. These are turned into Equal and
-        // NotEqual, but the MacroAssembler may use this bit to reason about
-        // the intent of generated instructions. This is a synthetic code.
+        // Bit flag for zero-relative Conditions. These are treated as equivalent conditions
+        // relative to 0, but the MacroAssembler and CodeGenerator may use this bit to reason
+        // about the intent of generated instructions. This is a synthetic code.
         ConditionZero       = 0x400,        // Computation only
 
         // Bit flag for XER-only codes. We need to have XER in the CR using mcrxrx or
@@ -784,8 +785,8 @@ class Assembler : public AssemblerShared
         Below = LessThan | ConditionUnsigned,
         BelowOrEqual = LessThanOrEqual | ConditionUnsigned,
         Overflow = ConditionXEROV,
-        Signed = LessThan,
-        NotSigned = GreaterThan,
+        Signed = LessThan | ConditionZero,
+        NotSigned = GreaterThan | ConditionZero,
         Zero = Equal | ConditionZero,
         NonZero = NotEqual | ConditionZero,
         Always = 0x1f,
@@ -1244,6 +1245,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
 #undef DEF_MEMx
 
     BufferOffset as_isel(Register rt, Register ra, Register rb, uint16_t rc, CRegisterID cr = cr0);
+    BufferOffset as_isel0(Register rt, Register ra, Register rb, uint16_t rc, CRegisterID cr = cr0);
 
     // FPR operations and load-stores.
     BufferOffset as_fcmpo(CRegisterID cr, FloatRegister ra, FloatRegister rb);

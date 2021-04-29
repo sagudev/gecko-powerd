@@ -210,7 +210,7 @@ Assembler::bind(Label* label)
 
         if (inst[0].isOpcode(PPC_addis)) { // lis
             spew("# pending long jump");
-            addLongJump(BufferOffset(label->offset()));
+            addLongJump(b);
         } else if (inst[0].isOpcode(PPC_tw)) { // tagged trap
             if (inst[0].traptag() == StaticShortJumpTag) { // guaranteed short jump
                 spew("# writing in static short jump");
@@ -268,12 +268,41 @@ Assembler::bind(Label* label)
                     inst[1].setData(PPC_nop); // obliterate next in chain
                 } else {
                     // Dang, no Disney songs for this.
+                    // Although this should be to Ion code, use r12 to keep calls "as expected."
 
                     spew("# writing in and pending long jump");
-                    addLongJump(BufferOffset(label->offset()));
-                    Assembler::WriteLoad64Instructions(inst, ScratchRegister, LabelBase::INVALID_OFFSET);
-                    inst[5].makeOp_mtctr(ScratchRegister);
+                    addLongJump(b);
+                    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
+                    inst[5].makeOp_mtctr(SecondScratchReg);
                 }   inst[6].makeOp_bctr(DontLinkB);
+            } else if (inst[0].traptag() == CallTag) {
+                // I wanna taste pizzazz, all the taste clean Stanza has!
+                // I wanna clean, I wanna ... Stan-za.
+                MOZ_ASSERT(inst[2].encode() == PPC_nop);
+                MOZ_ASSERT(inst[3].encode() == PPC_nop);
+                MOZ_ASSERT(inst[4].encode() == PPC_nop);
+                MOZ_ASSERT(inst[5].encode() == PPC_nop);
+                MOZ_ASSERT(inst[6].encode() == PPC_nop);
+
+                // And I get to sing Disney songs again!
+                // See if it's a short jump after all!
+                if (JOffImm26::IsInRange(offset)) {
+                    // It's a short jump after all!
+                    // It's a short #${{@~NO CARRIER
+                    spew("# writing in short call");
+                    inst[0].setData(PPC_nop); // obliterate trap
+                    inst[1].setData(PPC_nop); // obliterate next-in-chain
+                    // So that the return is after the stanza, the link call must be the last
+                    // instruction in the stanza, not the first.
+                    inst[6].setData(PPC_b | JOffImm26(offset).encode() | LinkB);
+                } else {
+                    // Why doesn't anyone like my singing?
+                    spew("# writing in and pending long call");
+                    addLongJump(b);
+                    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
+                    inst[5].makeOp_mtctr(SecondScratchReg);
+                    inst[6].makeOp_bctr(LinkB);
+                }
             } else {
                 MOZ_CRASH("unhandled traptag in slot 0");
             }
@@ -380,6 +409,7 @@ Assembler::bind(Label* label, BufferOffset boff)
 void
 Assembler::retarget(Label* label, Label* target)
 {
+__asm__("trap\n");
     spew("retarget %p -> %p", label, target);
     if (label->used() && !oom()) {
         if (target->bound()) {
@@ -473,16 +503,18 @@ Assembler::UpdateLisOriValue(Instruction *inst0, Instruction *inst1,
 uint64_t
 Assembler::ExtractLoad64Value(Instruction* inst0)
 {
-    InstImm* i0 = (InstImm*) inst0;
-    InstImm* i1 = (InstImm*) i0->next();
-    Instruction* i2 = (Instruction*) i1->next();
-    InstImm* i3 = (InstImm*) i2->next();
-    InstImm* i4 = (InstImm*) i3->next()->next();
+    InstImm* i0 = (InstImm*) inst0; // lis
+    InstImm* i1 = (InstImm*) i0->next(); // ori
+    Instruction* i2 = (Instruction*) i1->next(); // rldicr
+    InstImm* i3 = (InstImm*) i2->next(); // oris
+    InstImm* i4 = (InstImm*) i3->next(); // ori
 
     MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_addis);
     MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i2->extractOpcode() == (uint32_t)PPC_rldicl); // XXX: 0x78000000
     MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
     MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
+
     uint64_t value = (uint64_t(i0->extractImm16Value()) << 48) |
                      (uint64_t(i1->extractImm16Value()) << 32) |
                      (uint64_t(i3->extractImm16Value()) << 16) |
@@ -497,10 +529,11 @@ Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value)
     InstImm* i1 = (InstImm*) i0->next();
     Instruction* i2 = (Instruction*) i1->next();
     InstImm* i3 = (InstImm*) i2->next();
-    InstImm* i4 = (InstImm*) i3->next()->next();
+    InstImm* i4 = (InstImm*) i3->next();
 
     MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_addis);
     MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
+    MOZ_ASSERT(i2->extractOpcode() == (uint32_t)PPC_rldicl); // XXX
     MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
     MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
 
@@ -538,6 +571,7 @@ void
 Assembler::PatchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newValue,
                                    PatchedImmPtr expectedValue)
 {
+    spew("# PatchDataWithValueCheck 0x%p", label.raw());
     Instruction* inst = (Instruction*) label.raw();
 
     // Extract old Value
@@ -562,13 +596,14 @@ __asm__("trap\n");
     Instruction* i5 = (Instruction*) i4->next();
     Instruction* i6 = (Instruction*) i5->next();
 
-    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_oris);
+// XXX; Should assert if the register being set isn't r12.
+    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_addis);
     MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
     MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
     MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
 
     if (enabled) {
-        i5->makeOp_mtctr(ScratchRegister);
+        i5->makeOp_mtctr(SecondScratchReg);
         i6->makeOp_bctr(LinkB);
     } else {
         *i5 = Instruction(PPC_nop);
@@ -634,6 +669,8 @@ Assembler::InvertCondition( Condition cond)
             return NonZero;
         case NonZero:
             return Zero;
+        case Signed:
+            return NotSigned;
         default:
             MOZ_CRASH("unexpected condition");
     }
@@ -1490,8 +1527,15 @@ DEF_MEMx(stwcx)
 
 BufferOffset Assembler::as_isel(Register rt, Register ra, Register rb, uint16_t bc, CRegisterID cr)
 {
+    MOZ_ASSERT(ra != r0); // mscdfr0, but see below, because sometimes we want this
+    return as_isel0(rt, ra, rb, bc, cr);
+}
+
+// This variant allows ra to be r0, because sometimes we feel like a zero.
+// Sometimes you don't. Almond Joy's got nuts, Mounds don't.
+BufferOffset Assembler::as_isel0(Register rt, Register ra, Register rb, uint16_t bc, CRegisterID cr)
+{
     spew("isel\t%3s,%3s,%3s,cr%d:%d", rt.name(), ra.name(), rb.name(), cr, bc);
-    MOZ_ASSERT(ra != r0); // mscdfr0
     // Only bits that can be directly tested for in the CR are valid.
     // The upper nybble of the condition contains the CR bit.
     MOZ_ASSERT((bc < 0x40) && ((bc & 0x0f) == 0x0c));

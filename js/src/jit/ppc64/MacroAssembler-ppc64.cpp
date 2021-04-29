@@ -722,15 +722,35 @@ MacroAssemblerPPC64::ma_bc(Address addr, ImmGCPtr imm, Label* label, Condition c
 }
 
 void
-MacroAssemblerPPC64::ma_bal(Label* label)
+MacroAssemblerPPC64::ma_bal(Label* label) // The whole world has gone MIPS, I tell ya.
 {
+    ADBlock();
+
     // Branch to a subroutine.
-    spew("branch .Llabel %p\n", label);
+    spew("bl .Llabel %p", label);
     if (label->bound()) {
-        // Generate the long jump for calls because return address has to be
-        // the address after the reserved block.
-        addLongJump(nextOffset());
+        // An entire 7-instruction stanza must be generated so that no matter how this
+        // is patched, the return address is the same (i.e., the instruction after the
+        // stanza). If this is a short branch, then it's 6 nops with the bl at the end.
+        BufferOffset b(label->offset());
+        m_buffer.ensureSpace(7 * sizeof(uint32_t));
+        BufferOffset dest = nextOffset();
+        int64_t offset = (dest.getOffset() + 6*sizeof(uint32_t)) - label->offset();
+        if (JOffImm26::IsInRange(offset)) {
+            JOffImm26 j(offset);
+
+            as_nop();
+            as_nop();
+            as_nop();
+            as_nop(); // Yawn.
+            as_nop();
+            as_nop(); // Sigh.
+            as_b(j, RelativeBranch, LinkB);
+            return;
+        }
+
         // Although this is to Ion code, use r12 to keep calls "as expected."
+        addLongJump(dest);
         ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
         xs_mtctr(SecondScratchReg);
         as_bctr(LinkB); // bctrl
@@ -739,20 +759,17 @@ MacroAssemblerPPC64::ma_bal(Label* label)
 
     // Second word holds a pointer to the next branch in label's chain.
     uint32_t nextInChain = label->used() ? label->offset() : LabelBase::INVALID_OFFSET;
-
     // Keep the whole branch stanza continuous in the buffer.
-    m_buffer.ensureSpace(6 * sizeof(uint32_t));
-
-    spew("bal .Llabel %p\n", label);
+    m_buffer.ensureSpace(7 * sizeof(uint32_t));
     // Encode a trap instruction with a "link bit" (we use r1) to mark this as a call.
-    BufferOffset bo = as_tw(31, StackPointer, StackPointer);
+    BufferOffset bo = xs_trap_tagged(CallTag);
     writeInst(nextInChain);
     if (!oom())
         label->use(bo.getOffset());
     // Leave space for long jump.
-    as_nop();
-    as_nop();
-    as_nop();
+    as_nop(); // rldicr
+    as_nop(); // oris
+    as_nop(); // ori
     as_nop(); // mtctr
     as_nop(); // bctrl
 }
@@ -3218,6 +3235,7 @@ MacroAssemblerPPC64::ma_store_unaligned(const wasm::MemoryAccessDesc& access, Re
 void
 MacroAssemblerPPC64::ma_bc(Register lhs, Register rhs, Label* label, Condition c, JumpKind jumpKind)
 {
+    ADBlock();
     switch (c) {
       case Equal :
       case NotEqual:
@@ -3226,6 +3244,8 @@ MacroAssemblerPPC64::ma_bc(Register lhs, Register rhs, Label* label, Condition c
         break;
       case Signed:
       case NotSigned:
+      case Zero:
+      case NonZero:
         MOZ_ASSERT(lhs == rhs);
         as_cmpdi(lhs, 0);
         ma_bc(c, label, jumpKind);
@@ -3240,8 +3260,9 @@ MacroAssemblerPPC64::ma_bc(Register lhs, Register rhs, Label* label, Condition c
 void
 MacroAssemblerPPC64::ma_bc(Register lhs, Imm32 imm, Label* label, Condition c, JumpKind jumpKind)
 {
+    ADBlock();
     MOZ_ASSERT(c != Overflow);
-    if (c == Always || c == AboveOrEqual) // XXX?
+    if (c == Always)
         ma_b(label, jumpKind);
     else {
         if (imm.value <= INT16_MAX) {
@@ -3273,7 +3294,7 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
             xs_trap_tagged(StaticShortJumpTag); // turned into b
         } else {
             m_buffer.ensureSpace(7 * sizeof(uint32_t));
-            ma_liPatchable(ScratchRegister, ImmWord(-1));
+            ma_liPatchable(ScratchRegister, ImmWord(LabelBase::INVALID_OFFSET));
             xs_trap_tagged(LongJumpTag); // turned into mtctr
             xs_trap(); // turned into bctr
         }
@@ -3283,10 +3304,13 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
     // Label is bound, emit final code.
     int64_t offset = currentOffset() - (label->offset());
     if (jumpKind == ShortJump || JOffImm26::IsInRange(offset))
-        as_b(label->offset());
+        as_b(offset);
     else {
-        ma_li(ScratchRegister, label->offset());
-        xs_mtctr(ScratchRegister);
+        // Use r12 "as expected" even though this is probably not to ABI-compliant code.
+        m_buffer.ensureSpace(7 * sizeof(uint32_t));
+        addLongJump(nextOffset());
+        ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
+        xs_mtctr(SecondScratchReg);
         as_bctr();
     }
 }
@@ -3761,6 +3785,7 @@ MacroAssembler::callWithPatch()
 void
 MacroAssembler::patchCall(uint32_t callerOffset, uint32_t calleeOffset)
 {
+    MOZ_CRASH("NYI");
     BufferOffset call(callerOffset - 7 * sizeof(uint32_t));
 
     // TODO: patchCall

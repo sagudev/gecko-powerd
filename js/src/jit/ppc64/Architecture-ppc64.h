@@ -158,7 +158,7 @@ class Registers
         (1 << Registers::r13) |
         // Non-volatile work registers.
         (1 << Registers::r16) |
-        (1 << Registers::r17) |
+        // r17 is the InterpreterPCReg and must be allocatable.
         (1 << Registers::r18);
         // Despite its use as a rectifier, r19 must be allocatable (see
         // ICCallScriptedCompiler::generateStubCode).
@@ -186,6 +186,7 @@ class Registers
         (1 << Registers::r10) |
         (1 << Registers::r14) |
         (1 << Registers::r15) |
+        (1 << Registers::r17) |
         (1 << Registers::r19) |
         (1 << Registers::r20) |
         (1 << Registers::r21) |

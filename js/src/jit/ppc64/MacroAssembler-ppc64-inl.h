@@ -1622,6 +1622,8 @@ MacroAssembler::branchSub32(Condition cond, T src, Register dest, Label* overflo
         break;
       case NonZero:
       case Zero:
+      case NotSigned:
+      case Signed:
         ma_subu(dest, src);
         ma_bc(dest, dest, overflow, cond);
         break;
@@ -2061,6 +2063,7 @@ MacroAssembler::spectreBoundsCheck32(Register index, const Address& length,
     branch32(Assembler::BelowOrEqual, length, index, failure);
 }
 
+// Constant-time conditional moves (basically isel all the things).
 void
 MacroAssembler::spectreMovePtr(Condition cond, Register src, Register dest)
 {
@@ -2070,7 +2073,16 @@ MacroAssembler::spectreMovePtr(Condition cond, Register src, Register dest)
 void
 MacroAssembler::spectreZeroRegister(Condition cond, Register scratch, Register dest)
 {
-    MOZ_CRASH();
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+
+    // isel cannot test for the non-existence of a bit, so we need to be creative.
+    if (cond == NotEqual) {
+        xs_li(ScratchRegister, 0);
+        as_isel(dest, dest, ScratchRegister, Assembler::Equal);
+    } else {
+        xs_trap(); // XXX
+        as_isel0(dest, ScratchRegister, dest, Assembler::Equal); // mscdfr0
+    }
 }
 
 void
@@ -2156,8 +2168,8 @@ MacroAssembler::clampIntToUint8(Register reg)
     // Naughtiness: since ScratchRegister is r0, the load is
     // zero anyway (this is a "mscdfr0" instruction). I just
     // wanted to point out to you how clever I am.
-    as_isel(reg, ScratchRegister, reg, 0); // CR0[LT]
-    as_isel(reg, SecondScratchReg, reg, 5); // CR1[GT]
+    as_isel0(reg, ScratchRegister, reg, (uint16_t)Assembler::LessThan); // CR0[LT]
+    as_isel(reg, SecondScratchReg, reg, (uint16_t)Assembler::GreaterThan, cr1); // CR1[GT]
 }
 
 //}}} check_macroassembler_style
