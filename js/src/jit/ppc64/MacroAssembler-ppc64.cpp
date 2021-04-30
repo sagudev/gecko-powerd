@@ -633,7 +633,7 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
 
         if (jumpKind == ShortJump) {
             MOZ_ASSERT(BOffImm16::IsInSignedRange(offset));
-            as_bc(offset, c, cr, NotLikelyB, DontLinkB); // likely bits exposed for future expansion
+            as_bc(BOffImm16(offset).encode(), c, cr, NotLikelyB, DontLinkB); // likely bits exposed for future expansion
             return;
         }
 
@@ -761,7 +761,7 @@ MacroAssemblerPPC64::ma_bal(Label* label) // The whole world has gone MIPS, I te
     uint32_t nextInChain = label->used() ? label->offset() : LabelBase::INVALID_OFFSET;
     // Keep the whole branch stanza continuous in the buffer.
     m_buffer.ensureSpace(7 * sizeof(uint32_t));
-    // Encode a trap instruction with a "link bit" (we use r1) to mark this as a call.
+    // Insert a tagged trap so the patcher knows what this is supposed to be.
     BufferOffset bo = xs_trap_tagged(CallTag);
     writeInst(nextInChain);
     if (!oom())
@@ -3236,24 +3236,20 @@ void
 MacroAssemblerPPC64::ma_bc(Register lhs, Register rhs, Label* label, Condition c, JumpKind jumpKind)
 {
     ADBlock();
-    switch (c) {
-      case Equal :
-      case NotEqual:
-      case Always:
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    if (c == Always) {
         ma_b(label, jumpKind);
-        break;
-      case Signed:
-      case NotSigned:
-      case Zero:
-      case NonZero:
+    } else if (c & ConditionZero) {
         MOZ_ASSERT(lhs == rhs);
         as_cmpdi(lhs, 0);
         ma_bc(c, label, jumpKind);
-        break;
-      default:
+    } else if (c & ConditionUnsigned) {
+        as_cmpld(lhs, rhs);
+        ma_bc(c, label, jumpKind);
+    } else {
+        MOZ_ASSERT(c < 0x100); // paranoia
         as_cmpd(lhs, rhs);
         ma_bc(c, label, jumpKind);
-        break;
     }
 }
 
@@ -3261,20 +3257,36 @@ void
 MacroAssemblerPPC64::ma_bc(Register lhs, Imm32 imm, Label* label, Condition c, JumpKind jumpKind)
 {
     ADBlock();
-    MOZ_ASSERT(c != Overflow);
-    if (c == Always)
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    if (c == Always) {
         ma_b(label, jumpKind);
-    else {
-        if (imm.value <= INT16_MAX) {
-            as_cmpdi(lhs, imm.value);
-            ma_bc(c, label, jumpKind);
-            return;
-        }
-        MOZ_ASSERT(lhs != ScratchRegister);
-        ma_li(ScratchRegister, imm);
-        as_cmpd(lhs, ScratchRegister);
-        ma_bc(c, label, jumpKind);
+        return;
     }
+    if (c & ConditionZero) {
+        MOZ_ASSERT(imm.value == 0);
+        as_cmpdi(lhs, 0);
+        ma_bc(c, label, jumpKind);
+        return;
+    }
+    if (c & ConditionUnsigned) {
+        if (Imm16::IsInUnsignedRange(imm.value)) {
+            as_cmplwi(lhs, imm.value);
+        } else {
+            MOZ_ASSERT(lhs != ScratchRegister);
+            ma_li(ScratchRegister, imm);
+            as_cmplw(lhs, ScratchRegister);
+        }
+    } else {
+        MOZ_ASSERT(c < 0x100); // just in case
+        if (Imm16::IsInSignedRange(imm.value)) {
+            as_cmpwi(lhs, imm.value);
+        } else {
+            MOZ_ASSERT(lhs != ScratchRegister);
+            ma_li(ScratchRegister, imm);
+            as_cmpw(lhs, ScratchRegister);
+        }
+    }
+    ma_bc(c, label, jumpKind);
 }
 
 void

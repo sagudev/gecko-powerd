@@ -289,10 +289,10 @@ enum PPCOpcodes {
     PPC_bctr    = 0x4E800420, // branch to CTR (+/- LR)
     PPC_bcctr   = 0x4C000420, // branch conditional to count register
     PPC_blr     = 0x4E800020, // branch to link register
-    PPC_cmpd    = 0x7C100000, // compare
-    PPC_cmpdi   = 0x2C100000, // compare immediate
-    PPC_cmpld   = 0x7C100040, // compare logical
-    PPC_cmpldi  = 0x28100000, // compare logical immediate
+    PPC_cmpd    = 0x7C200000, // compare
+    PPC_cmpdi   = 0x2C200000, // compare immediate
+    PPC_cmpld   = 0x7C200040, // compare logical
+    PPC_cmpldi  = 0x28200000, // compare logical immediate
     PPC_cmpw    = 0x7C000000, // compare
     PPC_cmpwi   = 0x2C000000, // compare immediate
     PPC_cmplw   = 0x7C000040, // compare logical
@@ -1045,7 +1045,7 @@ class Assembler : public AssemblerShared
     uint16_t computeConditionCode(Condition op, CRegisterID cr = cr0);
     uint16_t computeConditionCode(DoubleCondition cond, CRegisterID cr = cr0);
     BufferOffset as_b(JOffImm26 off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB);
-    BufferOffset as_b(int32_t off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB); // stubs into the above
+    BufferOffset as_b(int16_t off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB); // stubs into the above
     BufferOffset as_blr(LinkBit lb = DontLinkB);
     BufferOffset as_bctr(LinkBit lb = DontLinkB);
     
@@ -1090,11 +1090,11 @@ class Assembler : public AssemblerShared
 	BufferOffset as_cmpwi(CRegisterID cr, Register ra, int16_t im);
 	BufferOffset as_cmplw(CRegisterID cr, Register ra, Register rb);
 	BufferOffset as_cmplwi(CRegisterID cr, Register ra, int16_t im);
-	BufferOffset as_cmpd(Register ra, Register rb); // implied cr0
+	BufferOffset as_cmpd(Register ra, Register rb); // all implied cr0
 	BufferOffset as_cmpdi(Register ra, int16_t im);
-	BufferOffset as_cmpld(Register ra, Register rb); // implied cr0
+	BufferOffset as_cmpld(Register ra, Register rb);
 	BufferOffset as_cmpldi(Register ra, int16_t im);
-	BufferOffset as_cmpw(Register ra, Register rb); // implied cr0
+	BufferOffset as_cmpw(Register ra, Register rb);
 	BufferOffset as_cmpwi(Register ra, int16_t im);
 	BufferOffset as_cmplw(Register ra, Register rb);
 	BufferOffset as_cmplwi(Register ra, int16_t im);
@@ -1550,13 +1550,13 @@ class Instruction
 
 class InstReg : public Instruction
 {
-  // Valid for reg/reg/imm instructions only and bc.
+  // Valid for reg/reg/reg instructions only.
   // XXX: Assert that at some point.
   public:
   	InstReg (PPCOpcodes op) : Instruction(op) { }
   	InstReg (PPCOpcodes op, Register rd, Register ra, Register rb)
   	    : Instruction(op | ((uint32_t)rd.code() << 21) |
-  	            (uint32_t)ra.code() << 16 | (uint32_t)rb.code() << 11) {}
+  	            ((uint32_t)ra.code() << 16) | (uint32_t)rb.code() << 11) {}
   	     
   	
     void setBOffImm16(BOffImm16 off) {
@@ -1595,9 +1595,8 @@ class InstImm : public Instruction
   	InstImm (PPCOpcodes op) : Instruction(op) { }
   	InstImm (PPCOpcodes op, Register ra, Register rs, Imm16 im)
   	    : Instruction(op | ((uint32_t)ra.code() << 21) |
-  	            (uint32_t)rs.code() << 16 | im.encode()) {}
-  	     
-  	
+  	            ((uint32_t)rs.code() << 16) | im.encode()) {}
+
     void setBOffImm16(BOffImm16 off) {
     	data = (data & 0xFFFF0000) | off.encode();
     }

@@ -190,6 +190,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
 
     // Standard Power prologue, more or less.
     // First save LR and CR to the caller linkage area.
+masm.xs_trap();
     masm.xs_mflr(ScratchRegister);
     masm.as_std(ScratchRegister, StackPointer, offsetof(EnterJITRegs, lr)); // caller
     masm.as_mfcr(ScratchRegister);

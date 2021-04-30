@@ -373,6 +373,7 @@ Assembler::bind(Label* label)
         }
 #endif
     }
+    spew(".set Llabel %p (pending) %08x", label, dest.getOffset());
     label->bind(dest.getOffset());
 }
 
@@ -874,10 +875,11 @@ BufferOffset Assembler::as_b(JOffImm26 off, BranchAddressType bat, LinkBit lb)
     return as_b(off.encode(), bat, lb);
 }
 
-BufferOffset Assembler::as_b(int32_t off, BranchAddressType bat, LinkBit lb)
+BufferOffset Assembler::as_b(int16_t off, BranchAddressType bat, LinkBit lb)
 {
     spew("b%s%s\t%x\n", bat == AbsoluteBranch ? "a" : "", lb ? "l" : "", off);
-    return writeInst(PPC_b | off | bat | lb);
+    MOZ_ASSERT(!(off & 0x03));
+    return writeInst(PPC_b | ((uint16_t)off & 0xfffc) | bat | lb);
 }
 
 BufferOffset Assembler::as_blr(LinkBit lb)
@@ -999,7 +1001,8 @@ static uint32_t makeOpMask(uint16_t op)
 BufferOffset Assembler::as_bc(int16_t off, uint16_t op, LikelyBit lkb, LinkBit lb)
 {
     spew("bc%s%s %d,%d", (lb) ? "l" : "", (lkb) ? "+" : "", op, off);
-    return writeInst(Instruction(PPC_bc | makeOpMask(op) | lkb << 21 | off | lb).encode());
+    MOZ_ASSERT(!(off & 0x03));
+    return writeInst(Instruction(PPC_bc | makeOpMask(op) | lkb << 21 | ((uint16_t)off & 0xfffc) | lb).encode());
 }
 
 BufferOffset Assembler::as_bcctr(uint16_t op, LikelyBit lkb, LinkBit lb)
@@ -1065,7 +1068,7 @@ BufferOffset Assembler::as_neg(Register rd, Register rs)
 
 BufferOffset Assembler::as_cmpd(CRegisterID cr, Register ra, Register rb)
 {
-    spew("cmpd\t%3s,%3s", ra.name(), rb.name());
+    spew("cmpd\tcr%d,%3s,%3s", cr, ra.name(), rb.name());
     return writeInst(PPC_cmpd | cr << 23 | ra.code() << 16 | rb.code() << 11);
 }
 
@@ -1077,7 +1080,7 @@ BufferOffset Assembler::as_cmpdi(CRegisterID cr, Register ra, int16_t im)
 
 BufferOffset Assembler::as_cmpld(CRegisterID cr, Register ra, Register rb)
 {
-    spew("cmpld\t%3s,%3s", ra.name(), rb.name());
+    spew("cmpld\tcr%d,%3s,%3s", cr, ra.name(), rb.name());
     return writeInst(PPC_cmpld | cr << 23 | ra.code() << 16 | rb.code() << 11);
 }
 BufferOffset Assembler::as_cmpldi(CRegisterID cr, Register ra, int16_t im)
@@ -1097,7 +1100,7 @@ BufferOffset Assembler::as_cmpwi(CRegisterID cr, Register ra, int16_t im)
 }
 BufferOffset Assembler::as_cmplw(CRegisterID cr, Register ra, Register rb)
 {
-    spew("cmplw\t%3s,%3s", ra.name(), rb.name());
+    spew("cmplw\tcr%d,%3s,%3s", cr, ra.name(), rb.name());
     return writeInst(PPC_cmplw | cr << 23 | ra.code() << 16 | rb.code() << 11);
 }
 BufferOffset Assembler::as_cmplwi(CRegisterID cr, Register ra, int16_t im)
@@ -1151,26 +1154,26 @@ static uint32_t
 AForm(uint32_t op, FloatRegister frt, FloatRegister fra, FloatRegister frb,
         FloatRegister frc, bool rc)
 {
-    return (op | frt.code() << 21 | fra.code() << 16 | frb.code() << 11 |
-            frc.code() << 6 | rc);
+    return (op | (frt.encoding() << 21) | (fra.encoding() << 16) | (frb.encoding() << 11) |
+            (frc.encoding() << 6) | rc);
 }
 
 static uint32_t
 XForm(uint32_t op, FloatRegister frt, FloatRegister fra, FloatRegister frb, bool rc)
 {
-    return (op | frt.code() << 21 | fra.code() << 16 | frb.code() << 11 | rc);
+    return (op | (frt.encoding() << 21) | (fra.code() << 16) | (frb.code() << 11) | rc);
 }
 
 static uint32_t
 XForm(uint32_t op, FloatRegister frt, Register ra, Register rb, bool rc)
 {
-    return (op | frt.code() << 21 | ra.code() << 16 | rb.code() << 11 | rc);
+    return (op | (frt.encoding() << 21) | (ra.code() << 16) | (rb.code() << 11) | rc);
 }
 
 static uint32_t
 DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
 {
-    return (op | frt.code() << 21 | ra.code() << 16 | imm);
+    return (op | (frt.encoding() << 21) | (ra.code() << 16) | imm);
 }
 
 #define DEF_XFORM(op)   \
@@ -1265,27 +1268,30 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
 
 #define DEF_DFORM(op)   \
     BufferOffset Assembler::as_##op(Register ra, Register rs, int16_t im) { \
-        spew(#op "\t%3s,%3s,%d", ra.name(), rs.name(), im); \
-        return writeInst(InstImm(PPC_##op, rs, ra, im).encode()); }
+        spew(#op "\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
+        MOZ_ASSERT(rs != r0); \
+        return writeInst(InstImm(PPC_##op, ra, rs, im).encode()); }
 
 #define DEF_DFORM_RC(op) \
     BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint16_t im) {\
-        spew(#op ".\t%3s,%3s,%d", ra.name(), rs.name(), im); \
-        return writeInst(InstImm(PPC_##op, rs, ra, im).encode() | 0x1); }
+        spew(#op "\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
+        MOZ_ASSERT(rs != r0); \
+        return writeInst(InstImm(PPC_##op, ra, rs, im).encode() | 0x1); }
 
 #define DEF_DFORMS(op)   \
     BufferOffset Assembler::as_##op(Register ra, Register rs, uint16_t im) { \
-        spew(#op "\t%3s,%3s,%d", ra.name(), rs.name(), im); \
-        return writeInst(InstImm(PPC_##op, ra, rs, im).encode()); }
+        spew(#op "\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
+        return writeInst(InstImm(PPC_##op, rs, ra, im).encode()); }
 
 #define DEF_DFORMS_RC(op) \
     BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint16_t im) {\
-        spew(#op ".\t%3s,%3s,%d", ra.name(), rs.name(), im); \
-        return writeInst(InstImm(PPC_##op, ra, rs, im).encode() | 0x1); }
+        spew(#op ".\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
+        return writeInst(InstImm(PPC_##op, rs, ra, im).encode() | 0x1); }
 
 #define DEF_DFORM_F(op)   \
     BufferOffset Assembler::as_##op(FloatRegister rt, Register ra, int16_t im) { \
-        spew(#op "\t%3s,%3s,%d", rt.name(), ra.name(), im); \
+        spew(#op "\t%3s,%d(%3s)", rt.name(), im, ra.name()); \
+        MOZ_ASSERT(ra != r0); \
         return writeInst(DForm(PPC_##op, rt, ra, im)); }
 
 #define DEF_MFORM(op) \
@@ -1547,7 +1553,7 @@ BufferOffset Assembler::as_isel0(Register rt, Register ra, Register rb, uint16_t
 BufferOffset Assembler::as_fcmpo(CRegisterID cr, FloatRegister ra, FloatRegister rb)
 {
     spew("fcmpo\t%d,%3s,%3s", cr, ra.name(), rb.name());
-    return writeInst(PPC_fcmpo | cr << 23 | ra.code() << 16 | rb.code() << 11);
+    return writeInst(PPC_fcmpo | cr << 23 | ra.encoding() << 16 | rb.encoding() << 11);
 }
 
 BufferOffset Assembler::as_fcmpo(FloatRegister ra, FloatRegister rb)
@@ -1558,7 +1564,7 @@ BufferOffset Assembler::as_fcmpo(FloatRegister ra, FloatRegister rb)
 BufferOffset Assembler::as_fcmpu(CRegisterID cr, FloatRegister ra, FloatRegister rb)
 {
     spew("fcmpu\t%d,%3s,%3s", cr, ra.name(), rb.name());
-    return writeInst(PPC_fcmpu | cr << 23 | ra.code() << 16 | rb.code() << 11);
+    return writeInst(PPC_fcmpu | cr << 23 | ra.encoding() << 16 | rb.encoding() << 11);
 }
 
 BufferOffset Assembler::as_fcmpu(FloatRegister ra, FloatRegister rb)
