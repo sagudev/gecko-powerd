@@ -875,11 +875,11 @@ BufferOffset Assembler::as_b(JOffImm26 off, BranchAddressType bat, LinkBit lb)
     return as_b(off.encode(), bat, lb);
 }
 
-BufferOffset Assembler::as_b(int16_t off, BranchAddressType bat, LinkBit lb)
+BufferOffset Assembler::as_b(int32_t off, BranchAddressType bat, LinkBit lb)
 {
     spew("b%s%s\t%x\n", bat == AbsoluteBranch ? "a" : "", lb ? "l" : "", off);
     MOZ_ASSERT(!(off & 0x03));
-    return writeInst(PPC_b | ((uint16_t)off & 0xfffc) | bat | lb);
+    return writeInst(PPC_b | ((uint32_t)off & 0x3ffffc) | bat | lb);
 }
 
 BufferOffset Assembler::as_blr(LinkBit lb)

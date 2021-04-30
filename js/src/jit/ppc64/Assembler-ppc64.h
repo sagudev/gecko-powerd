@@ -1045,7 +1045,7 @@ class Assembler : public AssemblerShared
     uint16_t computeConditionCode(Condition op, CRegisterID cr = cr0);
     uint16_t computeConditionCode(DoubleCondition cond, CRegisterID cr = cr0);
     BufferOffset as_b(JOffImm26 off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB);
-    BufferOffset as_b(int16_t off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB); // stubs into the above
+    BufferOffset as_b(int32_t off, BranchAddressType bat = RelativeBranch, LinkBit lb = DontLinkB); // stubs into the above
     BufferOffset as_blr(LinkBit lb = DontLinkB);
     BufferOffset as_bctr(LinkBit lb = DontLinkB);
     
