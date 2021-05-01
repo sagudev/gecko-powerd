@@ -434,6 +434,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         ma_b(label);
     }
     void jump(ImmPtr ptr) {
+        m_buffer.ensureSpace(7 * sizeof(uint32_t));
         BufferOffset bo = m_buffer.nextOffset();
         addPendingJump(bo, ptr, RelocationKind::HARDCODED);
         ma_jump(ptr);

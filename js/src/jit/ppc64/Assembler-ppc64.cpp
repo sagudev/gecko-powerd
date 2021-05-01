@@ -117,12 +117,11 @@ Assembler::TraceDataRelocations(JSTracer* trc, JitCode* code, CompactBufferReade
 void
 Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
 {
-    __asm__("trap\n");
     if (label.patchAt().bound()) {
-
         auto mode = label.linkMode();
         intptr_t offset = label.patchAt().offset();
         intptr_t target = label.target().offset();
+        spew("# Bind mode=%d rawCode=%p offset=%lx target=%lx", (int)mode, rawCode, offset, target);
 
         if (mode == CodeLabel::RawPointer) {
             *reinterpret_cast<const void**>(rawCode + offset) = rawCode + target;
@@ -249,6 +248,8 @@ Assembler::bind(Label* label)
                     // offset the negative index.
 
                     spew("# writing in long jump as short jump bc");
+                    // Make sure we're not going to patch in the wrong place.
+                    MOZ_ASSERT(inst[7].encode() != PPC_bctr);
                     // Weirdo instructions like bdnz shouldn't come through here, just any
                     // bc with a BO of 0x04 or 0x0c (i.e., CR bit set or CR bit not set).
                     MOZ_ASSERT((inst[-1].encode() & 0x03e00000) == 0x00800000 ||
@@ -264,6 +265,8 @@ Assembler::bind(Label* label)
                     // Why is it running?
 
                     spew("# writing in long jump as short jump bc/b");
+                    // Make sure we're not going to patch in the wrong place.
+                    MOZ_ASSERT(inst[7].encode() != PPC_bctr);
                     inst[0].setData(PPC_b | JOffImm26(offset).encode());
                     inst[1].setData(PPC_nop); // obliterate next in chain
                 } else {
@@ -274,7 +277,8 @@ Assembler::bind(Label* label)
                     addLongJump(b);
                     Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
                     inst[5].makeOp_mtctr(SecondScratchReg);
-                }   inst[6].makeOp_bctr(DontLinkB);
+                    inst[6].makeOp_bctr(DontLinkB);
+                }
             } else if (inst[0].traptag() == CallTag) {
                 // I wanna taste pizzazz, all the taste clean Stanza has!
                 // I wanna clean, I wanna ... Stan-za.
@@ -290,6 +294,8 @@ Assembler::bind(Label* label)
                     // It's a short jump after all!
                     // It's a short #${{@~NO CARRIER
                     spew("# writing in short call");
+                    // Make sure we're not going to patch in the wrong place.
+                    MOZ_ASSERT(inst[7].encode() != PPC_bctr);
                     inst[0].setData(PPC_nop); // obliterate trap
                     inst[1].setData(PPC_nop); // obliterate next-in-chain
                     // So that the return is after the stanza, the link call must be the last
@@ -891,7 +897,7 @@ BufferOffset Assembler::as_blr(LinkBit lb)
 BufferOffset Assembler::as_bctr(LinkBit lb)
 {
     spew("bctr%s", lb ? "l" : "");
-    return writeInst(PPC_blr | lb);
+    return writeInst(PPC_bctr | lb);
 }
 
 // Conditional branches.
@@ -1015,7 +1021,7 @@ BufferOffset Assembler::as_bcctr(uint16_t op, LikelyBit lkb, LinkBit lb)
 BufferOffset Assembler::as_mtspr(SPRegisterID spr, Register ra)
 {
     spew("mtspr\t%d,%3s", spr, ra.name());
-    return writeInst(PPC_mfspr | ra.code() << 21 | PPC_SPR(spr) << 11);
+    return writeInst(PPC_mtspr | ra.code() << 21 | PPC_SPR(spr) << 11);
 }
 BufferOffset Assembler::as_mfspr(Register rd, SPRegisterID spr)
 {
@@ -1324,15 +1330,16 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
         spew(#op ".\t%3s,%3s,%3s,%d", ra.name(), rs.name(), rb.name(), mb); \
         return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | rb.code() << 11 | mb << 6); }
 
+/* NOTHING documents these encodings well, not OPPCC, not even the 3.1 ISA book. */
 #define DEF_MDFORM(op) \
     BufferOffset Assembler::as_##op(Register ra, Register rs, uint8_t sh, uint8_t mb) {\
         spew(#op "\t%3s,%3s,%d,%d", ra.name(), rs.name(), sh, mb); \
-        return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | sh << 11 | mb << 6); }
+        return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | ((sh & 0x1f) << 11) | ((mb & 0x1f) << 6) | (mb & 0x20) | ((sh & 0x20) >> 4)); }
 
 #define DEF_MDFORM_RC(op) \
     BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint8_t sh, uint8_t mb) {\
         spew(#op ".\t%3s,%3s,%d,%d", ra.name(), rs.name(), sh, mb); \
-        return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | sh << 11 | mb << 6); }
+        return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | ((sh & 0x1f) << 11) | ((mb & 0x1f) << 6) | (mb & 0x20) | ((sh & 0x20) >> 4) | 0x01); }
 
 
 

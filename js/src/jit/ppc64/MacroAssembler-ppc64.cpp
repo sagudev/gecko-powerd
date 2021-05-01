@@ -307,7 +307,8 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
 void
 MacroAssemblerPPC64::ma_li(Register dest, ImmWord imm)
 {
-    as_ori(dest, r0, imm.value);
+    ADBlock();
+    ma_li(dest, (uint64_t)imm.value);
 }
 
 // This generates immediate loads as well, but always in the
@@ -3789,6 +3790,7 @@ MacroAssembler::call(Label* label)
 CodeOffset
 MacroAssembler::callWithPatch()
 {
+// XXX: this is probably wrong
     as_b(0, RelativeBranch, LinkB);
 
     return CodeOffset(currentOffset());
