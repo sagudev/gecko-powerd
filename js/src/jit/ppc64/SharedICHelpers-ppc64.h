@@ -43,21 +43,16 @@ EmitRepushTailCallReg(MacroAssembler& masm)
 }
 
 inline void
-EmitCallIC(MacroAssembler& masm, CodeOffset* patchOffset)
+EmitCallIC(MacroAssembler& masm, CodeOffset* callOffset)
 {
-    // Move ICEntry offset into ICStubReg.
-    CodeOffset offset = masm.movWithPatch(ImmWord(-1), ICStubReg);
-    *patchOffset = offset;
+  // The stub pointer must already be in ICStubReg.
+  // Load stubcode pointer from the ICStub.
+  // R2 won't be active when we call ICs, so we can use it as scratch.
+  masm.loadPtr(Address(ICStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
 
-    // Load stub pointer into ICStubReg.
-    masm.loadPtr(Address(ICStubReg, ICEntry::offsetOfFirstStub()), ICStubReg);
-
-    // Load stubcode pointer from BaselineStubEntry.
-    // R2 won't be active when we call ICs, so we can use it as scratch.
-    masm.loadPtr(Address(ICStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
-
-    // Call the stubcode via a direct jump-and-link
-    masm.call(R2.scratchReg());
+  // Call the stubcode via a direct jump-and-link
+  masm.call(R2.scratchReg());
+  *callOffset = CodeOffset(masm.currentOffset());
 }
 
 inline void

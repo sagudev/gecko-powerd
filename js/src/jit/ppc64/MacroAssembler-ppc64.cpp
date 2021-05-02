@@ -1701,12 +1701,9 @@ MacroAssemblerPPC64Compat::checkStackAlignment()
 #ifdef DEBUG
     Label aligned;
     as_andi_rc(ScratchRegister, sp, ABIStackAlignment - 1);
-    xs_trap();
-#if(0)
-    ma_bc(ScratchRegister, Zero, &aligned, Equal, ShortJump);
-    as_break(BREAK_STACK_UNALIGNED);
+    ma_bc(ScratchRegister, ScratchRegister, &aligned, Zero, ShortJump);
+    xs_trap(); /* untagged so we know it's a bug */
     bind(&aligned);
-#endif
 #endif
 }
 
