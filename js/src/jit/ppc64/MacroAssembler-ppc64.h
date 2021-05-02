@@ -510,18 +510,10 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         ma_pop(reg);
     }
 
-    // Emit a branch that can be toggled to a non-operation.
-    // See ToggleToJmp(), ToggleToCmp().
     CodeOffset toggledJump(Label* label);
-
-    // Emit a "b" or "nop" instruction. ToggleCall can be used to patch
-    // this instruction.
     CodeOffset toggledCall(JitCode* target, bool enabled);
-
     static size_t ToggledCallSize(uint8_t* code) {
-        // Six instructions used in: MacroAssemblerPPC64Compat::toggledCall
-        MOZ_ASSERT(0); // XXX!
-        return 6 * sizeof(uint32_t);
+        return 7 * sizeof(uint32_t);
     }
 
     CodeOffset pushWithPatch(ImmWord imm) {

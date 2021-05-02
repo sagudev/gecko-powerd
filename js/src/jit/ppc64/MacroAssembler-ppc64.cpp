@@ -673,7 +673,7 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     // As above with a reverse-sense long stanza.
     m_buffer.ensureSpace(10 * sizeof(uint32_t)); // Worst case if as_bc emits CR twiddle ops.
     as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
-    BufferOffset bo = xs_trap_tagged(LongJumpTag); // encode non-call
+    BufferOffset bo = xs_trap_tagged(BCTag); // encode non-call
     spew(".long %08x ; next in chain", nextInChain);
     // The tagged trap must be the offset, not the leading bc. See Assembler::bind and
     // Assembler::retarget for why.
@@ -1817,29 +1817,38 @@ MacroAssemblerPPC64Compat::handleFailureWithHandlerTail(Label* profilerExitTail)
     ret();
 }
 
+// Toggled jumps and calls consist of oris r0,r0,0 followed by a full 7-instruction stanza.
+// This distinguishes it from other kinds of nops and is unusual enough to be noticed.
+// The leading oris 0,0,0 gets patched to a b .+32 when disabled.
 CodeOffset
 MacroAssemblerPPC64Compat::toggledJump(Label* label)
 {
+    ADBlock();
     CodeOffset ret(nextOffset().getOffset());
+    as_oris(r0, r0, 0);
     ma_b(label);
+    // The b() may emit a varying number of instructions, so add enough nops to pad.
+    while((nextOffset().getOffset() - ret.offset()) < ToggledCallSize(nullptr)) {
+        as_nop();
+    }
     return ret;
 }
 
 CodeOffset
 MacroAssemblerPPC64Compat::toggledCall(JitCode* target, bool enabled)
 {
+    ADBlock();
     BufferOffset bo = nextOffset();
     CodeOffset offset(bo.getOffset());
-    addPendingJump(bo, ImmPtr(target->raw()), RelocationKind::JITCODE);
-    ma_liPatchable(ScratchRegister, ImmPtr(target->raw()));
     if (enabled) {
-        xs_mtctr(ScratchRegister);
-        as_bctr(LinkB);
-        as_nop();
+        as_oris(r0, r0, 0);
     } else {
-        as_nop();
-        as_nop();
+        as_b(32, RelativeBranch, DontLinkB);
     }
+    addPendingJump(nextOffset(), ImmPtr(target->raw()), RelocationKind::JITCODE);
+    ma_liPatchable(SecondScratchReg, ImmPtr(target->raw()));
+    xs_mtctr(SecondScratchReg);
+    as_bctr(LinkB);
     MOZ_ASSERT_IF(!oom(), nextOffset().getOffset() - offset.offset() == ToggledCallSize(nullptr));
     return offset;
 }
@@ -3289,24 +3298,43 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
 {
     ADBlock();
     if (!label->bound()) {
+        BufferOffset bo;
+
         // Emit an unbound branch to be bound later by |Assembler::bind|.
+        // This and ma_bc() are largely the same in this respect.
         spew(".Llabel %p", label);
-        if (jumpKind == ShortJump) { // We know this branch must be short.
-            xs_trap_tagged(StaticShortJumpTag); // turned into b
+        uint32_t nextInChain = label->used() ? label->offset() : LabelBase::INVALID_OFFSET;
+        if (jumpKind == ShortJump) {
+            // We know this branch must be short. Unfortunately, because we
+            // have to also store the next-in-chain, we can't make this less
+            // than two instructions.
+            m_buffer.ensureSpace(2 * sizeof(uint32_t));
+            bo = as_b(4, RelativeBranch, DontLinkB);
+            spew(".long %08x ; next in chain", nextInChain);
+            writeInst(nextInChain);
         } else {
             m_buffer.ensureSpace(7 * sizeof(uint32_t));
-            ma_liPatchable(ScratchRegister, ImmWord(LabelBase::INVALID_OFFSET));
-            xs_trap_tagged(LongJumpTag); // turned into mtctr
-            xs_trap(); // turned into bctr
+            bo = xs_trap_tagged(BTag);
+            spew(".long %08x ; next in chain", nextInChain);
+            writeInst(nextInChain);
+            // Leave space for potential long jump.
+            as_nop(); // rldicr
+            as_nop(); // oris
+            as_nop(); // ori
+            as_nop(); // mtctr
+            as_nop(); // bctr
         }
+        if (!oom())
+            label->use(bo.getOffset());
         return;
     }
 
     // Label is bound, emit final code.
     int64_t offset = currentOffset() - (label->offset());
-    if (jumpKind == ShortJump || JOffImm26::IsInRange(offset))
+    if (jumpKind == ShortJump || JOffImm26::IsInRange(offset)) {
+        MOZ_ASSERT(JOffImm26::IsInRange(offset));
         as_b(offset);
-    else {
+    } else {
         // Use r12 "as expected" even though this is probably not to ABI-compliant code.
         m_buffer.ensureSpace(7 * sizeof(uint32_t));
         addLongJump(nextOffset());
@@ -3907,18 +3935,23 @@ MacroAssembler::patchCallToNop(uint8_t* call)
 #endif
 }
 
+// The code generators expect these will leave the stack aligned, so:
 void
 MacroAssembler::pushReturnAddress()
 {
+    ADBlock();
     xs_mflr(ScratchRegister);
-    push(ScratchRegister);
+    as_addi(StackPointer, StackPointer, -16);
+    as_std(ScratchRegister, StackPointer, 0);
 }
 
 void
 MacroAssembler::popReturnAddress()
 {
-    pop(ScratchRegister);
+    ADBlock();
+    as_ld(ScratchRegister, StackPointer, 0);
     xs_mtlr(ScratchRegister);
+    as_addi(StackPointer, StackPointer, 16);
 }
 
 // ===============================================================
@@ -3927,10 +3960,12 @@ MacroAssembler::popReturnAddress()
 uint32_t
 MacroAssembler::pushFakeReturnAddress(Register scratch)
 {
+    ADBlock();
     CodeLabel cl;
 
     ma_li(scratch, &cl);
     Push(scratch);
+    Push(scratch); // XXX? does this need to be aligned too?
     bind(&cl);
     uint32_t retAddr = currentOffset();
 

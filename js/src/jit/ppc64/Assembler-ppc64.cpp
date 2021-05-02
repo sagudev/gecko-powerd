@@ -136,7 +136,7 @@ Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
 void
 Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
 {
-    __asm__("trap\n");
+MOZ_CRASH("::bind inst branch target NYI");
 #if 0 // TODO: Assembler::bind()
     int64_t offset = target - branch;
     InstImm inst_bgezal = InstImm(op_regimm, r0, rt_bgezal, BOffImm16(0));
@@ -211,11 +211,9 @@ Assembler::bind(Label* label)
             spew("# pending long jump");
             addLongJump(b);
         } else if (inst[0].isOpcode(PPC_tw)) { // tagged trap
-            if (inst[0].traptag() == StaticShortJumpTag) { // guaranteed short jump
-                spew("# writing in static short jump");
-                MOZ_ASSERT(JOffImm26::IsInRange(offset));  // (well, *we* will guarantee it)
-                inst[0].setData(PPC_b | JOffImm26(offset).encode());
-            } else if (inst[0].traptag() == LongJumpTag) {
+            TrapTag t = inst[0].traptag();
+
+            if (t == BCTag) {
                 // Reverse-sense long stanza:
                 // bc inverted, fail
                 // tagged trap       << inst[0]    patch to lis
@@ -247,7 +245,7 @@ Assembler::bind(Label* label)
                     // Patch bc directly by inverting the sense, adding an instruction to
                     // offset the negative index.
 
-                    spew("# writing in long jump as short jump bc");
+                    spew("# writing in long jump as short bc");
                     // Make sure we're not going to patch in the wrong place.
                     MOZ_ASSERT(inst[7].encode() != PPC_bctr);
                     // Weirdo instructions like bdnz shouldn't come through here, just any
@@ -264,7 +262,7 @@ Assembler::bind(Label* label)
                     // It's ... why did you pick up that chainsaw?
                     // Why is it running?
 
-                    spew("# writing in long jump as short jump bc/b");
+                    spew("# writing in long jump as short bc/b");
                     // Make sure we're not going to patch in the wrong place.
                     MOZ_ASSERT(inst[7].encode() != PPC_bctr);
                     inst[0].setData(PPC_b | JOffImm26(offset).encode());
@@ -273,13 +271,13 @@ Assembler::bind(Label* label)
                     // Dang, no Disney songs for this.
                     // Although this should be to Ion code, use r12 to keep calls "as expected."
 
-                    spew("# writing in and pending long jump");
+                    spew("# writing in and pending long bc");
                     addLongJump(b);
                     Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
                     inst[5].makeOp_mtctr(SecondScratchReg);
                     inst[6].makeOp_bctr(DontLinkB);
                 }
-            } else if (inst[0].traptag() == CallTag) {
+            } else if (t == CallTag) {
                 // I wanna taste pizzazz, all the taste clean Stanza has!
                 // I wanna clean, I wanna ... Stan-za.
                 MOZ_ASSERT(inst[2].encode() == PPC_nop);
@@ -309,14 +307,42 @@ Assembler::bind(Label* label)
                     inst[5].makeOp_mtctr(SecondScratchReg);
                     inst[6].makeOp_bctr(LinkB);
                 }
+            } else if (t == BTag) {
+                // More or less a degenerate case of BCTag. But do they let me sing Disney songs
+                // about that? Noooooooooo. They said it was an HR violation and would summon
+                // lawyers from their undead crypts to lay waste upon the earth. Wimps.
+                MOZ_ASSERT(inst[2].encode() == PPC_nop);
+                MOZ_ASSERT(inst[3].encode() == PPC_nop);
+                MOZ_ASSERT(inst[4].encode() == PPC_nop);
+                MOZ_ASSERT(inst[5].encode() == PPC_nop);
+                MOZ_ASSERT(inst[6].encode() == PPC_nop);
+
+                if (JOffImm26::IsInRange(offset)) {
+                    spew("# writing in short b");
+                    // Make sure we're not going to patch in the wrong place.
+                    MOZ_ASSERT(inst[7].encode() != PPC_bctr);
+                    // The branch, in this case, really is in slot 0.
+                    inst[0].setData(PPC_b | JOffImm26(offset).encode());
+                    inst[1].setData(PPC_nop); // obliterate next in chain
+                } else {
+                    spew("# writing in and pending long b");
+                    addLongJump(b);
+                    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
+                    inst[5].makeOp_mtctr(SecondScratchReg);
+                    inst[6].makeOp_bctr(DontLinkB);
+                }
             } else {
-                MOZ_CRASH("unhandled traptag in slot 0");
+                MOZ_CRASH("unhandled trap in slot 0");
             }
         } else if (inst[0].isOpcode(PPC_b)) {
-            MOZ_CRASH("b");
+            // Short jump emitted by ma_b. Set the b target and nop out the next-in-chain.
+            spew("# setting short b");
+            MOZ_ASSERT(JOffImm26::IsInRange(offset));
+            inst[0].setData(PPC_b | JOffImm26(offset).encode());
+            inst[1].setData(PPC_nop); // obliterate next-in-chain
         } else if (inst[0].isOpcode(PPC_bc)) {
             // Short jump emitted by ma_bc. Set the bc target and nop out the next-in-chain.
-            spew("# setting short jump");
+            spew("# setting short bc");
             MOZ_ASSERT(BOffImm16::IsInSignedRange(offset));
             inst[0].setData((inst[0].encode() & 0xffff0000) | BOffImm16(offset).encode());
             inst[1].setData(PPC_nop); // obliterate next-in-chain
