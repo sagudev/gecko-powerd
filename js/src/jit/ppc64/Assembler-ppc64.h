@@ -243,6 +243,9 @@ static constexpr Register AsmJSIonExitRegD2 = r7;
 
 static const uint32_t ABIStackAlignment = 16;
 static const uint32_t CodeAlignment = 16;
+// Ion code only. The 8-alignment is necessary because frames always have the return address
+// at the top of the stack and are not padded (see the common frame layout in JitFrames.h).
+static const uint32_t StackAlignment = 8;
 static const uint32_t JitStackAlignment = 16;
 static const uint32_t JitStackValueAlignment = 2;
 
@@ -260,8 +263,8 @@ struct SecondScratchRegisterScope : public AutoRegisterScope {
 // Future.
 static constexpr bool SupportsSimd = false;
 static constexpr uint32_t SimdStackAlignment = 16;
-static constexpr uint32_t SimdMemoryAlignment = 16; // damn AltiVec restrictions
-static constexpr uint32_t AsmJSStackAlignment = 16; // wtf wtf wtf
+static constexpr uint32_t SimdMemoryAlignment = 16;
+static constexpr uint32_t AsmJSStackAlignment = 16;
 
 static constexpr uint32_t WasmStackAlignment = SimdStackAlignment;
 

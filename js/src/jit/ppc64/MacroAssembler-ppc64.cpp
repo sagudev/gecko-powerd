@@ -1700,7 +1700,7 @@ MacroAssemblerPPC64Compat::checkStackAlignment()
 {
 #ifdef DEBUG
     Label aligned;
-    as_andi_rc(ScratchRegister, sp, ABIStackAlignment - 1);
+    as_andi_rc(ScratchRegister, sp, StackAlignment - 1);
     ma_bc(ScratchRegister, ScratchRegister, &aligned, Zero, ShortJump);
     xs_trap(); /* untagged so we know it's a bug */
     bind(&aligned);
@@ -3935,13 +3935,12 @@ MacroAssembler::patchCallToNop(uint8_t* call)
 #endif
 }
 
-// The code generators expect these will leave the stack aligned, so:
 void
 MacroAssembler::pushReturnAddress()
 {
     ADBlock();
     xs_mflr(ScratchRegister);
-    as_addi(StackPointer, StackPointer, -16);
+    as_addi(StackPointer, StackPointer, -8);
     as_std(ScratchRegister, StackPointer, 0);
 }
 
@@ -3951,7 +3950,7 @@ MacroAssembler::popReturnAddress()
     ADBlock();
     as_ld(ScratchRegister, StackPointer, 0);
     xs_mtlr(ScratchRegister);
-    as_addi(StackPointer, StackPointer, 16);
+    as_addi(StackPointer, StackPointer, 8);
 }
 
 // ===============================================================
@@ -3965,7 +3964,6 @@ MacroAssembler::pushFakeReturnAddress(Register scratch)
 
     ma_li(scratch, &cl);
     Push(scratch);
-    Push(scratch); // XXX? does this need to be aligned too?
     bind(&cl);
     uint32_t retAddr = currentOffset();
 

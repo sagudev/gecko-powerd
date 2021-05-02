@@ -819,6 +819,8 @@ JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
     regs.take(cxreg);
 
     // If it isn't a tail call, then the return address needs to be saved.
+    // Even though the callee should do this for us, we may change the return address.
+    // This completes any exit frame on top of the stack (see JitFrames.h).
     if (f.expectTailCall == NonTailCall)
         masm.pushReturnAddress();
 
