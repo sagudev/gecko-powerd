@@ -740,7 +740,10 @@ class Assembler : public AssemblerShared
     enum TrapTag { // FreeBSD and others may use r1 in their trap word, so don't allow bit 0 or > 15.
         StaticShortJumpTag = 2,
         LongJumpTag = 4,
-        CallTag = 6
+        CallTag = 6,
+        DebugTag0 = 10,
+        DebugTag1 = 12,
+        DebugTag2 = 14
     };
 
     enum BranchBits {

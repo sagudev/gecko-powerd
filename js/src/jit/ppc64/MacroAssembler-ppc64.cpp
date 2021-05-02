@@ -1961,7 +1961,7 @@ MacroAssembler::setupUnalignedABICall(Register scratch)
 
     ma_move(scratch, StackPointer);
 
-    // Save SP. (XXX: ARM saves LR here too?)
+    // Save SP. We should not need to save LR since it's callee-saved and this is an ABI call.
     asMasm().subPtr(Imm32(sizeof(uintptr_t)), StackPointer);
     ma_and(StackPointer, StackPointer, Imm32(~(ABIStackAlignment - 1)));
     storePtr(scratch, Address(StackPointer, 0));
@@ -1974,9 +1974,6 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
     MOZ_ASSERT(inCall_);
     uint32_t stackForCall = abiArgs_.stackBytesConsumedSoFar();
 
-    // Reserve place for LR.
-    stackForCall += sizeof(intptr_t);
-
     if (dynamicAlignment_) {
         stackForCall += ComputeByteAlignment(stackForCall, ABIStackAlignment);
     } else {
@@ -1985,6 +1982,10 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
                                              ABIStackAlignment);
     }
 
+    // The callee save area must minimally include room for the SP back chain pointer,
+    // CR and LR. For 16-byte alignment we'll just ask for 32 bytes. This guarantees
+    // nothing we're trying to keep on the stack will get overwritten.
+    stackForCall += 32;
     *stackAdjust = stackForCall;
     reserveStack(stackForCall);
 
@@ -1999,10 +2000,6 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
         emitter.finish();
     }
 
-    // SP is now set, so save LR in the frame.
-    xs_mflr(ScratchRegister);
-    storePtr(ScratchRegister, Address(StackPointer, 0));
-
     assertStackAlignment(ABIStackAlignment);
 }
 
@@ -2010,12 +2007,10 @@ void
 MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool callFromWasm)
 {
     ADBlock();
-    // Restore LR.
-    loadPtr(Address(StackPointer, 0), ScratchRegister);
-    xs_mtlr(ScratchRegister);
 
     if (dynamicAlignment_) {
         // Restore sp value from stack (as stored in setupUnalignedABICall()).
+        // The callee should have restored LR and CR for us.
         loadPtr(Address(StackPointer, stackAdjust), StackPointer);
         // Use adjustFrame instead of freeStack because we already restored sp.
         adjustFrame(-stackAdjust);
@@ -2032,9 +2027,6 @@ MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool 
 void
 MacroAssembler::callWithABINoProfiler(Register fun, MoveOp::Type result)
 {
-    // Load the callee in t9, no instruction between the lw and call
-    // should clobber it. Note that we can't use fun.base because it may
-    // be one of the IntArg registers clobbered before the call.
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust);
     call(fun);
@@ -2044,7 +2036,6 @@ MacroAssembler::callWithABINoProfiler(Register fun, MoveOp::Type result)
 void
 MacroAssembler::callWithABINoProfiler(const Address& fun, MoveOp::Type result)
 {
-    // Load the callee in t9, as above.
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust);
     loadPtr(Address(fun.base, fun.offset), ScratchRegister);
