@@ -46,6 +46,7 @@ EmitBaselineTailCallVM(TrampolinePtr target, MacroAssembler& masm, uint32_t argS
     masm.jump(target);
 }
 
+/*
 inline void
 EmitIonTailCallVM(TrampolinePtr target, MacroAssembler& masm, uint32_t stackSize)
 {
@@ -62,14 +63,14 @@ EmitIonTailCallVM(TrampolinePtr target, MacroAssembler& masm, uint32_t stackSize
     masm.push(ScratchRegister);
     masm.jump(target);
 }
+*/
 
 inline void
 EmitBaselineCreateStubFrameDescriptor(MacroAssembler& masm, Register reg, uint32_t headerSize)
 {
     // Compute stub frame size. We have to add two pointers: the stub reg and
     // previous frame pointer pushed by EmitEnterStubFrame.
-    masm.movePtr(BaselineFrameReg, reg);
-    masm.addPtr(Imm32(sizeof(intptr_t) * 2), reg);
+    masm.as_addi(reg, BaselineFrameReg, sizeof(intptr_t)*2);
     masm.subPtr(BaselineStackReg, reg);
 
     masm.makeFrameDescriptor(reg, FrameType::BaselineStub, headerSize);
@@ -88,8 +89,7 @@ inline void
 EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch)
 {
     // Compute frame size.
-    masm.movePtr(BaselineFrameReg, scratch);
-    masm.addPtr(Imm32(BaselineFrame::FramePointerOffset), scratch);
+    masm.as_addi(scratch, BaselineFrameReg, BaselineFrame::FramePointerOffset);
     masm.subPtr(BaselineStackReg, scratch);
 
 #ifdef DEBUG
@@ -103,8 +103,8 @@ EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch)
 
     // Push frame descriptor and return address.
     masm.makeFrameDescriptor(scratch, FrameType::BaselineJS, BaselineStubFrameLayout::Size());
-    masm.subPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
     masm.xs_mflr(ScratchRegister);
+    masm.subPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
     masm.storePtr(scratch, Address(StackPointer, offsetof(BaselineStubFrame, descriptor)));
     masm.storePtr(ScratchRegister, Address(StackPointer,
                                       offsetof(BaselineStubFrame, returnAddress)));

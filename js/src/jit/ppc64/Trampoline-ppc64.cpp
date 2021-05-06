@@ -354,17 +354,18 @@ masm.xs_trap_tagged(Assembler::DebugTag0);
         masm.enterFakeExitFrame(scratch, scratch, ExitFrameType::Bare);
 
         masm.reserveStack(2 * sizeof(uintptr_t));
-        masm.storePtr(framePtr, Address(StackPointer, sizeof(uintptr_t))); // BaselineFrame
+        masm.storePtr(framePtr, Address(StackPointer, sizeof(uintptr_t))); // BaselineFrameReg
         masm.storePtr(reg_code, Address(StackPointer, 0)); // jitcode
 
+        // Initialize the frame, including filling in the slots.
+        using Fn = bool (*)(BaselineFrame * frame, InterpreterFrame * interpFrame,
+                            uint32_t numStackValues);
         masm.setupUnalignedABICall(scratch);
-        using Fn = bool (*)(InvalidationBailoutStack * sp, size_t * frameSizeOut,
-                            BaselineBailoutInfo * *info);
         masm.passABIArg(BaselineFrameReg); // BaselineFrame
         masm.passABIArg(OsrFrameReg); // InterpreterFrame
         masm.passABIArg(numStackValues);
-        masm.callWithABI<Fn, InvalidationBailout>(
-                MoveOp::GENERAL, CheckUnsafeCallWithABI::DontCheckOther);
+        masm.callWithABI<Fn, jit::InitBaselineFrameForOsr>(
+            MoveOp::GENERAL, CheckUnsafeCallWithABI::DontCheckHasExitFrame);
 
         regs.add(OsrFrameReg);
         Register jitcode = regs.takeAny();

@@ -92,8 +92,9 @@ EmitBaselineLeaveStubFrame(MacroAssembler& masm, bool calledIntoIon = false)
                  ICTailCallReg);
 
     // Discard the frame descriptor.
-    masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, descriptor)), ScratchRegister);
+    //masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, descriptor)), ScratchRegister);
     masm.addPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
+    masm.checkStackAlignment();
 }
 
 template <typename AddrType>
