@@ -886,7 +886,7 @@ class Assembler : public AssemblerShared
 
     //js::Vector<CodeLabel, 0, SystemAllocPolicy> codeLabels_;
     js::Vector<RelativePatch, 8, SystemAllocPolicy> jumps_;
-    js::Vector<uint32_t, 8, SystemAllocPolicy> longJumps_;
+    //js::Vector<uint32_t, 8, SystemAllocPolicy> longJumps_;
 
     CompactBufferWriter jumpRelocations_;
     CompactBufferWriter dataRelocations_;
@@ -1376,9 +1376,9 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
 	BufferOffset as_twi(uint8_t to, Register ra, int16_t si);
 
     // Label operations.
-    void bind(InstImm* inst, uintptr_t branch, uintptr_t target);
-    void bind(Label *label);
-    void bind(Label *, BufferOffset);
+    void bind(InstImm* inst, uintptr_t branch, uintptr_t target, bool bound = false);
+    void bind(Label* label) { bind(label, nextOffset()); }
+    void bind(Label* label, BufferOffset boff);
     void bind(CodeLabel *label) { label->target()->bind(currentOffset()); }
     uint32_t currentOffset() {
         return nextOffset().getOffset();
@@ -1386,7 +1386,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
     void retarget(Label *label, Label *target);
     static void Bind(uint8_t *rawCode, const CodeLabel& label);
 
-/* Remove bindS*, those are TenFourFox-specific and we aren't going to implement them */
+/* XXX: Remove bindS*, those are TenFourFox-specific and we aren't going to implement them */
     // Fast fixed branches.
 #define SHORT_LABEL(w) BufferOffset w = nextOffset()
 #define SHORT_LABEL_MASM(w) BufferOffset w = masm.nextOffset()
@@ -1437,17 +1437,24 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
             writeRelocation(src);
     }
 
-    void addLongJump(BufferOffset src) {
-        enoughMemory_ &= longJumps_.append(src.getOffset());
+    void addLongJump(BufferOffset src, BufferOffset dst) {
+        //enoughMemory_ &= longJumps_.append(src.getOffset());
+        CodeLabel cl;
+        cl.patchAt()->bind(src.getOffset());
+        cl.target()->bind(dst.getOffset());
+        cl.setLinkMode(CodeLabel::JumpImmediate);
+        addCodeLabel(std::move(cl));
     }
 
   public:
+  /*
     size_t numLongJumps() const {
         return longJumps_.length();
     }
     uint32_t longJump(size_t i) {
         return longJumps_[i];
     }
+  */
 
     void comment(const char *msg) {
     }

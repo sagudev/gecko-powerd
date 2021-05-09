@@ -88,10 +88,13 @@ EmitBaselineLeaveStubFrame(MacroAssembler& masm, bool calledIntoIon = false)
                  ICStubReg);
 
     // Load the return address.
+    // This is different on PowerPC because LR is not a GPR. However, we
+    // still need to have it in a GPR in case Ion or Baseline relies on it.
     masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, returnAddress)),
                  ICTailCallReg);
+    masm.xs_mtlr(ICTailCallReg);
 
-    // Discard the frame descriptor.
+    // Discard the frame descriptor and the rest of the frame.
     //masm.loadPtr(Address(StackPointer, offsetof(BaselineStubFrame, descriptor)), ScratchRegister);
     masm.addPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
     masm.checkStackAlignment();

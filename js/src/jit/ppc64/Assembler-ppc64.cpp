@@ -134,9 +134,8 @@ Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
 }
 
 void
-Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target)
+Assembler::bind(InstImm* inst, uintptr_t b, uintptr_t target, bool bound)
 {
-MOZ_CRASH("::bind inst branch target NYI");
 #if 0 // TODO: Assembler::bind()
     int64_t offset = target - branch;
     InstImm inst_bgezal = InstImm(op_regimm, r0, rt_bgezal, BOffImm16(0));
@@ -192,24 +191,13 @@ MOZ_CRASH("::bind inst branch target NYI");
         // There is 1 nop after this.
     }
 #endif
-}
+    int64_t offset = target - b;
+    spew("# bind %lx %lx (instruction: %08x)", b, target, inst[0].encode());
+    MOZ_ASSERT(!(offset & 3));
 
-void
-Assembler::bind(Label* label)
-{
-    BufferOffset dest = nextOffset();
-    if (label->used() && !oom()) {
-        // If the label has a use, then change this use to refer to
-        // the bound label.
-        BufferOffset b(label->offset());
-        InstImm* inst = (InstImm*)editSrc(b);
-        int64_t offset = dest.getOffset() - label->offset();
-        spew(".set Llabel %p %08x ; %08x", label, label->offset(), inst[0].encode());
-        MOZ_ASSERT(!(offset & 3));
-
-        if (inst[0].isOpcode(PPC_addis)) { // lis
+        if (inst[0].isOpcode(PPC_addis)) { // pre-existing long stanza
             spew("# pending long jump");
-            addLongJump(b);
+            addLongJump(BufferOffset(b), BufferOffset(target));
         } else if (inst[0].isOpcode(PPC_tw)) { // tagged trap
             TrapTag t = inst[0].traptag();
 
@@ -236,8 +224,8 @@ Assembler::bind(Label* label)
                 MOZ_ASSERT(inst[5].encode() == PPC_nop);
                 MOZ_ASSERT(inst[6].encode() == PPC_nop);
 
-                // See if it's a short jump after all.
-                if (BOffImm16::IsInSignedRange(offset + sizeof(uint32_t))) { // see below
+                // If this was actually assigned, see if it's a short jump after all.
+                if (bound && BOffImm16::IsInSignedRange(offset + sizeof(uint32_t))) { // see below
                     // It's a short jump after all.
                     // It's a short jump after all.
                     // It's a short jump after all.
@@ -256,7 +244,7 @@ Assembler::bind(Label* label)
                     inst[-1].setData(((inst[-1].encode() ^ 0x01000000) & (0xffff0003)) | BOffImm16(offset+sizeof(uint32_t)).encode());
                     inst[0].setData(PPC_nop); // obliterate tagged trap
                     inst[1].setData(PPC_nop); // obliterate next in chain
-                } else if (JOffImm26::IsInRange(offset)) {
+                } else if (bound && JOffImm26::IsInRange(offset)) {
                     // It's a short(er) jump after all.
                     // It's a short(er) jump after all.
                     // It's ... why did you pick up that chainsaw?
@@ -272,7 +260,7 @@ Assembler::bind(Label* label)
                     // Although this should be to Ion code, use r12 to keep calls "as expected."
 
                     spew("# writing in and pending long bc");
-                    addLongJump(b);
+                    addLongJump(BufferOffset(b), BufferOffset(target));
                     Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
                     inst[5].makeOp_mtctr(SecondScratchReg);
                     inst[6].makeOp_bctr(DontLinkB);
@@ -288,7 +276,7 @@ Assembler::bind(Label* label)
 
                 // And I get to sing Disney songs again!
                 // See if it's a short jump after all!
-                if (JOffImm26::IsInRange(offset)) {
+                if (bound && JOffImm26::IsInRange(offset)) {
                     // It's a short jump after all!
                     // It's a short #${{@~NO CARRIER
                     spew("# writing in short call");
@@ -302,7 +290,7 @@ Assembler::bind(Label* label)
                 } else {
                     // Why doesn't anyone like my singing?
                     spew("# writing in and pending long call");
-                    addLongJump(b);
+                    addLongJump(BufferOffset(b), BufferOffset(target));
                     Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
                     inst[5].makeOp_mtctr(SecondScratchReg);
                     inst[6].makeOp_bctr(LinkB);
@@ -317,7 +305,7 @@ Assembler::bind(Label* label)
                 MOZ_ASSERT(inst[5].encode() == PPC_nop);
                 MOZ_ASSERT(inst[6].encode() == PPC_nop);
 
-                if (JOffImm26::IsInRange(offset)) {
+                if (bound && JOffImm26::IsInRange(offset)) {
                     spew("# writing in short b");
                     // Make sure we're not going to patch in the wrong place.
                     MOZ_ASSERT(inst[7].encode() != PPC_bctr);
@@ -326,7 +314,7 @@ Assembler::bind(Label* label)
                     inst[1].setData(PPC_nop); // obliterate next in chain
                 } else {
                     spew("# writing in and pending long b");
-                    addLongJump(b);
+                    addLongJump(BufferOffset(b), BufferOffset(target));
                     Assembler::WriteLoad64Instructions(inst, SecondScratchReg, LabelBase::INVALID_OFFSET);
                     inst[5].makeOp_mtctr(SecondScratchReg);
                     inst[6].makeOp_bctr(DontLinkB);
@@ -350,7 +338,7 @@ Assembler::bind(Label* label)
             MOZ_CRASH("Unhandled bind()");
         }
 
-#if(0)
+#if 0
         InstImm inst_beq = InstImm(op_beq, r0, r0, BOffImm16(0));
         uint64_t offset = dest.getOffset() - label->offset();
 
@@ -404,15 +392,11 @@ Assembler::bind(Label* label)
             inst[5] = InstReg(op_special, ScratchRegister, r0, r0, ff_jr).encode();
         }
 #endif
-    }
-    spew(".set Llabel %p (pending) %08x", label, dest.getOffset());
-    label->bind(dest.getOffset());
 }
 
 void
 Assembler::bind(Label* label, BufferOffset boff)
 {
-    __asm__("trap\n");
     spew(".set Llabel %p", label);
     // If our caller didn't give us an explicit target to bind to
     // then we want to bind to the location of the next instruction
@@ -432,17 +416,17 @@ Assembler::bind(Label* label, BufferOffset boff)
 
             // Second word holds a pointer to the next branch in label's chain.
             next = inst[1].encode();
-            bind(reinterpret_cast<InstImm*>(inst), b.getOffset(), dest.getOffset());
+            bind(reinterpret_cast<InstImm*>(inst), b.getOffset(), dest.getOffset(), boff.assigned());
 
             b = BufferOffset(next);
         } while (next != LabelBase::INVALID_OFFSET);
     }
     label->bind(dest.getOffset());
 }
+
 void
 Assembler::retarget(Label* label, Label* target)
 {
-__asm__("trap\n");
     spew("retarget %p -> %p", label, target);
     if (label->used() && !oom()) {
         if (target->bound()) {
@@ -785,6 +769,8 @@ Assembler::finish()
 void
 Assembler::executableCopy(uint8_t* buffer)
 {
+    spew("# EXECUTABLE COPY TO %p\n", buffer);
+
     MOZ_ASSERT(isFinished);
     m_buffer.executableCopy(buffer);
 }

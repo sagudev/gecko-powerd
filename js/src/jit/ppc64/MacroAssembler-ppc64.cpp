@@ -642,8 +642,7 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
         // run a short branch, assuming the "real" branch is not taken.
         m_buffer.ensureSpace(10 * sizeof(uint32_t)); // Worst case if as_bc emits CR twiddle ops.
         as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
-        //addLongJump(nextOffset(), BufferOffset(label->offset()));
-        addLongJump(nextOffset());
+        addLongJump(nextOffset(), BufferOffset(label->offset()));
         ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET)); // 5
         xs_mtctr(SecondScratchReg); // 6
         as_bctr(); // 7
@@ -751,7 +750,7 @@ MacroAssemblerPPC64::ma_bal(Label* label) // The whole world has gone MIPS, I te
         }
 
         // Although this is to Ion code, use r12 to keep calls "as expected."
-        addLongJump(dest);
+        addLongJump(dest, b);
         ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
         xs_mtctr(SecondScratchReg);
         as_bctr(LinkB); // bctrl
@@ -2033,6 +2032,8 @@ MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool 
 void
 MacroAssembler::callWithABINoProfiler(Register fun, MoveOp::Type result)
 {
+    ADBlock();
+
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust);
     call(fun);
@@ -2042,6 +2043,8 @@ MacroAssembler::callWithABINoProfiler(Register fun, MoveOp::Type result)
 void
 MacroAssembler::callWithABINoProfiler(const Address& fun, MoveOp::Type result)
 {
+    ADBlock();
+
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust);
     loadPtr(Address(fun.base, fun.offset), ScratchRegister);
@@ -3312,11 +3315,15 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
             bo = as_b(4, RelativeBranch, DontLinkB);
             spew(".long %08x ; next in chain", nextInChain);
             writeInst(nextInChain);
+            if (!oom())
+                label->use(bo.getOffset());
         } else {
             m_buffer.ensureSpace(7 * sizeof(uint32_t));
             bo = xs_trap_tagged(BTag);
             spew(".long %08x ; next in chain", nextInChain);
             writeInst(nextInChain);
+            if (!oom())
+                label->use(bo.getOffset());
             // Leave space for potential long jump.
             as_nop(); // rldicr
             as_nop(); // oris
@@ -3324,8 +3331,6 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
             as_nop(); // mtctr
             as_nop(); // bctr
         }
-        if (!oom())
-            label->use(bo.getOffset());
         return;
     }
 
@@ -3337,7 +3342,7 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
     } else {
         // Use r12 "as expected" even though this is probably not to ABI-compliant code.
         m_buffer.ensureSpace(7 * sizeof(uint32_t));
-        addLongJump(nextOffset());
+        addLongJump(nextOffset(), BufferOffset(label->offset()));
         ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
         xs_mtctr(SecondScratchReg);
         as_bctr();
@@ -3675,7 +3680,6 @@ MacroAssemblerPPC64::ma_call(ImmPtr dest)
     asMasm().ma_liPatchable(CallReg, dest);
     xs_mtctr(CallReg);
     as_bctr(LinkB);
-    as_nop();
 }
 
 void
@@ -3684,7 +3688,6 @@ MacroAssemblerPPC64::ma_jump(ImmPtr dest)
     asMasm().ma_liPatchable(ScratchRegister, dest);
     xs_mtctr(ScratchRegister);
     as_bctr();
-    as_nop();
 }
 
 MacroAssembler&
@@ -3792,7 +3795,6 @@ MacroAssembler::call(Register reg)
 {
     xs_mtctr(reg);
     as_bctr(LinkB);
-    as_nop();
     return CodeOffset(currentOffset());
 }
 
@@ -3807,7 +3809,8 @@ CodeOffset
 MacroAssembler::callWithPatch()
 {
 // XXX: this is probably wrong
-    as_b(0, RelativeBranch, LinkB);
+    xs_trap();
+    as_b(928, RelativeBranch, LinkB); // make this an obvious number
 
     return CodeOffset(currentOffset());
 }
@@ -3886,11 +3889,11 @@ MacroAssembler::call(JitCode* c)
 CodeOffset
 MacroAssembler::nopPatchableToCall()
 {
-    CodeOffset offset(currentOffset());
+    CodeOffset offset(currentOffset()); // XXX
                 // MIPS32   //PPC64
-    as_nop();   // oris     // oris
+    as_nop();   // oris     // lis
     as_nop();   // ori      // ori
-    as_nop();   // mtctr    // rlwinm (shift 32)
+    as_nop();   // mtctr    // rldicr
     as_nop();   // bctrl    // oris
 #ifdef JS_CODEGEN_PPC64
     as_nop();               // ori
@@ -3903,6 +3906,7 @@ MacroAssembler::nopPatchableToCall()
 void
 MacroAssembler::patchNopToCall(uint8_t* call, uint8_t* target)
 {
+    MOZ_CRASH("NYI");
 #ifdef JS_CODEGEN_PPC64
     Instruction* inst = (Instruction*) call - 7 /* six nops */;
     Assembler::WriteLoad64Instructions(inst, ScratchRegister, (uint64_t) target);
@@ -3918,6 +3922,7 @@ MacroAssembler::patchNopToCall(uint8_t* call, uint8_t* target)
 void
 MacroAssembler::patchCallToNop(uint8_t* call)
 {
+    MOZ_CRASH("NYI");
 #ifdef JS_CODEGEN_PPC64
     Instruction* inst = (Instruction*) call - 6 /* six nops */;
 #else
@@ -3940,8 +3945,7 @@ MacroAssembler::pushReturnAddress()
 {
     ADBlock();
     xs_mflr(ScratchRegister);
-    as_addi(StackPointer, StackPointer, -8);
-    as_std(ScratchRegister, StackPointer, 0);
+    as_stdu(ScratchRegister, StackPointer, -8);
 }
 
 void
