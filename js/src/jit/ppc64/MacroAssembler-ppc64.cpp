@@ -626,8 +626,8 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     // Branch on the condition bit in the specified condition register.
     spew("bc .Llabel %p @ %08x", label, currentOffset());
     if (label->bound()) {
-        int32_t offset = label->offset() - m_buffer.nextOffset().getOffset();
-        spew("# target offset: %08x (diff: %d)\n", label->offset(), offset);
+        int64_t offset = label->offset() - m_buffer.nextOffset().getOffset();
+        spew("# target offset: %08x (diff: %ld)\n", label->offset(), offset);
 
         if (BOffImm16::IsInSignedRange(offset))
             jumpKind = ShortJump;
@@ -735,7 +735,7 @@ MacroAssemblerPPC64::ma_bal(Label* label) // The whole world has gone MIPS, I te
         BufferOffset b(label->offset());
         m_buffer.ensureSpace(7 * sizeof(uint32_t));
         BufferOffset dest = nextOffset();
-        int64_t offset = (dest.getOffset() + 6*sizeof(uint32_t)) - label->offset();
+        int64_t offset = label->offset() - (dest.getOffset() + 6*sizeof(uint32_t));
         if (JOffImm26::IsInRange(offset)) {
             JOffImm26 j(offset);
 
@@ -2047,8 +2047,8 @@ MacroAssembler::callWithABINoProfiler(const Address& fun, MoveOp::Type result)
 
     uint32_t stackAdjust;
     callWithABIPre(&stackAdjust);
-    loadPtr(Address(fun.base, fun.offset), ScratchRegister);
-    call(ScratchRegister);
+    loadPtr(Address(fun.base, fun.offset), SecondScratchReg);
+    call(SecondScratchReg);
     callWithABIPost(stackAdjust, result);
 }
 
@@ -3025,36 +3025,6 @@ void
 MacroAssemblerPPC64::ma_load(Register dest, const BaseIndex& src,
                                   LoadStoreSize size, LoadStoreExtension extension)
 {
-    if (ZeroExtend != extension && Imm8::IsInSignedRange(src.offset)) {
-        Register index = src.index;
-
-        if (src.scale != TimesOne) {
-            int32_t shift = Imm32::ShiftOf(src.scale).value;
-
-            MOZ_ASSERT(SecondScratchReg != src.base);
-            index = SecondScratchReg;
-            asMasm().as_rldicr(index, src.index, shift, 64 - shift);
-        }
-
-        switch (size) {
-          case SizeByte:
-            as_lbz(dest, src.base, src.offset);
-            break;
-          case SizeHalfWord:
-            as_lhz(dest, src.base, src.offset);
-            break;
-          case SizeWord:
-            as_lwz(dest, src.base, src.offset);
-            break;
-          case SizeDouble:
-            as_ld(dest, src.base, src.offset);
-            break;
-          default:
-            MOZ_CRASH("Invalid argument for ma_load");
-        }
-        return;
-    }
-
     asMasm().computeScaledAddress(src, SecondScratchReg);
 
     // If src.offset is out of 16-bit signed range, we will hit an assert
@@ -3335,8 +3305,10 @@ MacroAssemblerPPC64::ma_b(Label* label, JumpKind jumpKind)
     }
 
     // Label is bound, emit final code.
-    int64_t offset = currentOffset() - (label->offset());
+    int64_t offset = label->offset() - currentOffset();
     if (jumpKind == ShortJump || JOffImm26::IsInRange(offset)) {
+        spew("# static short jump %08x to label %p @ %08x (offset %ld)",
+            currentOffset(), label, label->offset(), offset);
         MOZ_ASSERT(JOffImm26::IsInRange(offset));
         as_b(offset);
     } else {
@@ -3882,13 +3854,14 @@ MacroAssembler::call(JitCode* c)
 {
     BufferOffset bo = m_buffer.nextOffset();
     addPendingJump(bo, ImmPtr(c->raw()), RelocationKind::JITCODE);
-    ma_liPatchable(ScratchRegister, ImmPtr(c->raw()));
-    callJitNoProfiler(ScratchRegister);
+    ma_liPatchable(SecondScratchReg, ImmPtr(c->raw()));
+    callJitNoProfiler(SecondScratchReg);
 }
 
 CodeOffset
 MacroAssembler::nopPatchableToCall()
 {
+    ADBlock();
     CodeOffset offset(currentOffset()); // XXX
                 // MIPS32   //PPC64
     as_nop();   // oris     // lis

@@ -388,7 +388,13 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         ma_add(dest, address.base, Imm32(address.offset));
     }
 
-    inline void computeEffectiveAddress(const BaseIndex& address, Register dest);
+    inline void computeEffectiveAddress(const BaseIndex &address, Register dest) {
+        computeScaledAddress(address, dest);
+        if (address.offset) {
+            ma_add(dest, dest, Imm32(address.offset));
+        }
+    }
+
 
     void j(Condition cond, Label* dest) {
         ma_b(dest);
@@ -441,7 +447,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
     void jump(Register reg) {
         // This could be to any code, so definitely use r12.
-        as_or(SecondScratchReg, reg, reg); // make r12 == CTR
+        if (reg != SecondScratchReg)
+            as_or(SecondScratchReg, reg, reg); // make r12 == CTR
         xs_mtctr(SecondScratchReg); // new dispatch group
         hop_skip_nop_jump();
     }

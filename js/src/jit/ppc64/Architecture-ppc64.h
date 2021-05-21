@@ -181,7 +181,7 @@ class Registers
         (1 << Registers::r5)  |
         (1 << Registers::r6)  |
         (1 << Registers::r7)  |
-        (1 << Registers::r8)  |
+        //(1 << Registers::r8)  |
         (1 << Registers::r9)  |
         (1 << Registers::r10) |
         (1 << Registers::r14) |

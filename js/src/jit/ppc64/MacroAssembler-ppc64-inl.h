@@ -938,6 +938,7 @@ MacroAssemblerPPC64Compat::incrementInt32Value(const Address& addr)
     asMasm().add32(Imm32(1), addr);
 }
 
+/*
 void
 MacroAssemblerPPC64Compat::computeEffectiveAddress(const BaseIndex& address, Register dest)
 {
@@ -945,6 +946,7 @@ MacroAssemblerPPC64Compat::computeEffectiveAddress(const BaseIndex& address, Reg
     if (address.offset)
         asMasm().addPtr(Imm32(address.offset), dest);
 }
+*/
 
 void
 MacroAssemblerPPC64Compat::retn(Imm32 n)
