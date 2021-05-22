@@ -270,7 +270,7 @@ static constexpr uint32_t WasmStackAlignment = SimdStackAlignment;
 
 static const uint32_t WasmTrapInstructionLength = 4;
 
-static const Scale ScalePointer = TimesFour;
+static const Scale ScalePointer = TimesEight;
 
 enum PPCOpcodes {
     // Some we don't use yet (but we will).

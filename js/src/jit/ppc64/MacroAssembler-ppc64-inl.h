@@ -2066,10 +2066,18 @@ MacroAssembler::spectreBoundsCheck32(Register index, const Address& length,
 }
 
 // Constant-time conditional moves (basically isel all the things).
+// isel cannot test for the non-existence of a bit, so we need to be creative.
 void
 MacroAssembler::spectreMovePtr(Condition cond, Register src, Register dest)
 {
-    MOZ_CRASH();
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+
+    xs_trap(); // XXX
+    if (cond == Equal) {
+        as_isel(dest, dest, src, Assembler::Equal);
+    } else {
+        as_isel(dest, src, dest, Assembler::Equal);
+    }
 }
 
 void
@@ -2077,7 +2085,6 @@ MacroAssembler::spectreZeroRegister(Condition cond, Register scratch, Register d
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
 
-    // isel cannot test for the non-existence of a bit, so we need to be creative.
     if (cond == NotEqual) {
         xs_li(ScratchRegister, 0);
         as_isel(dest, dest, ScratchRegister, Assembler::Equal);

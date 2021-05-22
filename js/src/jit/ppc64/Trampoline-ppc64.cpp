@@ -391,6 +391,7 @@ masm.xs_trap_tagged(Assembler::DebugTag0);
             masm.bind(&skipProfilingInstrumentation);
         }
 
+masm.xs_trap_tagged(Assembler::DebugTag0);
         masm.jump(jitcode);
 
         // OOM: load error value, discard return address and previous frame
@@ -413,6 +414,7 @@ masm.xs_trap_tagged(Assembler::DebugTag0);
     masm.assertStackAlignment(JitStackAlignment, 16);
 
     // Call the function with pushing return address to stack.
+masm.xs_trap_tagged(Assembler::DebugTag0);
     masm.callJitNoProfiler(reg_code);
 
     {

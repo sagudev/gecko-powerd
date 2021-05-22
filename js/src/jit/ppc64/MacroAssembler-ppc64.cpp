@@ -150,6 +150,7 @@ MacroAssemblerPPC64Compat::convertDoubleToFloat32(FloatRegister src, FloatRegist
 // Checks whether a double is representable as a 32-bit integer. If so, the
 // integer is written to the output register. Otherwise, a bailout is taken to
 // the given snapshot. This function overwrites the scratch float register.
+// XXX! can we use mfvsrwz/mtvsrwz/mtvsrwa?
 void
 MacroAssemblerPPC64Compat::convertDoubleToInt32(FloatRegister src, Register dest,
                                                  Label* fail, bool negativeZeroCheck)
@@ -500,6 +501,12 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
         base = address.base;
     }
 
+    // It is entirely possible for the encodedOffset to trigger an
+    // unaligned load. The Baseline Interpreter's byte opcodes may lead a
+    // 32-bit quantity, so the offset is 1 to load that quantity even
+    // though this means a trip to the system handler. We should see if
+    // there is potential for optimization there, but the operation is
+    // deliberate, and we must not assert.
     switch (size) {
       case SizeByte:
         as_lbz(dest, base, encodedOffset);
@@ -2628,6 +2635,7 @@ MacroAssembler::truncFloat32ToInt32(FloatRegister src, Register dest, Label* fai
     return truncDoubleToInt32(src, dest, fail);
 }
 
+// XXX: use VSR?
 void
 MacroAssembler::truncDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
