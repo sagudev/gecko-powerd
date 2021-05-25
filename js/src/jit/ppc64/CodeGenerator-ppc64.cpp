@@ -476,6 +476,7 @@ CodeGenerator::visitWasmSelectI64(LWasmSelectI64* lir)
 
     if (falseExpr.value().isRegister()) {
         masm.as_cmpdi(cond, 0);
+        __asm__("trap\n"); // XXX: fix condition below
         masm.as_isel(out.reg, out.reg, ToRegister(falseExpr.value()), 2); // CR0[EQ]
     } else {
         Label done;
@@ -2619,6 +2620,7 @@ CodeGenerator::visitWasmSelect(LWasmSelect* ins)
         Register out = ToRegister(ins->output());
         MOZ_ASSERT(ToRegister(ins->trueExpr()) == out, "true expr input is reused for output");
         masm.as_cmpdi(cond, 0);
+        __asm__("trap\n"); // XXX: fix condition below
         masm.as_isel(out, out, ToRegister(falseExpr), 2); // CR0[EQ]
         return;
     }

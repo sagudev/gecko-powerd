@@ -549,7 +549,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
 
     void splitTag(Register src, Register dest) {
-        x_srwi(dest, src, JSVAL_TAG_SHIFT);
+        x_srdi(dest, src, JSVAL_TAG_SHIFT);
     }
 
     void splitTag(const ValueOperand& operand, Register dest) {

@@ -688,6 +688,10 @@ Assembler::InvertCondition( Condition cond)
             return Zero;
         case Signed:
             return NotSigned;
+        case SOBit:
+            return NSOBit;
+        case NSOBit:
+            return SOBit;
         default:
             MOZ_CRASH("unexpected condition");
     }
@@ -1325,11 +1329,15 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
 #define DEF_MFORM_I(op) \
     BufferOffset Assembler::as_##op(Register ra, Register rs, uint8_t sh, uint8_t mb, uint8_t me) {\
         spew(#op "\t%3s,%3s,%d,%d,%d", ra.name(), rs.name(), sh, mb, me); \
+        MOZ_ASSERT(sh < 32); \
+        MOZ_ASSERT(mb < 32); \
         return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | sh << 11 | mb << 6 | me << 1); }
 
 #define DEF_MFORM_I_RC(op) \
     BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint8_t sh, uint8_t mb, uint8_t me) {\
         spew(#op ".\t%3s,%3s,%d,%d,%d", ra.name(), rs.name(), sh, mb, me); \
+        MOZ_ASSERT(sh < 32); \
+        MOZ_ASSERT(mb < 32); \
         return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | sh << 11 | mb << 6 | me << 1 | 1); }
 
 #define DEF_MDSFORM(op) \

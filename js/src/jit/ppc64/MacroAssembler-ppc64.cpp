@@ -419,6 +419,7 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Register rt, L
     MOZ_ASSERT(rs != ScratchRegister);
     MOZ_ASSERT(rt != ScratchRegister);
     // Whack XER[SO].
+xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
 
@@ -431,6 +432,8 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Imm32 imm, Lab
 {
     // There is no addio, daddy-o, so use the regular overflow, yo.
     ADBlock();
+    MOZ_ASSERT(rs != SecondScratchReg);
+
     ma_li(SecondScratchReg, imm);
     ma_addTestOverflow(rd, rs, SecondScratchReg, overflow);
 }
@@ -1409,6 +1412,7 @@ MacroAssemblerPPC64Compat::unboxPrivate(const ValueOperand& src, Register dest)
     ma_dsll(dest, src.valueReg(), Imm32(1));
 }
 
+// XXX: use VSR?
 void
 MacroAssemblerPPC64Compat::boxDouble(FloatRegister src, const ValueOperand& dest, FloatRegister)
 {
@@ -1641,11 +1645,15 @@ MacroAssemblerPPC64Compat::loadValue(Address src, ValueOperand val)
 void
 MacroAssemblerPPC64Compat::tagValue(JSValueType type, Register payload, ValueOperand dest)
 {
+    ADBlock();
     MOZ_ASSERT(dest.valueReg() != ScratchRegister);
     if (payload != dest.valueReg())
       ma_move(dest.valueReg(), payload);
     ma_li(ScratchRegister, ImmTag(JSVAL_TYPE_TO_TAG(type)));
-    ma_dins(dest.valueReg(), ScratchRegister, Imm32(JSVAL_TAG_SHIFT), Imm32(64 - JSVAL_TAG_SHIFT));
+    // Shift the tag left and mask in the value, which is pretty much
+    // what rldimi/rlwimi were created for. We don't need to clear bits
+    // in between because lwz and lbz do that for us for int32 and bool.
+    as_rldimi(dest.valueReg(), ScratchRegister, JSVAL_TAG_SHIFT, 0);
 }
 
 void
@@ -2943,6 +2951,7 @@ void
 MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, Register rt,
                                           Label* overflow)
 {
+    ADBlock();
 // Needs code check
 __asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
@@ -2957,6 +2966,7 @@ void
 MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, Imm32 imm,
                                           Label* overflow)
 {
+    ADBlock();
 __asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     if (!Imm16::IsInSignedRange(imm.value)) {
@@ -2998,6 +3008,7 @@ MacroAssemblerPPC64::ma_subu(Register rd, Register rs)
 void
 MacroAssemblerPPC64::ma_subTestOverflow(Register rd, Register rs, Imm32 imm, Label* overflow)
 {
+    ADBlock();
     if (imm.value != INT32_MIN) {
         asMasm().ma_addTestOverflow(rd, rs, Imm32(-imm.value), overflow);
     } else {

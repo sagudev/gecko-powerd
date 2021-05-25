@@ -1598,8 +1598,6 @@ template <typename T>
 void
 MacroAssembler::branchAdd32(Condition cond, T src, Register dest, Label* overflow)
 {
-    MOZ_CRASH();
-#if 0
     switch (cond) {
       case Overflow:
         ma_addTestOverflow(dest, dest, src, overflow);
@@ -1611,7 +1609,6 @@ MacroAssembler::branchAdd32(Condition cond, T src, Register dest, Label* overflo
       default:
         MOZ_CRASH("NYI");
     }
-#endif
 }
 
 template <typename T>
@@ -2072,11 +2069,12 @@ MacroAssembler::spectreMovePtr(Condition cond, Register src, Register dest)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
 
-    xs_trap(); // XXX
+    //xs_trap(); // XXX
     if (cond == Equal) {
-        as_isel(dest, dest, src, Assembler::Equal);
-    } else {
         as_isel(dest, src, dest, Assembler::Equal);
+    } else {
+        // Flip the sense.
+        as_isel(dest, dest, src, Assembler::Equal);
     }
 }
 
@@ -2085,7 +2083,7 @@ MacroAssembler::spectreZeroRegister(Condition cond, Register scratch, Register d
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
 
-    if (cond == NotEqual) {
+    if (cond == Equal) {
         xs_li(ScratchRegister, 0);
         as_isel(dest, dest, ScratchRegister, Assembler::Equal);
     } else {

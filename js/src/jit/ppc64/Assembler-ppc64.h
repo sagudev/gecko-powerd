@@ -786,24 +786,27 @@ class Assembler : public AssemblerShared
         GreaterThanOrEqual = 0x04, 
         LessThan = 0x0c,
         LessThanOrEqual = 0x14,
+
         Above = GreaterThan | ConditionUnsigned,
         AboveOrEqual = GreaterThanOrEqual | ConditionUnsigned,
         Below = LessThan | ConditionUnsigned,
         BelowOrEqual = LessThanOrEqual | ConditionUnsigned,
-        Overflow = ConditionXEROV,
+
         Signed = LessThan | ConditionZero,
         NotSigned = GreaterThan | ConditionZero,
         Zero = Equal | ConditionZero,
         NonZero = NotEqual | ConditionZero,
+
+        Overflow = ConditionXEROV,
+        CarrySet = ConditionXERCA,
+        CarryClear = ConditionXERNCA,
+
         Always = 0x1f,
         
         // This is specific to the SO bits in the CR, not the general overflow
         // condition in the way Ion conceives of it.
         SOBit = 0x3c,
-        NSOBit = 0x34,
-
-        CarrySet = ConditionXERCA,
-        CarryClear = ConditionXERNCA
+        NSOBit = 0x34
     };
 
     enum DoubleCondition {
