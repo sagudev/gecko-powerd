@@ -977,6 +977,7 @@ class Assembler : public AssemblerShared
         jumpRelocations_.writeUnsigned(src.getOffset());
     }
 
+#if(1)
     // As opposed to the x86/x64 version, the data relocation must be executed
     // beforehand to recover the pointer, not after.
     void writeDataRelocation(ImmGCPtr ptr) {
@@ -986,6 +987,8 @@ class Assembler : public AssemblerShared
             dataRelocations_.writeUnsigned(nextOffset().getOffset());
         }
     }
+#endif
+
     void writePrebarrierOffset(CodeOffset label) {
         preBarriers_.writeUnsigned(label.offset());
     }
@@ -1199,15 +1202,15 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
         DEF_BITALU2(xor)
 #undef DEF_BITALU2
 
-#define DEF_BITALUI(op) BufferOffset as_##op(Register rd, Register ra, uint16_t im); \
-                        BufferOffset as_##op##_rc(Register rd, Register ra, uint16_t im);
+#define DEF_BITALUI(op) BufferOffset as_##op(Register rd, Register ra, uint16_t im);
+        // There is no Rc form for these instructions.
         DEF_BITALUI(ori)
         DEF_BITALUI(oris)
         DEF_BITALUI(xori)
         DEF_BITALUI(xoris)
         // There is no Rc-less version of andi/andis.
-        BufferOffset as_andi_rc(Register rd, Register ra, uint16_t im);
-        BufferOffset as_andis_rc(Register rd, Register ra, uint16_t im);
+        DEF_BITALUI(andi_rc)
+        DEF_BITALUI(andis_rc)
 #undef DEF_BITALUI
         
 #define DEF_ALUEXT(op) BufferOffset as_##op(Register rd, Register rs); \

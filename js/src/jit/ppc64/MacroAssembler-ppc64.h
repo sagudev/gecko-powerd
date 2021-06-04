@@ -401,7 +401,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
 
     void mov(Register src, Register dest) {
-        as_or(dest, src, src);
+        if (dest != src)
+            as_or(dest, src, src);
     }
     void mov(ImmWord imm, Register dest) {
         ma_li(dest, imm);
@@ -419,6 +420,30 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         MOZ_CRASH("NYI-IC");
     }
 
+#if(0)
+  // load: offset to the load instruction obtained by movePatchablePtr().
+  void writeDataRelocation(ImmGCPtr ptr, BufferOffset load) {
+    // Raw GC pointer relocations and Value relocations both end up in
+    // Assembler::TraceDataRelocations.
+    if (ptr.value) {
+      if (gc::IsInsideNursery(ptr.value)) {
+        embedsNurseryPointers_ = true;
+      }
+      dataRelocations_.writeUnsigned(load.getOffset());
+    }
+  }
+  void writeDataRelocation(const Value& val, BufferOffset load) {
+    // Raw GC pointer relocations and Value relocations both end up in
+    // Assembler::TraceDataRelocations.
+    if (val.isGCThing()) {
+      gc::Cell* cell = val.toGCThing();
+      if (cell && gc::IsInsideNursery(cell)) {
+        embedsNurseryPointers_ = true;
+      }
+      dataRelocations_.writeUnsigned(load.getOffset());
+    }
+  }
+#else
     void writeDataRelocation(const Value& val) {
         if (val.isGCThing()) {
             gc::Cell* cell = val.toGCThing();
@@ -427,6 +452,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
             dataRelocations_.writeUnsigned(currentOffset());
         }
     }
+#endif
 
     void hop_skip_nop_jump() {
         // Common stanza at the end of these CTR branches.
@@ -579,12 +605,18 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void unboxNonDouble(Register src, Register dest, JSValueType type) {
         MOZ_ASSERT(type != JSVAL_TYPE_DOUBLE);
         if (type == JSVAL_TYPE_INT32 || type == JSVAL_TYPE_BOOLEAN) {
-            x_slwi(dest, src, 0);
+            // This has the effect of clearing bits 32-63 and the tag
+            // with it, plus extending the sign, all in one operation.
+            as_srawi(dest, src, 0);
             return;
         }
+        // Blank out the upper 17 bits (clrldi).
+/*
         MOZ_ASSERT(ScratchRegister != src);
         mov(ImmWord(JSVAL_TYPE_TO_SHIFTED_TAG(type)), ScratchRegister);
         as_xor(dest, src, ScratchRegister);
+        */
+        as_rldicl(dest, src, 0, 17);
     }
 
     template <typename T>

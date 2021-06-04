@@ -418,13 +418,15 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Register rt, L
     ADBlock();
     MOZ_ASSERT(rs != ScratchRegister);
     MOZ_ASSERT(rt != ScratchRegister);
-    // Whack XER[SO].
+    // This is testing a 32-bit overflow, so we need to whack and test
+    // XER[OV32].
 xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
 
-    as_addo_rc(rd, rs, rt); // XER[SO] -> CR0[SO]
-    ma_bc(Assembler::SOBit, overflow);
+    as_addo(rd, rs, rt);
+    as_mcrxrx(cr0); // XER[OV32] -> CR0[GT]
+    ma_bc(Assembler::GreaterThan, overflow);
 }
 
 void
@@ -471,12 +473,13 @@ MacroAssemblerPPC64::ma_subTestOverflow(Register rd, Register rs, Register rt, L
     ADBlock();
     MOZ_ASSERT(rs != ScratchRegister);
     MOZ_ASSERT(rt != ScratchRegister);
-    // Whack XER[SO].
+    // This is a 32-bit operation, so we need to whack and test XER[OV32].
+xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
-
-    as_subfo_rc(rd, rt, rs); // T = B - A; XER[SO] -> CR0[SO]
-    ma_bc(Assembler::SOBit, overflow);
+    as_subfo(rd, rt, rs); // T = B - A
+    as_mcrxrx(cr0); // XER[OV32] -> CR0[GT]
+    ma_bc(Assembler::GreaterThan, overflow);
 }
 
 // Memory.
@@ -918,7 +921,7 @@ MacroAssemblerPPC64Compat::movePtr(ImmWord imm, Register dest)
 void
 MacroAssemblerPPC64Compat::movePtr(ImmGCPtr imm, Register dest)
 {
-    ma_li(dest, imm);
+    ma_li(dest, imm); // tags the pointer for us
 }
 
 void
@@ -1269,13 +1272,15 @@ void
 MacroAssemblerPPC64Compat::unboxInt32(const ValueOperand& operand, Register dest)
 {
     Register src = operand.valueReg();
-    as_or(dest, src, src);
+    if (dest != src)
+        as_or(dest, src, src);
 }
 
 void
 MacroAssemblerPPC64Compat::unboxInt32(Register src, Register dest)
 {
-    as_or(dest, src, src);
+    if (dest != src)
+        as_or(dest, src, src);
 }
 
 void
@@ -1294,13 +1299,14 @@ MacroAssemblerPPC64Compat::unboxInt32(const BaseIndex& src, Register dest)
 void
 MacroAssemblerPPC64Compat::unboxBoolean(const ValueOperand& operand, Register dest)
 {
-    ma_dext(dest, operand.valueReg(), Imm32(0), Imm32(32));
+    // Clear upper 32 bits.
+    as_rldicl(dest, operand.valueReg(), 0, 32); // clrldi
 }
 
 void
 MacroAssemblerPPC64Compat::unboxBoolean(Register src, Register dest)
 {
-    ma_dext(dest, src, Imm32(0), Imm32(32));
+    as_rldicl(dest, src, 0, 32);
 }
 
 void
@@ -1316,6 +1322,7 @@ MacroAssemblerPPC64Compat::unboxBoolean(const BaseIndex& src, Register dest)
     ma_load(dest, Address(SecondScratchReg, src.offset), SizeWord, ZeroExtend);
 }
 
+// XXX: use VSR
 void
 MacroAssemblerPPC64Compat::unboxDouble(const ValueOperand& operand, FloatRegister dest)
 {
@@ -1976,14 +1983,19 @@ MacroAssembler::setupUnalignedABICall(Register scratch)
 {
     ADBlock();
     MOZ_ASSERT(!IsCompilingWasm(), "wasm should only use aligned ABI calls"); // XXX?? arm doesn't do this
+    MOZ_ASSERT(scratch != ScratchRegister);
+    MOZ_ASSERT(scratch != SecondScratchReg);
+
     setupNativeABICall();
     dynamicAlignment_ = true;
 
+    // Even though this is ostensibly an ABI-compliant call, save both LR
+    // and SP; Baseline ICs assume that LR isn't modified.
+    xs_mflr(SecondScratchReg); // ma_and may clobber r0.
     ma_move(scratch, StackPointer);
-
-    // Save SP. We should not need to save LR since it's callee-saved and this is an ABI call.
-    asMasm().subPtr(Imm32(sizeof(uintptr_t)), StackPointer);
+    asMasm().subPtr(Imm32(sizeof(uintptr_t)*2), StackPointer);
     ma_and(StackPointer, StackPointer, Imm32(~(ABIStackAlignment - 1)));
+    as_std(SecondScratchReg, StackPointer, sizeof(uintptr_t));
     storePtr(scratch, Address(StackPointer, 0));
 }
 
@@ -2002,10 +2014,12 @@ MacroAssembler::callWithABIPre(uint32_t* stackAdjust, bool callFromWasm)
                                              ABIStackAlignment);
     }
 
-    // The callee save area must minimally include room for the SP back chain pointer,
-    // CR and LR. For 16-byte alignment we'll just ask for 32 bytes. This guarantees
-    // nothing we're trying to keep on the stack will get overwritten.
+    // The callee save area must minimally include room for the SP back chain
+    // pointer plus CR and LR. For 16-byte alignment we'll just ask for 32
+    // bytes. This guarantees nothing we're trying to keep on the stack will
+    // get overwritten.
     stackForCall += 32;
+
     *stackAdjust = stackForCall;
     reserveStack(stackForCall);
 
@@ -2029,12 +2043,14 @@ MacroAssembler::callWithABIPost(uint32_t stackAdjust, MoveOp::Type result, bool 
     ADBlock();
 
     if (dynamicAlignment_) {
-        // Restore sp value from stack (as stored in setupUnalignedABICall()).
-        // The callee should have restored LR and CR for us.
+        // Restore LR and SP (as stored in setupUnalignedABICall).
+        as_ld(ScratchRegister, StackPointer, stackAdjust+sizeof(uintptr_t));
+        xs_mtlr(ScratchRegister);
         loadPtr(Address(StackPointer, stackAdjust), StackPointer);
-        // Use adjustFrame instead of freeStack because we already restored sp.
+        // Use adjustFrame instead of freeStack because we already restored SP.
         adjustFrame(-stackAdjust);
     } else {
+        // LR isn't stored in this instance.
         freeStack(stackAdjust);
     }
 
@@ -2058,12 +2074,20 @@ MacroAssembler::callWithABINoProfiler(Register fun, MoveOp::Type result)
 void
 MacroAssembler::callWithABINoProfiler(const Address& fun, MoveOp::Type result)
 {
+    uint32_t stackAdjust;
     ADBlock();
 
-    uint32_t stackAdjust;
+    // This requires a bit of fancy dancing: the address base could be one
+    // of the argregs and the MoveEmitter might clobber it positioning the
+    // arguments. To avoid this problem we'll load CTR early, a great
+    // example of turning necessity into virtue since it's faster too.
+    MOZ_ASSERT(Imm16::IsInSignedRange(fun.offset));
+    loadPtr(Address(fun.base, fun.offset), SecondScratchReg); // must use r12
+    xs_mtctr(SecondScratchReg);
+
+    // It's now safe to call the MoveEmitter.
     callWithABIPre(&stackAdjust);
-    loadPtr(Address(fun.base, fun.offset), SecondScratchReg);
-    call(SecondScratchReg);
+    as_bctr(LinkB);
     callWithABIPost(stackAdjust, result);
 }
 
@@ -2252,6 +2276,7 @@ MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
     ma_bc(index, SecondScratchReg, label, cond);
 }
 
+// XXX: use VSR
 void
 MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output, bool isSaturating,
                                            Label* oolEntry)
@@ -2952,14 +2977,14 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, R
                                           Label* overflow)
 {
     ADBlock();
-// Needs code check
+// Check Code XXX
 __asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     MOZ_ASSERT_IF(rd == rs, rt != rd);
     as_addc(rd, rs, rt);
-    as_mcrxrx(cr0);
+    as_mcrxrx(cr0); // 32-bit add, so check CA32
     ma_bc(SecondScratchReg, SecondScratchReg, overflow,
-         cond == Assembler::CarrySet ? Assembler::Zero : Assembler::NonZero);
+         cond == Assembler::CarrySet ? Assembler::SOBit : Assembler::NSOBit);
 }
 
 void
@@ -2967,6 +2992,7 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, I
                                           Label* overflow)
 {
     ADBlock();
+// Check Code XXX
 __asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     if (!Imm16::IsInSignedRange(imm.value)) {
@@ -2976,9 +3002,9 @@ __asm__("trap\n");
     }
     ma_addTestCarry(cond, rd, rs, ScratchRegister, overflow);
     as_addic(rd, rs, imm.value);
-    as_mcrxrx(cr0);
+    as_mcrxrx(cr0); // 32-bit add, so check CA32
     ma_bc(SecondScratchReg, SecondScratchReg, overflow,
-         cond == Assembler::CarrySet ? Assembler::Zero : Assembler::NonZero);
+         cond == Assembler::CarrySet ? Assembler::SOBit : Assembler::NSOBit);
 }
 
 // Subtract.
@@ -3027,8 +3053,14 @@ MacroAssemblerPPC64::ma_mul(Register rd, Register rs, Imm32 imm)
 void
 MacroAssemblerPPC64::ma_mul_branch_overflow(Register rd, Register rs, Register rt, Label* overflow)
 {
-    as_mulldo(rd, rs, rt);
-    as_bc(overflow->offset(), SOBit);
+    // XXX: 32-bit operation???
+    // This is a 32-bit operation, so we need to whack and test XER[OV32].
+xs_trap();
+    xs_li(ScratchRegister, 0);
+    xs_mtxer(ScratchRegister);
+    as_mullwo(rd, rs, rt);
+    as_mcrxrx(cr0); // XER[OV32] -> CR0[GT]
+    ma_bc(Assembler::GreaterThan, overflow);
 }
 
 void
@@ -4063,6 +4095,7 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt32Check(FloatRegister input, Regi
                                                             Label* rejoin,
                                                             wasm::BytecodeOffset trapOffset)
 {
+    MOZ_CRASH("NYI");
 #if 0 // TODO: outOfLineWasmTruncateToInt32Check
     bool isUnsigned = flags & TRUNC_UNSIGNED;
     bool isSaturating = flags & TRUNC_SATURATING;

@@ -549,7 +549,7 @@ CodeGenerator::visitWrapInt64ToInt32(LWrapInt64ToInt32* lir)
         if (input->isMemory())
             masm.load32(ToAddress(input), output); // endian!
         else
-            masm.as_rldicl(output, ToRegister(input), 0, 32);
+            masm.as_srawi(output, ToRegister(input), 0); // sign-extends
     } else {
         MOZ_CRASH("Not implemented.");
         // but it would be rldicl rA,rS,32,32 (don't tell anyone, k?)

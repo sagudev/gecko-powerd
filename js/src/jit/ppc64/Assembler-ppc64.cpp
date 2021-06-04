@@ -1501,18 +1501,34 @@ DEF_BITALU2(sld)
 DEF_BITALU2(srd)
 DEF_BITALU2(srad)
 DEF_BITALU2(and)
-DEF_BITALU2(or)
+//DEF_BITALU2(or)
+    BufferOffset Assembler::as_or(Register rd, Register ra, Register rb) {
+        spew("or\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name());
+        MOZ_ASSERT(!(rd == ra && ra == rb));
+        return writeInst(InstReg(PPC_or, ra, rd, rb).encode()); }
+
+    BufferOffset Assembler::as_or_rc(Register rd, Register ra, Register rb) {
+        spew("or.\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name());
+        return writeInst(InstReg(PPC_or, ra, rd, rb).encode() | 0x1); }
+
 DEF_BITALU2(xor)
 #undef DEF_BITALU2
 
-#define DEF_BITALUI(op) DEF_DFORMS(op) DEF_DFORMS_RC(op)
+// No Rc bit for these.
+#define DEF_BITALUI(op) DEF_DFORMS(op)
 DEF_BITALUI(ori)
 DEF_BITALUI(oris)
 DEF_BITALUI(xori)
 DEF_BITALUI(xoris)
 #undef DEF_BITALUI
-DEF_DFORMS_RC(andi)
-DEF_DFORMS_RC(andis)
+// Implied Rc bit for these.
+    BufferOffset Assembler::as_andi_rc(Register ra, Register rs, uint16_t im) {
+        spew("andi.\t%3s,%3s,%d", ra.name(), rs.name(), im);
+        return writeInst(InstImm(PPC_andi, rs, ra, im).encode()); }
+
+    BufferOffset Assembler::as_andis_rc(Register ra, Register rs, uint16_t im) {
+        spew("andis.\t%3s,%3s,%d", ra.name(), rs.name(), im);
+        return writeInst(InstImm(PPC_andis, rs, ra, im).encode()); }
         
 #define DEF_ALUEXT(op) DEF_XFORM2S(op) DEF_XFORM2S_RC(op)
 DEF_ALUEXT(extsb)

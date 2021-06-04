@@ -521,6 +521,9 @@ bool BaselineCodeGen<Handler>::emitOutOfLinePostBarrierSlot() {
   // On ARM, save the link register before calling.  It contains the return
   // address.  The |masm.ret()| later will pop this into |pc| to return.
   masm.push(lr);
+#elif defined(JS_CODEGEN_PPC64)
+  masm.xs_mflr(ScratchRegister);
+  masm.push(ScratchRegister);
 #elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
   masm.push(ra);
 #endif
@@ -6708,8 +6711,6 @@ bool BaselineInterpreterGenerator::emitInterpreterLoop() {
     return false;
   }
   Label interpretOpAfterDebugTrap;
-fprintf(stderr, "#### interpretOpAfterDebugTrap (%08x) ####\n",
-masm.currentOffset());
   masm.bind(&interpretOpAfterDebugTrap);
 
   // Load pc, bytecode op.
@@ -6791,19 +6792,16 @@ masm.currentOffset());
   masm.bind(handler.interpretOpLabel());
   interpretOpOffset_ = masm.currentOffset();
   restoreInterpreterPCReg();
-masm.xs_trap_tagged(Assembler::DebugTag1);
   masm.jump(handler.interpretOpWithPCRegLabel());
 
   // Second external entry point: this skips the debug trap for the first op
   // and is used by OSR.
   interpretOpNoDebugTrapOffset_ = masm.currentOffset();
   restoreInterpreterPCReg();
-fprintf(stderr, "#### interpretOpAfterDebugTrap ####\n");
   masm.jump(&interpretOpAfterDebugTrap);
 
   // External entry point for Ion prologue bailouts.
   bailoutPrologueOffset_ = CodeOffset(masm.currentOffset());
-masm.xs_trap_tagged(Assembler::DebugTag1);
   restoreInterpreterPCReg();
   masm.jump(&bailoutPrologue_);
 
