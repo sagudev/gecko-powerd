@@ -1005,8 +1005,8 @@ uint16_t Assembler::computeConditionCode(Condition op, CRegisterID cr)
 		MOZ_ASSERT(op == Overflow);
 		// Get XER into CR.
 		as_mcrxrx(cr);
-		// Convert op to LT (using the 64-bit OV bit).
-		newop = (uint32_t)LessThan;
+		// Convert op to GT (using the OV32 bit).
+		newop = (uint32_t)GreaterThan;
 	}
 
 	// Set BIF to the proper CR. In cr0, the normal state, this just returns newop.

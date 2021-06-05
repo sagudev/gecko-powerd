@@ -764,18 +764,19 @@ class Assembler : public AssemblerShared
         ConditionUnsigned   = 0x100,        // Computation only
         ConditionUnsignedHandled = 0x2ff,	// Mask off bit 8 but not 9 or 0-7
 
-        // Bit flag for zero-relative Conditions. These are treated as equivalent conditions
-        // relative to 0, but the MacroAssembler and CodeGenerator may use this bit to reason
-        // about the intent of generated instructions. This is a synthetic code.
+        // Bit flag for zero-relative Conditions. These are treated as
+        // equivalent conditions relative to 0, but the MacroAssembler and
+        // CodeGenerator may use this bit to reason about the intent of
+        // generated instructions. This is a synthetic code.
         ConditionZero       = 0x400,        // Computation only
 
-        // Bit flag for XER-only codes. We need to have XER in the CR using mcrxrx or
-        // an equivalent first, but we don't need to check any CR bits otherwise.
-        // This is a synthetic code.
+        // Bit flag for XER-only codes. We need to have XER in the CR using
+        // mcrxrx or an equivalent first, but we don't need to check any CR
+        // bits otherwise. This is a synthetic code. We use the 32-bit flags.
         ConditionOnlyXER    = 0x200,        // Computation only
-        ConditionXERCA      = 0x22c,        // same as EQ bit
-        ConditionXERNCA     = 0x224,
-        ConditionXEROV      = 0x20c,        // same as LT bit
+        ConditionXERCA      = 0x23c,        // CA32 same as SO bit
+        ConditionXERNCA     = 0x234,
+        ConditionXEROV      = 0x21c,        // OV32 same as GT bit
 
     	// These are off pp370-1 in OPPCC. The top nybble is the offset
     	// to the CR field (the x in BIF*4+x), and the bottom is the BO.
@@ -793,7 +794,8 @@ class Assembler : public AssemblerShared
         BelowOrEqual = LessThanOrEqual | ConditionUnsigned,
 
         Signed = LessThan | ConditionZero,
-        NotSigned = GreaterThan | ConditionZero,
+        // Don't mention negative zero to me. Don't wanna hear it. Nope.
+        NotSigned = GreaterThanOrEqual | ConditionZero,
         Zero = Equal | ConditionZero,
         NonZero = NotEqual | ConditionZero,
 

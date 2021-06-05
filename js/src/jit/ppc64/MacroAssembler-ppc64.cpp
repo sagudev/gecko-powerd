@@ -423,10 +423,8 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Register rt, L
 xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
-
     as_addo(rd, rs, rt);
-    as_mcrxrx(cr0); // XER[OV32] -> CR0[GT]
-    ma_bc(Assembler::GreaterThan, overflow);
+    ma_bc(Assembler::Overflow, overflow);
 }
 
 void
@@ -478,8 +476,7 @@ xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
     as_subfo(rd, rt, rs); // T = B - A
-    as_mcrxrx(cr0); // XER[OV32] -> CR0[GT]
-    ma_bc(Assembler::GreaterThan, overflow);
+    ma_bc(Assembler::Overflow, overflow);
 }
 
 // Memory.
@@ -637,6 +634,7 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
 {
     ADBlock();
     // Branch on the condition bit in the specified condition register.
+    // XXX: Likely bits NYI.
     spew("bc .Llabel %p @ %08x", label, currentOffset());
     if (label->bound()) {
         int64_t offset = label->offset() - m_buffer.nextOffset().getOffset();
@@ -647,14 +645,23 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
 
         if (jumpKind == ShortJump) {
             MOZ_ASSERT(BOffImm16::IsInSignedRange(offset));
-            as_bc(BOffImm16(offset).encode(), c, cr, NotLikelyB, DontLinkB); // likely bits exposed for future expansion
+            as_bc(BOffImm16(offset).encode(), c, cr, NotLikelyB, DontLinkB);
             return;
         }
 
-        // Generate a long branch stanza, but invert the sense so that we usually
-        // run a short branch, assuming the "real" branch is not taken.
-        m_buffer.ensureSpace(10 * sizeof(uint32_t)); // Worst case if as_bc emits CR twiddle ops.
-        as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
+        // Generate a long branch stanza, but invert the sense so that we
+        // can run a short branch, assuming the "real" branch is not taken.
+        // However, overflow doesn't do reversed sense, so we do "footwork."
+        m_buffer.ensureSpace(12 * sizeof(uint32_t)); // Worst case + CR ops
+        if (c & ConditionOnlyXER) {
+            // bc cond .+8
+            // b .+32
+            // long jump
+            as_bc(2 * sizeof(uint32_t), c, cr, NotLikelyB, DontLinkB);
+            as_b(8 * sizeof(uint32_t));
+        } else {
+            as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
+        }
         addLongJump(nextOffset(), BufferOffset(label->offset()));
         ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET)); // 5
         xs_mtctr(SecondScratchReg); // 6
@@ -667,13 +674,14 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     uint32_t nextInChain = label->used() ? label->offset() : LabelBase::INVALID_OFFSET;
 
     if (jumpKind == ShortJump) {
-        // Store the condition with a dummy branch, plus the next in chain. Unfortunately
-        // there is no way to make this take up less than two instructions, so we end up
-        // burning a nop at link time. Make the whole branch continuous in the buffer.
+        // Store the condition with a dummy branch, plus the next in chain.
+        // Unfortunately there is no way to make this take up less than two
+        // instructions, so we end up burning a nop at link time. Make the
+        // whole branch continuous in the buffer.
         m_buffer.ensureSpace(4 * sizeof(uint32_t));
 
-        // Use a dummy short jump. This includes all the branch encoding, so we just have
-        // to change the offset at link time.
+        // Use a dummy short jump. This includes all the branch encoding, so
+        // we just have to change the offset at link time.
         BufferOffset bo = as_bc(4, c, cr, NotLikelyB, DontLinkB);
         spew(".long %08x ; next in chain", nextInChain);
         writeInst(nextInChain);
@@ -683,9 +691,19 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     }
 
     // As above with a reverse-sense long stanza.
-    m_buffer.ensureSpace(10 * sizeof(uint32_t)); // Worst case if as_bc emits CR twiddle ops.
-    as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
-    BufferOffset bo = xs_trap_tagged(BCTag); // encode non-call
+    BufferOffset bo;
+    m_buffer.ensureSpace(12 * sizeof(uint32_t)); // Worst case, with CR ops
+    if (c & ConditionOnlyXER) {
+        // bc cond .+8
+        // b .+32
+        // long jump
+        as_bc(2 * sizeof(uint32_t), c, cr, NotLikelyB, DontLinkB);
+        as_b(8 * sizeof(uint32_t));
+        bo = xs_trap_tagged(BTag); // don't try to flip sense when optimizing
+    } else {
+        as_bc(8 * sizeof(uint32_t), InvertCondition(c), cr, NotLikelyB, DontLinkB);
+        bo = xs_trap_tagged(BCTag);
+    }
     spew(".long %08x ; next in chain", nextInChain);
     // The tagged trap must be the offset, not the leading bc. See Assembler::bind and
     // Assembler::retarget for why.
@@ -3059,8 +3077,7 @@ xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
     as_mullwo(rd, rs, rt);
-    as_mcrxrx(cr0); // XER[OV32] -> CR0[GT]
-    ma_bc(Assembler::GreaterThan, overflow);
+    ma_bc(Assembler::Overflow, overflow);
 }
 
 void
