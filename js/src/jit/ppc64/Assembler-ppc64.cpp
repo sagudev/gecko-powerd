@@ -1097,7 +1097,7 @@ BufferOffset Assembler::as_cmpd(CRegisterID cr, Register ra, Register rb)
 BufferOffset Assembler::as_cmpdi(CRegisterID cr, Register ra, int16_t im)
 {
     spew("cmpdi\tcr%d,%3s,%d", cr, ra.name(), im);
-    return writeInst(PPC_cmpdi | cr << 23 | ra.code() << 16 | im);
+    return writeInst(PPC_cmpdi | cr << 23 | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 
 BufferOffset Assembler::as_cmpld(CRegisterID cr, Register ra, Register rb)
@@ -1108,7 +1108,7 @@ BufferOffset Assembler::as_cmpld(CRegisterID cr, Register ra, Register rb)
 BufferOffset Assembler::as_cmpldi(CRegisterID cr, Register ra, int16_t im)
 {
     spew("cmpldi\tcr%d,%3s,%d", cr, ra.name(), im);
-    return writeInst(PPC_cmpldi | cr << 23 | ra.code() << 16 | im);
+    return writeInst(PPC_cmpldi | cr << 23 | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 BufferOffset Assembler::as_cmpw(CRegisterID cr, Register ra, Register rb)
 {
@@ -1118,7 +1118,7 @@ BufferOffset Assembler::as_cmpw(CRegisterID cr, Register ra, Register rb)
 BufferOffset Assembler::as_cmpwi(CRegisterID cr, Register ra, int16_t im)
 {
     spew("cmpwi\tcr%d,%3s,%d", cr, ra.name(), im);
-    return writeInst(PPC_cmpwi | cr << 23 | ra.code() << 16 | im);
+    return writeInst(PPC_cmpwi | cr << 23 | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 BufferOffset Assembler::as_cmplw(CRegisterID cr, Register ra, Register rb)
 {
@@ -1128,7 +1128,7 @@ BufferOffset Assembler::as_cmplw(CRegisterID cr, Register ra, Register rb)
 BufferOffset Assembler::as_cmplwi(CRegisterID cr, Register ra, int16_t im)
 {
     spew("cmplwi\tcr%d,%3s,%d", cr, ra.name(), im);
-    return writeInst(PPC_cmplwi | cr << 23 | ra.code() << 16 | im);
+    return writeInst(PPC_cmplwi | cr << 23 | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 BufferOffset Assembler::as_cmpd(Register ra, Register rb)
 {
@@ -1138,7 +1138,7 @@ BufferOffset Assembler::as_cmpd(Register ra, Register rb)
 BufferOffset Assembler::as_cmpdi(Register ra, int16_t im)
 {
     spew("cmpdi\t%3s,%d", ra.name(), im);
-    return writeInst(PPC_cmpdi | ra.code() << 16 | im);
+    return writeInst(PPC_cmpdi | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 BufferOffset Assembler::as_cmpld(Register ra, Register rb)
 {
@@ -1148,7 +1148,7 @@ BufferOffset Assembler::as_cmpld(Register ra, Register rb)
 BufferOffset Assembler::as_cmpldi(Register ra, int16_t im)
 {
     spew("cmpdi\t%3s,%d", ra.name(), im);
-    return writeInst(PPC_cmpdi | ra.code() << 16 | im);
+    return writeInst(PPC_cmpdi | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 BufferOffset Assembler::as_cmpw(Register ra, Register rb)
 {
@@ -1158,7 +1158,7 @@ BufferOffset Assembler::as_cmpw(Register ra, Register rb)
 BufferOffset Assembler::as_cmpwi(Register ra, int16_t im)
 {
     spew("cmpwi\t%3s,%d", ra.name(), im);
-    return writeInst(PPC_cmpwi | ra.code() << 16 | im);
+    return writeInst(PPC_cmpwi | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 
 BufferOffset Assembler::as_cmplw(Register ra, Register rb)
@@ -1169,7 +1169,7 @@ BufferOffset Assembler::as_cmplw(Register ra, Register rb)
 BufferOffset Assembler::as_cmplwi(Register ra, int16_t im)
 {
     spew("cmplwi\t%3s,%d", ra.name(), im);
-    return writeInst(PPC_cmplwi | ra.code() << 16 | im);
+    return writeInst(PPC_cmplwi | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 
 static uint32_t
@@ -1195,7 +1195,7 @@ XForm(uint32_t op, FloatRegister frt, Register ra, Register rb, bool rc)
 static uint32_t
 DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
 {
-    return (op | (frt.encoding() << 21) | (ra.code() << 16) | imm);
+    return (op | (frt.encoding() << 21) | (ra.code() << 16) | ((uint16_t)imm & 0xffff));
 }
 
 #define DEF_XFORM(op)   \
@@ -1294,21 +1294,10 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
         MOZ_ASSERT(rs != r0); \
         return writeInst(InstImm(PPC_##op, ra, rs, im).encode()); }
 
-#define DEF_DFORM_RC(op) \
-    BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint16_t im) {\
-        spew(#op "\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
-        MOZ_ASSERT(rs != r0); \
-        return writeInst(InstImm(PPC_##op, ra, rs, im).encode() | 0x1); }
-
 #define DEF_DFORMS(op)   \
     BufferOffset Assembler::as_##op(Register ra, Register rs, uint16_t im) { \
         spew(#op "\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
         return writeInst(InstImm(PPC_##op, rs, ra, im).encode()); }
-
-#define DEF_DFORMS_RC(op) \
-    BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint16_t im) {\
-        spew(#op ".\t%3s,%d(%3s)", ra.name(), im, rs.name()); \
-        return writeInst(InstImm(PPC_##op, rs, ra, im).encode() | 0x1); }
 
 #define DEF_DFORM_F(op)   \
     BufferOffset Assembler::as_##op(FloatRegister rt, Register ra, int16_t im) { \
@@ -1541,7 +1530,14 @@ DEF_MEMd(lbz)
 DEF_MEMd(lha)
 DEF_MEMd(lhz)
 DEF_MEMd(lwz)
-DEF_MEMd(ld)
+//DEF_MEMd(ld)
+// Assert if the two LSBs of ld's immediate are set, since this assembles
+// to a different instruction. (E.g., if we want ldu, we should ask for it.)
+    BufferOffset Assembler::as_ld(Register ra, Register rs, int16_t im) {
+        spew("ld\t%3s,%d(%3s)", ra.name(), im, rs.name());
+        MOZ_ASSERT(rs != r0);
+        MOZ_ASSERT(!(im & 0x03));
+        return writeInst(InstImm(PPC_ld, ra, rs, im).encode()); }
 
 DEF_MEMd(stb)
 DEF_MEMd(stw)
@@ -1662,7 +1658,6 @@ DEF_FPUACB(fnmsub)
 DEF_FPUACB(fsel)
 #undef DEF_FPUACB
 
-// XXX: This displays offsets wrong in spew (we want f,d(r))
 #define DEF_FMEMd(op) DEF_DFORM_F(op)
 DEF_FMEMd(lfd)
 DEF_FMEMd(lfs)

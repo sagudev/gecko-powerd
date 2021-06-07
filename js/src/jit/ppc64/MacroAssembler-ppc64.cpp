@@ -78,6 +78,7 @@ MacroAssemblerPPC64Compat::convertInt32ToDouble(Register src, FloatRegister dest
     // longer have to faff around with fake constants like we did in 32-bit).
     ADBlock();
 
+xs_trap();
 #ifdef __POWER8_VECTOR__
     as_mtvsrd(dest, src);
 #else
@@ -527,7 +528,21 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
             as_extsw(dest, dest);
         break;
       case SizeDouble:
-        as_ld(dest, base, encodedOffset);
+        // However, unaligned loads really make a difference here, because
+        // the ld instruction can only load on word boundaries (the lowest
+        // two LSBs are part of the instruction encoding). We assert on that
+        // in the Assembler.
+        if (encodedOffset & 0x03) {
+            // Load as two word halves. ENDIAN!
+            MOZ_ASSERT(dest != ScratchRegister);
+
+            as_lwz(dest, base, encodedOffset+4); // hi
+            as_lwz(ScratchRegister, base, encodedOffset); // lo
+            as_rldicr(dest, dest, 32, 31); // shift
+            as_or(dest, dest, ScratchRegister); // merge
+        } else {
+            as_ld(dest, base, encodedOffset);
+        }
         break;
       default:
         MOZ_CRASH("Invalid argument for ma_load");
@@ -1340,12 +1355,15 @@ MacroAssemblerPPC64Compat::unboxBoolean(const BaseIndex& src, Register dest)
     ma_load(dest, Address(SecondScratchReg, src.offset), SizeWord, ZeroExtend);
 }
 
-// XXX: use VSR
 void
 MacroAssemblerPPC64Compat::unboxDouble(const ValueOperand& operand, FloatRegister dest)
 {
+#ifdef __POWER8_VECTOR__
+    as_mtvsrd(dest, operand.valueReg()); // sooooo nice
+#else
     ma_push(operand.valueReg());
     ma_pop(dest);
+#endif
 }
 
 void

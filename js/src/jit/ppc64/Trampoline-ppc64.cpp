@@ -390,6 +390,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
             masm.bind(&skipProfilingInstrumentation);
         }
 
+//masm.xs_trap_tagged(Assembler::DebugTag0);
         masm.jump(jitcode);
 
         // OOM: load error value, discard return address and previous frame
@@ -412,6 +413,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
     masm.assertStackAlignment(JitStackAlignment, 16);
 
     // Call the function with pushing return address to stack.
+//masm.xs_trap_tagged(Assembler::DebugTag0);
     masm.callJitNoProfiler(reg_code);
 
     {
@@ -481,7 +483,7 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
     masm.as_ld(ScratchRegister, StackPointer, offsetof(EnterJITRegs, lr)); // caller
     masm.xs_mtlr(ScratchRegister);
     masm.as_ld(ScratchRegister, StackPointer, offsetof(EnterJITRegs, cr)); // caller
-    masm.as_mfcr(ScratchRegister);
+    masm.xs_mtcr(ScratchRegister);
 
     // Bye!
     masm.as_blr();
