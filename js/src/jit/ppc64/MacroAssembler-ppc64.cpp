@@ -2882,7 +2882,8 @@ using namespace jit;
 void
 MacroAssemblerPPC64::ma_move(Register rd, Register rs)
 {
-    as_or(rd, rs, rs);
+    if (rd != rs)
+      as_or(rd, rs, rs);
 }
 
 void

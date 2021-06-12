@@ -876,27 +876,19 @@ MacroAssembler::branchTestBigIntTruthy(bool b, const ValueOperand& value,
 void
 MacroAssembler::branchTruncateDoubleMaybeModUint32(FloatRegister src, Register dest, Label* fail)
 {
-    MOZ_CRASH("NYI");
-#if 0
-    as_fctiwu_rc(ScratchDoubleReg, src);
-    as_cfc1(ScratchRegister, Assembler::FCSR);
-    moveFromDouble(ScratchDoubleReg, dest);
-    ma_ext(ScratchRegister, ScratchRegister, Assembler::CauseV, 1);
-    ma_bc(ScratchRegister, Imm32(0), fail, Assembler::NotEqual);
-#endif
+    MOZ_ASSERT(src != ScratchDoubleReg);
+
+    // Treat FPSCR FX or VX as conversion failure (LT and EQ in CR1).
+xs_trap();
+    as_fctiwz_rc(ScratchDoubleReg, src);
+    moveFromDouble(ScratchDoubleReg, dest); // MIPS does this in advance.
+    ma_bc(cr1, Assembler::LessThanOrEqual, fail);
 }
 
 void
 MacroAssembler::branchTruncateFloat32MaybeModUint32(FloatRegister src, Register dest, Label* fail)
 {
-    MOZ_CRASH("NYI");
-#if 0
-    as_fctiwu_rc(ScratchDoubleReg, src);
-    as_cfc1(ScratchRegister, Assembler::FCSR);
-    moveFromDouble(ScratchDoubleReg, dest);
-    ma_ext(ScratchRegister, ScratchRegister, Assembler::CauseV, 1);
-    ma_bc(ScratchRegister, Imm32(0), fail, Assembler::NotEqual);
-#endif
+    branchTruncateDoubleMaybeModUint32(src, dest, fail);
 }
 
 //}}} check_macroassembler_style

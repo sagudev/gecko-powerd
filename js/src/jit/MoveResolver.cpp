@@ -324,6 +324,17 @@ bool MoveResolver::addOrderedMove(const MoveOp& move) {
   // Sometimes the register allocator generates move groups where multiple
   // moves have the same source. Try to optimize these cases when the source
   // is in memory and the target of one of the moves is in a register.
+
+#ifdef JS_CODEGEN_PPC64
+  // On Power ISA, all float registers are aliases of the double-width FPRs,
+  // and the allocator favours f1, which is also the first argument register.
+  // A move from "f33" to "f1" is common but would therefore be a no-op (they
+  // are both f1), and should be politely ignored as the result is already
+  // in the right place.
+  if(move.from().aliases(move.to()) && move.from().isFloatReg()) {
+    return true;
+  }
+#endif
   MOZ_ASSERT(!move.from().aliases(move.to()));
 
   if (!move.from().isMemory() || move.isCycleBegin() || move.isCycleEnd()) {
