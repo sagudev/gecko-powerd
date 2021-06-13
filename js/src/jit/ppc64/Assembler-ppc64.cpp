@@ -1183,7 +1183,7 @@ AForm(uint32_t op, FloatRegister frt, FloatRegister fra, FloatRegister frb,
 static uint32_t
 XForm(uint32_t op, FloatRegister frt, FloatRegister fra, FloatRegister frb, bool rc)
 {
-    return (op | (frt.encoding() << 21) | (fra.code() << 16) | (frb.code() << 11) | rc);
+    return (op | (frt.encoding() << 21) | (fra.encoding() << 16) | (frb.encoding() << 11) | rc);
 }
 
 static uint32_t

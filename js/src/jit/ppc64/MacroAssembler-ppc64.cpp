@@ -78,7 +78,6 @@ MacroAssemblerPPC64Compat::convertInt32ToDouble(Register src, FloatRegister dest
     // longer have to faff around with fake constants like we did in 32-bit).
     ADBlock();
 
-xs_trap();
 #ifdef __POWER8_VECTOR__
     as_mtvsrd(dest, src);
 #else
@@ -159,6 +158,7 @@ MacroAssemblerPPC64Compat::convertDoubleToInt32(FloatRegister src, Register dest
     ADBlock();
     MOZ_ASSERT(src != ScratchDoubleReg);
 
+xs_trap();
     // fctiwz. will set an exception to CR1 if conversion is inexact
     // or invalid. We don't need to know the exact exception, just that
     // it went boom, so no need to check the FPSCR.
@@ -1304,16 +1304,15 @@ MacroAssemblerPPC64Compat::testUndefinedSet(Condition cond, const ValueOperand& 
 void
 MacroAssemblerPPC64Compat::unboxInt32(const ValueOperand& operand, Register dest)
 {
-    Register src = operand.valueReg();
-    if (dest != src)
-        as_or(dest, src, src);
+    unboxInt32(operand.valueReg(), dest);
 }
 
 void
 MacroAssemblerPPC64Compat::unboxInt32(Register src, Register dest)
 {
-    if (dest != src)
-        as_or(dest, src, src);
+    // Ensure there is no tag. This erases bits 32-63 and sign extends
+    // in one single operation.
+    as_srawi(dest, src, 0);
 }
 
 void
@@ -1332,14 +1331,14 @@ MacroAssemblerPPC64Compat::unboxInt32(const BaseIndex& src, Register dest)
 void
 MacroAssemblerPPC64Compat::unboxBoolean(const ValueOperand& operand, Register dest)
 {
-    // Clear upper 32 bits.
-    as_rldicl(dest, operand.valueReg(), 0, 32); // clrldi
+    unboxBoolean(operand.valueReg(), dest);
 }
 
 void
 MacroAssemblerPPC64Compat::unboxBoolean(Register src, Register dest)
 {
-    as_rldicl(dest, src, 0, 32);
+    // Clear upper 32 bits. srawi would also work.
+    as_rldicl(dest, src, 0, 32); // "clrldi"
 }
 
 void
@@ -1455,12 +1454,15 @@ MacroAssemblerPPC64Compat::unboxPrivate(const ValueOperand& src, Register dest)
     ma_dsll(dest, src.valueReg(), Imm32(1));
 }
 
-// XXX: use VSR?
 void
 MacroAssemblerPPC64Compat::boxDouble(FloatRegister src, const ValueOperand& dest, FloatRegister)
 {
+#ifdef __POWER8_VECTOR__
+    as_mfvsrd(dest.valueReg(), src); // sooooo nice
+#else
     ma_push(src);
     ma_pop(dest.valueReg());
+#endif
 }
 
 void MacroAssemblerPPC64Compat::unboxBigInt(const ValueOperand& operand,
@@ -1522,6 +1524,8 @@ MacroAssemblerPPC64Compat::loadInt32OrDouble(const Address& src, FloatRegister d
 {
     ADBlock();
     Label notInt32, end;
+
+xs_trap();
     // If it's an int, convert it to double.
     loadPtr(Address(src.base, src.offset), ScratchRegister);
     ma_dsrl(SecondScratchReg, ScratchRegister, Imm32(JSVAL_TAG_SHIFT));
@@ -1542,6 +1546,7 @@ MacroAssemblerPPC64Compat::loadInt32OrDouble(const BaseIndex& addr, FloatRegiste
     ADBlock();
     Label notInt32, end;
 
+xs_trap();
     // If it's an int, convert it to double.
     computeScaledAddress(addr, SecondScratchReg);
     // Since we only have one scratch, we need to stomp over it with the tag.
@@ -2653,6 +2658,9 @@ MacroAssembler::wasmAtomicFetchOp64(const wasm::MemoryAccessDesc& access,
 void
 MacroAssembler::convertInt64ToDouble(Register64 src, FloatRegister dest)
 {
+    ADBlock();
+
+xs_trap();
     ma_push(src.reg);
     ma_pop(dest);
     as_fcfid(dest, dest);
@@ -2661,6 +2669,9 @@ MacroAssembler::convertInt64ToDouble(Register64 src, FloatRegister dest)
 void
 MacroAssembler::convertInt64ToFloat32(Register64 src, FloatRegister dest)
 {
+    ADBlock();
+
+xs_trap();
     ma_push(src.reg);
     ma_pop(dest);
     as_fcfid(dest, dest);
@@ -2683,8 +2694,10 @@ MacroAssembler::convertUInt64ToDouble(Register64 src, FloatRegister dest, Regist
 void
 MacroAssembler::convertUInt64ToFloat32(Register64 src, FloatRegister dest, Register temp)
 {
+    ADBlock();
     MOZ_ASSERT(temp == Register::Invalid());
 
+xs_trap();
     ma_push(src.reg);
     ma_pop(dest);
     as_fcfidu(dest, dest);
@@ -2708,6 +2721,9 @@ MacroAssembler::truncFloat32ToInt32(FloatRegister src, Register dest, Label* fai
 void
 MacroAssembler::truncDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
+    ADBlock();
+
+xs_trap();
     as_fctiwz(ScratchDoubleReg, src);
 
     as_mcrfs(cr0, 1); // Check isnan
@@ -2725,6 +2741,9 @@ void
 MacroAssembler::nearbyIntDouble(RoundingMode mode, FloatRegister src,
                                 FloatRegister dest)
 {
+    ADBlock();
+
+xs_trap();
     switch (mode) {
         case RoundingMode::Up:
             as_frip(dest, src);
@@ -2755,9 +2774,13 @@ MacroAssembler::ceilFloat32ToInt32(FloatRegister src, Register dest,
     return ceilDoubleToInt32(src, dest, fail);
 }
 
+// XXX: use VSR
 void
 MacroAssembler::ceilDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
+    ADBlock();
+
+xs_trap();
     // Set rounding mode to 0b10 (round +inf)
     as_mtfsb1(30);
     as_mtfsb0(31);
@@ -2781,9 +2804,13 @@ MacroAssembler::floorFloat32ToInt32(FloatRegister src, Register dest,
     return floorDoubleToInt32(src, dest, fail);
 }
 
+// XXX: use VSR
 void
 MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
+    ADBlock();
+
+xs_trap();
     // Set rounding mode to 0b10 (round +inf)
     as_mtfsb1(30);
     as_mtfsb1(31);
@@ -2807,10 +2834,14 @@ MacroAssembler::roundFloat32ToInt32(FloatRegister src, Register dest,
     return floorDoubleToInt32(src, dest, fail);
 }
 
+// XXX: use VSR
 void
 MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
                                    FloatRegister temp, Label* fail)
 {
+    ADBlock();
+
+xs_trap();
     // Set rounding mode to 0b00 (round nearest)
     as_mtfsb0(30);
     as_mtfsb0(31);
