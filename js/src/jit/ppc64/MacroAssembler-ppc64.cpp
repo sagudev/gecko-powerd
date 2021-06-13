@@ -421,7 +421,6 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Register rt, L
     MOZ_ASSERT(rt != ScratchRegister);
     // This is testing a 32-bit overflow, so we need to whack and test
     // XER[OV32].
-xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
     as_addo(rd, rs, rt);
@@ -629,7 +628,7 @@ MacroAssemblerPPC64::ma_bc(Condition c, Label* l, JumpKind jumpKind)
 void
 MacroAssemblerPPC64::ma_bc(DoubleCondition c, Label *l, JumpKind jumpKind)
 {
-    ma_bc(cr1, c, l, jumpKind);
+    ma_bc(cr0, c, l, jumpKind);
 }
 
 void
