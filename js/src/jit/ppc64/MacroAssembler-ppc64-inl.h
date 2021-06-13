@@ -782,7 +782,7 @@ MacroAssembler::branchTestStringTruthy(bool b, const ValueOperand& value, Label*
 {
     SecondScratchRegisterScope scratch2(*this);
     unboxString(value, scratch2);
-    load32(Address(scratch2, JSString::offsetOfLength()), scratch2);
+    ma_load(scratch2, Address(scratch2, JSString::offsetOfLength()), SizeWord, ZeroExtend);
     ma_bc(scratch2, Imm32(0), label, b ? NotEqual : Equal);
 }
 
@@ -869,7 +869,7 @@ MacroAssembler::branchTestBigIntTruthy(bool b, const ValueOperand& value,
 {
     SecondScratchRegisterScope scratch2(*this);
     unboxBigInt(value, scratch2);
-    load32(Address(scratch2, BigInt::offsetOfDigitLength()), scratch2);
+    ma_load(scratch2, Address(scratch2, BigInt::offsetOfDigitLength()), SizeWord, ZeroExtend);
     ma_bc(scratch2, Imm32(0), label, b ? NotEqual : Equal);
 }
 
@@ -1009,7 +1009,7 @@ MacroAssembler::and32(Imm32 imm, Register dest)
 void
 MacroAssembler::and32(Imm32 imm, const Address& dest)
 {
-    load32(dest, SecondScratchReg);
+    ma_load(SecondScratchReg, dest, SizeWord, ZeroExtend);
     ma_and(SecondScratchReg, imm);
     store32(SecondScratchReg, dest);
 }
@@ -1017,7 +1017,7 @@ MacroAssembler::and32(Imm32 imm, const Address& dest)
 void
 MacroAssembler::and32(const Address& src, Register dest)
 {
-    load32(src, SecondScratchReg);
+    ma_load(SecondScratchReg, src, SizeWord, ZeroExtend);
     ma_and(dest, SecondScratchReg);
 }
 
@@ -1036,7 +1036,7 @@ MacroAssembler::or32(Imm32 imm, Register dest)
 void
 MacroAssembler::or32(Imm32 imm, const Address& dest)
 {
-    load32(dest, SecondScratchReg);
+    ma_load(SecondScratchReg, dest, SizeWord, ZeroExtend);
     ma_or(SecondScratchReg, imm);
     store32(SecondScratchReg, dest);
 }
@@ -1056,7 +1056,7 @@ MacroAssembler::xor32(Imm32 imm, Register dest)
 void
 MacroAssembler::xor32(Imm32 imm, const Address &dest)
 {
-    load32(dest, SecondScratchReg);
+    ma_load(SecondScratchReg, dest, SizeWord, ZeroExtend);
     ma_xor(SecondScratchReg, imm);
     store32(SecondScratchReg, dest);
 }
@@ -1064,7 +1064,7 @@ MacroAssembler::xor32(Imm32 imm, const Address &dest)
 void
 MacroAssembler::xor32(const Address& src, Register dest)
 {
-    load32(src, SecondScratchReg);
+    ma_load(SecondScratchReg, src, SizeWord, ZeroExtend);
     as_xor(dest, dest, SecondScratchReg);
 }
 
@@ -1974,7 +1974,8 @@ MacroAssembler::cmp32Move32(Condition cond, Register lhs, Register rhs, Register
                             Register dest)
 {
     ma_cmp32(lhs, rhs, cond);
-    // Assume that ma_cmp32 selected the correct compare, and mask off any synthetic bits.
+    // Assume that ma_cmp32 selected the correct compare, and mask off any
+    // synthetic bits. isel will assert on any conditions it can't encode.
     as_isel(dest, src, dest, (cond & 0xff));
 }
 
@@ -1982,8 +1983,15 @@ void
 MacroAssembler::cmp32MovePtr(Condition cond, Register lhs, Imm32 rhs, Register src,
                              Register dest)
 {
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
     ma_cmp32(lhs, rhs, cond);
-    as_isel(dest, src, dest, (cond & 0xff));
+    // isel cannot test for the absence of a bit.
+    if (cond == Equal) {
+        as_isel(dest, src, dest, Equal);
+    } else {
+        // Flip the order.
+        as_isel(dest, dest, src, Equal);
+    }
 }
 
 void
@@ -1991,8 +1999,13 @@ MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs,
                             Register src,
                             Register dest)
 {
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
     ma_cmp32(lhs, rhs, cond);
-    as_isel(dest, src, dest, (cond & 0xff));
+    if (cond == Equal) {
+        as_isel(dest, src, dest, Equal);
+    } else {
+        as_isel(dest, dest, src, Equal);
+    }
 }
 
 
@@ -2015,57 +2028,103 @@ MacroAssembler::cmp32LoadPtr(Condition cond, const Address& lhs, Imm32 rhs,
                              const Address& src, Register dest)
 {
     Label skip;
+    // XXX: short jump, yo
     branch32(Assembler::InvertCondition(cond), lhs, rhs, &skip);
     loadPtr(src, dest);
     bind(&skip);
 }
 
+// Constant-time conditional moves (basically isel all the things, because
+// it is not subject to branch prediction).
 void
 MacroAssembler::test32LoadPtr(Condition cond, const Address& addr, Imm32 mask,
                               const Address& src, Register dest)
 {
-    MOZ_RELEASE_ASSERT(!JitOptions.spectreStringMitigations);
-    Label skip;
-    branchTest32(Assembler::InvertCondition(cond), addr, mask, &skip);
-    loadPtr(src, dest);
-    bind(&skip);
+    MOZ_ASSERT(cond == Zero || cond == NonZero);
+    const uint32_t mm = mask.value;
+
+    ma_load(ScratchRegister, addr, SizeWord, ZeroExtend);
+    if (Imm16::IsInUnsignedRange(mm)) {
+        as_andi_rc(ScratchRegister, ScratchRegister, mm); // -> CR0[EQ]
+    } else {
+        ma_li(SecondScratchReg, mm);
+        as_and_rc(ScratchRegister, ScratchRegister, SecondScratchReg);
+    }
+    ma_load(SecondScratchReg, src, SizeDouble); // pointer-sized
+    // If the condition is true, set dest to src. However, isel cannot
+    // test for the absence of a bit, and it cannot test for multiple bits, so
+    // footwork is required.
+    if (cond == Zero) {
+        MOZ_ASSERT(cond == (Equal | ConditionZero));
+        as_isel(dest, SecondScratchReg, dest, Assembler::Equal);
+    } else {
+        // Flip the order.
+        MOZ_ASSERT(cond == (NotEqual | ConditionZero));
+        as_isel(dest, dest, SecondScratchReg, Assembler::Equal);
+    }
 }
 
 void
 MacroAssembler::test32MovePtr(Condition cond, const Address& addr, Imm32 mask,
                               Register src, Register dest)
 {
-    MOZ_CRASH();
+    MOZ_ASSERT(cond == Zero || cond == NonZero);
+    MOZ_ASSERT(src != ScratchRegister);
+    MOZ_ASSERT(src != SecondScratchReg);
+    const uint32_t mm = mask.value;
+
+    ma_load(ScratchRegister, addr, SizeWord, ZeroExtend);
+    if (Imm16::IsInUnsignedRange(mm)) {
+        as_andi_rc(ScratchRegister, ScratchRegister, mm); // -> CR0[EQ]
+    } else {
+        ma_li(SecondScratchReg, mm);
+        as_and_rc(ScratchRegister, ScratchRegister, SecondScratchReg);
+    }
+    if (cond == Zero) {
+        MOZ_ASSERT(cond == (Equal | ConditionZero));
+        as_isel(dest, src, dest, Assembler::Equal);
+    } else {
+        // Flip the order.
+        MOZ_ASSERT(cond == (NotEqual | ConditionZero));
+        as_isel(dest, dest, src, Assembler::Equal);
+    }
 }
 
 void
 MacroAssembler::spectreBoundsCheck32(Register index, Register length,
                                      Register maybeScratch, Label* failure)
 {
-    MOZ_RELEASE_ASSERT(!JitOptions.spectreIndexMasking);
     branch32(Assembler::BelowOrEqual, length, index, failure);
+    if (JitOptions.spectreIndexMasking) {
+        // The result of the compare is still in cr0, and the compare was
+        // already done unsigned, so we just generate an iselgt. The second
+        // register is unimportant, because we know this will always be true.
+        as_isel(index, index, length, Assembler::GreaterThan);
+    }
 }
 
 void
 MacroAssembler::spectreBoundsCheck32(Register index, const Address& length,
                                      Register maybeScratch, Label* failure)
 {
-    MOZ_RELEASE_ASSERT(!JitOptions.spectreIndexMasking);
     branch32(Assembler::BelowOrEqual, length, index, failure);
+    if (JitOptions.spectreIndexMasking) {
+        // r12 will likely have |length| in it anyway from the above
+        // operation, but it doesn't matter anyhow; see above.
+        as_isel(index, index, SecondScratchReg, Assembler::GreaterThan);
+    }
 }
 
-// Constant-time conditional moves (basically isel all the things).
-// isel cannot test for the non-existence of a bit, so we need to be creative.
 void
 MacroAssembler::spectreMovePtr(Condition cond, Register src, Register dest)
 {
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
 
-    //xs_trap(); // XXX
+    // isel cannot test for the non-existence of a bit.
     if (cond == Equal) {
         as_isel(dest, src, dest, Assembler::Equal);
     } else {
-        // Flip the sense.
+        // Flip the order.
         as_isel(dest, dest, src, Assembler::Equal);
     }
 }
@@ -2161,8 +2220,8 @@ MacroAssembler::clampIntToUint8(Register reg)
     // Essentially, compute max(reg,0), then min(reg,255).
     // This is pretty much what isel was designed for.
     as_ori(ScratchRegister, r0, 0);
-    as_ori(SecondScratchReg, r0, 255);
     as_cmpd(reg, ScratchRegister); // emit to CR0
+    as_ori(SecondScratchReg, r0, 255);
     as_cmpd(cr1, reg, SecondScratchReg); // emit to CR1
     // Naughtiness: since ScratchRegister is r0, the load is
     // zero anyway (this is a "mscdfr0" instruction). I just
