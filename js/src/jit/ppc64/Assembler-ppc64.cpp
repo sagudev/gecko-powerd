@@ -1343,11 +1343,13 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
 #define DEF_MDFORM(op) \
     BufferOffset Assembler::as_##op(Register ra, Register rs, uint8_t sh, uint8_t mb) {\
         spew(#op "\t%3s,%3s,%d,%d", ra.name(), rs.name(), sh, mb); \
+        MOZ_ASSERT(sh < 64); MOZ_ASSERT(mb < 64); \
         return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | ((sh & 0x1f) << 11) | ((mb & 0x1f) << 6) | (mb & 0x20) | ((sh & 0x20) >> 4)); }
 
 #define DEF_MDFORM_RC(op) \
     BufferOffset Assembler::as_##op##_rc(Register ra, Register rs, uint8_t sh, uint8_t mb) {\
         spew(#op ".\t%3s,%3s,%d,%d", ra.name(), rs.name(), sh, mb); \
+        MOZ_ASSERT(sh < 64); MOZ_ASSERT(mb < 64); \
         return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | ((sh & 0x1f) << 11) | ((mb & 0x1f) << 6) | (mb & 0x20) | ((sh & 0x20) >> 4) | 0x01); }
 
 

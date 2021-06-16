@@ -258,6 +258,7 @@ class MacroAssemblerPPC64 : public Assembler
             ma_cmp_set(dst, lhs, ScratchRegister, c);
         }
     }
+    void ma_cmp_set_coda(Register rd, Condition c);
     void ma_cmp_set_double(Register dst, FloatRegister lhs, FloatRegister rhs, DoubleCondition c);
 
     // Evaluate srcDest = minmax<isMax>{Float32,Double}(srcDest, other).
@@ -610,13 +611,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
             as_srawi(dest, src, 0);
             return;
         }
-        // Blank out the upper 17 bits (clrldi).
-/*
-        MOZ_ASSERT(ScratchRegister != src);
-        mov(ImmWord(JSVAL_TYPE_TO_SHIFTED_TAG(type)), ScratchRegister);
-        as_xor(dest, src, ScratchRegister);
-        */
-        as_rldicl(dest, src, 0, 17);
+        // Blank out the tag.
+        as_rldicl(dest, src, 0, 64-JSVAL_TAG_SHIFT); // "clrldi"
     }
 
     template <typename T>
@@ -628,7 +624,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void unboxGCThingForGCBarrier(const Address& src, Register dest) {
         loadPtr(src, dest);
-        ma_dext(dest, dest, Imm32(0), Imm32(JSVAL_TAG_SHIFT));
+        as_rldicl(dest, dest, 0, 64-JSVAL_TAG_SHIFT); // "clrldi"
     }
 
     void unboxInt32(const ValueOperand& operand, Register dest);

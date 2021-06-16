@@ -369,14 +369,15 @@ MacroAssemblerPPC64::ma_dsrl(Register rd, Register rt, Register shift)
 void
 MacroAssemblerPPC64::ma_dins(Register rt, Register rs, Imm32 pos, Imm32 size)
 {
-    as_rldimi(rt, rs, 64-(pos.value + size.value), pos.value);
+    as_rldimi(rt, rs, 64-(pos.value + size.value), pos.value); // "insrdi"
 }
 
 void
 MacroAssemblerPPC64::ma_dext(Register rt, Register rs, Imm32 pos, Imm32 size)
 {
     // MIPS dext is right-justified, so use rldicl to simulate.
-    as_rldicl(rt, rs, (pos.value + size.value), 64 - (size.value));
+xs_trap(); // not sure if trap
+    as_rldicl(rt, rs, (pos.value + size.value), 64 - (size.value)); // "extrdi"
 }
 
 void
@@ -635,10 +636,9 @@ void
 MacroAssemblerPPC64::ma_bc(DoubleCondition c, FloatRegister lhs,
                            FloatRegister rhs, Label *label, JumpKind jumpKind)
 {
-    if ((c & DoubleConditionUnordered) || (c == DoubleUnordered))
-        as_fcmpu(lhs, rhs);
-    else
-        as_fcmpo(lhs, rhs);
+    ADBlock();
+
+    compareFloatingPoint(lhs, rhs, c);
     ma_bc(c, label, jumpKind);
 }
 
@@ -1577,7 +1577,7 @@ Register
 MacroAssemblerPPC64Compat::extractObject(const Address& address, Register scratch)
 {
     loadPtr(Address(address.base, address.offset), scratch);
-    ma_dext(scratch, scratch, Imm32(0), Imm32(JSVAL_TAG_SHIFT));
+    as_rldicl(scratch, scratch, 0, 64-JSVAL_TAG_SHIFT); // clrldi the tag
     return scratch;
 }
 
@@ -1585,7 +1585,7 @@ Register
 MacroAssemblerPPC64Compat::extractTag(const Address& address, Register scratch)
 {
     loadPtr(Address(address.base, address.offset), scratch);
-    ma_dext(scratch, scratch, Imm32(JSVAL_TAG_SHIFT), Imm32(64 - JSVAL_TAG_SHIFT));
+    as_rldicl(scratch, scratch, 64-JSVAL_TAG_SHIFT, JSVAL_TAG_SHIFT); // "srdi"
     return scratch;
 }
 
@@ -3491,78 +3491,13 @@ MacroAssemblerPPC64::ma_cmp32(Register lhs, const Address& rhs, Condition c)
 }
 
 void
-MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition c)
-{
-    ADBlock();
-    int shift;
-
-    as_mfcr(rd);
-    switch (c) {
-      case Equal :
-      case NotEqual:
-        shift = 2;
-        break;
-      case Above:
-        // sgtu d,s,t =>
-        //   sltu d,t,s
-        shift = 1;
-        break;
-      case AboveOrEqual:
-      case GreaterThanOrEqual:
-      case Below:
-      case LessThan:
-        shift = 3;
-        break;
-      case BelowOrEqual:
-      case LessThanOrEqual:
-      case GreaterThan:
-        shift = 1;
-        break;
-      default:
-        MOZ_CRASH("Invalid condition.");
-    }
-    as_cmpd(rs, rt);
-    as_mfcr(rd);
-    as_rlwinm(rd, rd, (3 - shift) + 28, 30, 31);
-    // Negate the boolean if necessary to represent a multi-condition
-    switch (c) {
-        case NotEqual:
-        case AboveOrEqual:
-        case GreaterThanOrEqual:
-        case LessThanOrEqual:
-        case BelowOrEqual:
-            as_xori(rd, rd, 1);
-            break;
-        default:
-            break;
-    }
-}
-
-void
 MacroAssemblerPPC64::compareFloatingPoint(FloatRegister lhs, FloatRegister rhs,
                                           DoubleCondition c)
 {
-    switch (c) {
-      case DoubleOrdered:
-      case DoubleEqual:
-      case DoubleNotEqual:
-      case DoubleGreaterThan:
-      case DoubleGreaterThanOrEqual:
-      case DoubleLessThan:
-      case DoubleLessThanOrEqual:
-        as_fcmpo(lhs, rhs);
-        break;
-      case DoubleUnordered:
-      case DoubleEqualOrUnordered:
-      case DoubleNotEqualOrUnordered:
-      case DoubleGreaterThanOrUnordered:
-      case DoubleGreaterThanOrEqualOrUnordered:
-      case DoubleLessThanOrUnordered:
-      case DoubleLessThanOrEqualOrUnordered:
+    if ((c & DoubleConditionUnordered) || (c == DoubleUnordered)) {
         as_fcmpu(lhs, rhs);
-        break;
-      default:
-        MOZ_CRASH("Invalid DoubleCondition.");
+    } else {
+        as_fcmpo(lhs, rhs);
     }
 }
 
@@ -3583,47 +3518,70 @@ MacroAssemblerPPC64::ma_cmp_set_double(Register dest, FloatRegister lhs, FloatRe
 void
 MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c)
 {
-    int shift;
+    ADBlock();
 
-    as_mfcr(rd);
-    switch (c) {
-      case Equal :
-      case NotEqual:
-        shift = 2;
-        break;
-      case Above:
-        // sgtu d,s,t =>
-        //   sltu d,t,s
-        shift = 1;
-        break;
-      case AboveOrEqual:
-      case GreaterThanOrEqual:
-      case Below:
-      case LessThan:
-        shift = 3;
-        break;
-      case BelowOrEqual:
-      case LessThanOrEqual:
-      case GreaterThan:
-        shift = 1;
-        break;
-      default:
-        MOZ_CRASH("Invalid condition.");
+    // Handle any synthetic codes.
+    MOZ_ASSERT_IF((c & ConditionZero), (imm.encode() == 0));
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+xs_trap();
+    if (c & ConditionUnsigned) {
+        MOZ_ASSERT(Imm16::IsInUnsignedRange(imm.encode())); // paranoia
+        as_cmpldi(rs, imm.encode());
+    } else {
+        // Just because it's an Imm16 doesn't mean it always fits.
+        MOZ_ASSERT(Imm16::IsInSignedRange(imm.encode()));
+        as_cmpdi(rs, imm.encode());
     }
-    as_cmpdi(rs, imm.encode());
+    // Common routine to extract or flip the appropriate CR bit.
+    ma_cmp_set_coda(rd, c);
+}
+
+void
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition c)
+{
+    ADBlock();
+
+    // Handle any synthetic codes.
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    MOZ_ASSERT(!(c & ConditionZero));
+xs_trap();
+    if (c & ConditionUnsigned) {
+        as_cmpld(rs, rt);
+    } else {
+        as_cmpd(rs, rt);
+    }
+    ma_cmp_set_coda(rd, c);
+}
+
+static_assert(((Assembler::LessThanOrEqual & Assembler::BranchOptionMask) == Assembler::BranchOnClear),
+        "Assembler conditions don't match CR bits");
+void
+MacroAssemblerPPC64::ma_cmp_set_coda(Register rd, Condition c) {
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+
+    // Extract the underlying CR field bit.
     as_mfcr(rd);
-    as_rlwinm(rd, rd, (3 - shift) + 28, 30, 31);
-    // Negate the boolean if necessary to represent a multi-condition
-    switch (c) {
+    switch(c & 0xff) {
+        case Equal:
         case NotEqual:
-        case AboveOrEqual:
-        case GreaterThanOrEqual:
+            as_rlwinm(rd, rd, 3, 31, 31); // PowerPC CWG page 38
+            break;
+        case GreaterThan:
         case LessThanOrEqual:
-        case BelowOrEqual:
-            as_xori(rd, rd, 1);
+            as_rlwinm(rd, rd, 2, 31, 31);
+            break;
+        case LessThan:
+        case GreaterThanOrEqual:
+            as_rlwinm(rd, rd, 1, 31, 31); // p40
             break;
         default:
+            MOZ_CRASH("Unhandled condition");
             break;
+    }
+
+    // Negate the boolean if necessary.
+    if ((c & BranchOptionMask) == BranchOnClear) {
+        as_xori(rd, rd, 1);
     }
 }
 
@@ -3634,8 +3592,12 @@ MacroAssemblerPPC64::ma_lis(FloatRegister dest, float value)
     Imm32 imm(mozilla::BitwiseCast<uint32_t>(value));
 
     ma_li(ScratchRegister, imm);
+#ifdef __POWER8_VECTOR__
+    as_mtvsrd(dest, ScratchRegister);
+#else
     ma_push(ScratchRegister);
     ma_pop(dest);
+#endif
 }
 
 void
