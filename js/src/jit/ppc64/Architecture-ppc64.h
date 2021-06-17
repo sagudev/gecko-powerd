@@ -121,7 +121,7 @@ class Registers
     static const SetType VolatileMask = ArgRegMask;
 
     // We use this constant to save registers when entering functions.
-    static const SetType NonVolatileMask =
+    static const SetType NonVolatileMask = (
     	(1 << Registers::r2)  |
         (1 << Registers::r13) |
         (1 << Registers::r14) |
@@ -141,7 +141,9 @@ class Registers
         (1 << Registers::r28) |
         (1 << Registers::r29) |
         (1 << Registers::r30) |
-        (1 << Registers::r31);
+        (1 << Registers::r31)
+    // Watch out for sign extension!
+        ) & AllMask;
 
     // Also uses r11.
     static const SetType WrapperMask = VolatileMask;
@@ -174,7 +176,7 @@ class Registers
     static const SetType CallMask =
         (1 << Registers::r3);
  
-    static const SetType AllocatableMask =
+    static const SetType AllocatableMask = (
     	// Be explicit
         (1 << Registers::r3)  |
         (1 << Registers::r4)  |
@@ -199,7 +201,9 @@ class Registers
         (1 << Registers::r28) |
         (1 << Registers::r29) |
         (1 << Registers::r30) |
-        (1 << Registers::r31);
+        (1 << Registers::r31)
+        // Watch out for sign extension!
+        ) & AllMask;
 
     static uint32_t SetSize(SetType x) {
         static_assert(sizeof(SetType) == 8, "SetType must be 64 bits");
