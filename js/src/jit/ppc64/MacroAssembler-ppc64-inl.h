@@ -2132,13 +2132,13 @@ MacroAssembler::spectreMovePtr(Condition cond, Register src, Register dest)
 void
 MacroAssembler::spectreZeroRegister(Condition cond, Register scratch, Register dest)
 {
+    // Zero the register if *true*. Hold my beer.
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
 
-    if (cond == Equal) {
+    if (cond == NotEqual) {
         xs_li(ScratchRegister, 0);
         as_isel(dest, dest, ScratchRegister, Assembler::Equal);
     } else {
-        xs_trap(); // XXX
         as_isel0(dest, ScratchRegister, dest, Assembler::Equal); // mscdfr0
     }
 }

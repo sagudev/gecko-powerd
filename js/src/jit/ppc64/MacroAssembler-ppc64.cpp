@@ -3510,6 +3510,7 @@ MacroAssemblerPPC64::ma_cmp_set_double(Register dest, FloatRegister lhs, FloatRe
 
     ma_li(dest, 1L);
 
+// XXX: use CR
     ma_bc(c, &skip);
     ma_li(dest, 0L);
     bind(&skip);
@@ -3544,7 +3545,6 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition
     // Handle any synthetic codes.
     MOZ_ASSERT(!(c & ConditionOnlyXER));
     MOZ_ASSERT(!(c & ConditionZero));
-xs_trap();
     if (c & ConditionUnsigned) {
         as_cmpld(rs, rt);
     } else {
@@ -3569,10 +3569,12 @@ MacroAssemblerPPC64::ma_cmp_set_coda(Register rd, Condition c) {
         case GreaterThan:
         case LessThanOrEqual:
             as_rlwinm(rd, rd, 2, 31, 31);
+xs_trap();
             break;
         case LessThan:
         case GreaterThanOrEqual:
             as_rlwinm(rd, rd, 1, 31, 31); // p40
+xs_trap();
             break;
         default:
             MOZ_CRASH("Unhandled condition");
