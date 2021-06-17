@@ -142,9 +142,10 @@ class ABIArgGenerator
     void increaseStackOffset(uint32_t bytes) { stackOffset_ += bytes; }
 };
 
-static constexpr Register ABINonArgReg0 = r14;
-static constexpr Register ABINonArgReg1 = r15;
-static constexpr Register ABINonArgReg2 = r16;
+static constexpr Register ABINonArgReg0 = r19;
+static constexpr Register ABINonArgReg1 = r20;
+static constexpr Register ABINonArgReg2 = r21;
+static constexpr Register ABINonArgReg3 = r22;
 static constexpr Register ABINonArgReturnReg0 = r5;
 static constexpr Register ABINonArgReturnReg1 = r6;
 static constexpr Register ABINonArgReturnVolatileReg = r0;
@@ -186,17 +187,28 @@ static constexpr Register RegExpTesterRegExpReg = CallTempReg0;
 static constexpr Register RegExpTesterStringReg = CallTempReg1;
 static constexpr Register RegExpTesterLastIndexReg = CallTempReg2;
 
+// TLS pointer argument register for WebAssembly functions. This must not alias
+// any other register used for passing function arguments or return values.
+// Preserved by WebAssembly functions.
 static constexpr Register WasmTlsReg = r18;
-static constexpr Register WasmTableCallIndexReg = InvalidReg;
-static constexpr Register WasmTableCallSigReg = InvalidReg;
-static constexpr Register WasmTableCallScratchReg0 = InvalidReg;
-static constexpr Register WasmTableCallScratchReg1 = InvalidReg;
-static constexpr Register WasmJitEntryReturnScratch = InvalidReg;
 
-static constexpr uint32_t WasmCheckedTailEntryOffset = 0u;
+// Registers used for wasm table calls. These registers must be disjoint
+// from the ABI argument registers, WasmTlsReg and each other.
+static constexpr Register WasmTableCallScratchReg0 = ABINonArgReg0;
+static constexpr Register WasmTableCallScratchReg1 = ABINonArgReg1;
+static constexpr Register WasmTableCallSigReg = ABINonArgReg2;
+static constexpr Register WasmTableCallIndexReg = ABINonArgReg3;
+
+// Register used as a scratch along the return path in the fast js -> wasm stub
+// code. This must not overlap ReturnReg, JSReturnOperand, or WasmTlsReg. It
+// must be a volatile register.
+static constexpr Register WasmJitEntryReturnScratch = r10;
+
 static constexpr uint32_t WasmCheckedCallEntryOffset = 0u;
+static constexpr uint32_t WasmCheckedTailEntryOffset = 32u; // damn mtspr
 
 // Good grief. Must FPRs be vector registers on every architecture?
+// I guess we could only support SIMD on processors with VSX.
 static constexpr FloatRegister ReturnSimdReg = InvalidFloatReg;
 static constexpr FloatRegister ReturnSimd128Reg = InvalidFloatReg;
 static constexpr FloatRegister ReturnInt32x4Reg = InvalidFloatReg;
@@ -1354,7 +1366,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
 // XXX: change these to xs_
 	BufferOffset xs_trap();
 	BufferOffset xs_trap_tagged(TrapTag tag); // Codegen for marking traps in output.
-	BufferOffset x_mr(Register rd, Register ra);
+	BufferOffset xs_mr(Register rd, Register ra);
 	BufferOffset x_beq(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bne(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bdnz(int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);

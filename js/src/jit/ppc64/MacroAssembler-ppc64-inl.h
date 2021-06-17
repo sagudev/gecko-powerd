@@ -8,6 +8,7 @@
 #define jit_ppc64le_MacroAssembler_ppc64le_inl_h
 
 #include "jit/ppc64/MacroAssembler-ppc64.h"
+#include "jit/FlushICache.h"
 
 namespace js {
 namespace jit {
@@ -273,14 +274,9 @@ MacroAssembler::sub32FromStackPtrWithPatch(Register dest)
 void
 MacroAssembler::patchSub32FromStackPtr(CodeOffset offset, Imm32 imm)
 {
-MOZ_CRASH();
-#if(0)
     Instruction* lis = (Instruction*) m_buffer.getInst(BufferOffset(offset.offset()));
-    MOZ_ASSERT(lis->extractOpcode() == ((uint32_t)op_lis >> OpcodeShift));
-    MOZ_ASSERT(lis->next()->extractOpcode() == ((uint32_t)op_ori >> OpcodeShift));
-
     MacroAssemblerPPC64::UpdateLisOriValue(lis, lis->next(), imm.value);
-#endif
+    FlushICache(lis, 2 * sizeof(uint32_t));
 }
 
 void
@@ -401,7 +397,7 @@ MacroAssembler::quotient32(Register rhs, Register srcDest, bool isUnsigned)
 void
 MacroAssembler::byteSwap16SignExtend(Register reg)
 {
-    x_mr(ScratchRegister, reg);
+    xs_mr(ScratchRegister, reg);
     
     as_rlwinm(reg, ScratchRegister, 8, 16, 23);
     as_rlwimi(reg, ScratchRegister, 24, 24, 31);
@@ -411,7 +407,7 @@ MacroAssembler::byteSwap16SignExtend(Register reg)
 void
 MacroAssembler::byteSwap16ZeroExtend(Register reg)
 {
-    x_mr(ScratchRegister, reg);
+    xs_mr(ScratchRegister, reg);
     
     as_rlwinm(reg, ScratchRegister, 8, 16, 23);
     as_rlwimi(reg, ScratchRegister, 24, 24, 31);
@@ -420,7 +416,7 @@ MacroAssembler::byteSwap16ZeroExtend(Register reg)
 void
 MacroAssembler::byteSwap32(Register reg)
 {
-    x_mr(ScratchRegister, reg);
+    xs_mr(ScratchRegister, reg);
     
     as_rlwinm(reg, ScratchRegister, 24, 0, 7);    // << 24
     as_rlwimi(reg, ScratchRegister, 16, 8, 16);   // << 16
@@ -432,7 +428,7 @@ void
 MacroAssembler::byteSwap64(Register64 reg)
 {
     Register r = reg.reg;
-    x_mr(ScratchRegister, r);
+    xs_mr(ScratchRegister, r);
     
     as_rldicr(r, ScratchRegister, 56, 7);
     x_srdi(ScratchRegister, ScratchRegister, 8);

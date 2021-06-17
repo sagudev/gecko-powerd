@@ -2892,7 +2892,7 @@ MacroAssembler::flexibleDivMod32(Register rhs, Register srcDest,
     // Compute remainder
     as_mullw(remOutput, srcDest, rhs);
     as_subf(remOutput, scratch, srcDest);
-    x_mr(srcDest, scratch);
+    xs_mr(srcDest, scratch);
 }
 
 //}}} check_macroassembler_style

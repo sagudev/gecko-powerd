@@ -1744,7 +1744,7 @@ Assembler::TrapTag InstImm::traptag() {
     return (Assembler::TrapTag)(r & 0xfe); // mask bit 0
 }
 
-BufferOffset Assembler::x_mr(Register rd, Register ra)
+BufferOffset Assembler::xs_mr(Register rd, Register ra)
 {
     return as_or(rd, ra, ra);
 }
