@@ -575,6 +575,8 @@ struct SpecificRegs {
 };
 #elif defined(JS_CODEGEN_MIPS64)
 struct SpecificRegs {};
+#elif defined(JS_CODEGEN_PPC64)
+struct SpecificRegs {};
 #else
 struct SpecificRegs {
 #  ifndef JS_64BIT
