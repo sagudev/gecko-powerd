@@ -539,6 +539,7 @@ void
 JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
                                             ArgumentsRectifierKind kind)
 {
+    ADBlock("generateArgumentsRectifier");
     // MIPS uses a5-a7, t0-t3 and s3, with s3 being the only callee-save register.
     // We will do something similar for Power and use r4-r6, r7-r10 and r15.
     const Register nvRectReg = r15;
@@ -553,11 +554,9 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
             trialInliningArgumentsRectifierOffset_ = startTrampolineCode(masm);
             break;
     }
+masm.xs_trap();
     masm.pushReturnAddress();
-    ADBlock("generateArgumentsRectifier");
     // Do not erase the frame pointer in this function.
-
-    masm.pushReturnAddress();
     // Caller:
     // [arg2] [arg1] [this] [[argc] [callee] [descr] [raddr]] <- sp
 

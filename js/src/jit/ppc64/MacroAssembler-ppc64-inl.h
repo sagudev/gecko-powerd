@@ -721,7 +721,7 @@ void
 MacroAssembler::branchTestInt32Truthy(bool b, const ValueOperand& value, Label* label)
 {
     ScratchRegisterScope scratch(*this);
-    ma_dext(scratch, value.valueReg(), Imm32(0), Imm32(32));
+    unboxBoolean(value, scratch);
     ma_bc(scratch, scratch, label, b ? NonZero : Zero);
 }
 
