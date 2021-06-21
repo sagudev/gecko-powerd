@@ -875,7 +875,6 @@ MacroAssembler::branchTruncateDoubleMaybeModUint32(FloatRegister src, Register d
     MOZ_ASSERT(src != ScratchDoubleReg);
 
     // Treat FPSCR FX or VX as conversion failure (LT and EQ in CR1).
-xs_trap();
     as_fctiwz_rc(ScratchDoubleReg, src);
     moveFromDouble(ScratchDoubleReg, dest); // MIPS does this in advance.
     ma_bc(cr1, Assembler::LessThanOrEqual, fail);

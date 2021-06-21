@@ -554,14 +554,14 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
             trialInliningArgumentsRectifierOffset_ = startTrampolineCode(masm);
             break;
     }
-masm.xs_trap();
     masm.pushReturnAddress();
     // Do not erase the frame pointer in this function.
     // Caller:
     // [arg2] [arg1] [this] [[argc] [callee] [descr] [raddr]] <- sp
 
-    // Add |this|, in the counter of known arguments.
+    // Get the |nargs| from the RectifierFrame.
     masm.loadPtr(Address(StackPointer, RectifierFrameLayout::offsetOfNumActualArgs()), nvRectReg);
+    // Add one for |this|.
     masm.addPtr(Imm32(1), nvRectReg);
 
     const Register numActArgsReg = r5;

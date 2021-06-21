@@ -127,7 +127,8 @@ void
 MacroAssemblerPPC64Compat::convertUInt32ToDouble(Register src, FloatRegister dest)
 {
     ADBlock();
-    ma_dext(ScratchRegister, src, Imm32(0), Imm32(32));
+    // Clear any tag and extend the sign.
+    as_srawi(ScratchRegister, src, 0);
     asMasm().convertUInt64ToDouble(Register64(ScratchRegister), dest, InvalidReg);
 }
 
@@ -136,7 +137,7 @@ void
 MacroAssemblerPPC64Compat::convertUInt32ToFloat32(Register src, FloatRegister dest)
 {
     ADBlock();
-    ma_dext(ScratchRegister, src, Imm32(0), Imm32(32));
+    as_srawi(ScratchRegister, src, 0);
     asMasm().convertUInt64ToFloat32(Register64(ScratchRegister), dest, InvalidReg);
 }
 
@@ -473,7 +474,6 @@ MacroAssemblerPPC64::ma_subTestOverflow(Register rd, Register rs, Register rt, L
     MOZ_ASSERT(rs != ScratchRegister);
     MOZ_ASSERT(rt != ScratchRegister);
     // This is a 32-bit operation, so we need to whack and test XER[OV32].
-xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
     as_subfo(rd, rt, rs); // T = B - A
@@ -1084,7 +1084,6 @@ void
 MacroAssemblerPPC64Compat::loadPrivate(const Address& address, Register dest)
 {
     loadPtr(address, dest);
-    ma_dsll(dest, dest, Imm32(1));
 }
 
 void
@@ -3120,9 +3119,7 @@ MacroAssemblerPPC64::ma_mul(Register rd, Register rs, Imm32 imm)
 void
 MacroAssemblerPPC64::ma_mul_branch_overflow(Register rd, Register rs, Register rt, Label* overflow)
 {
-    // XXX: 32-bit operation???
     // This is a 32-bit operation, so we need to whack and test XER[OV32].
-xs_trap();
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
     as_mullwo(rd, rs, rt);
@@ -4190,6 +4187,7 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt64Check(FloatRegister input, Regi
                                                             Label* rejoin,
                                                             wasm::BytecodeOffset trapOffset)
 {
+    MOZ_CRASH("NYI");
 #if 0 // TODO: outOfLineWasmTruncateToInt64Check
     bool isUnsigned = flags & TRUNC_UNSIGNED;
     bool isSaturating = flags & TRUNC_SATURATING;

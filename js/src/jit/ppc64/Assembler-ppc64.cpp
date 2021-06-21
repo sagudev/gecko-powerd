@@ -1060,7 +1060,7 @@ DEF_CRCR(crxor)
 BufferOffset Assembler::as_mtcrf(uint32_t mask, Register rs)
 {
     spew("mtcrf %d,%3s", mask, rs.name());
-    return writeInst(PPC_mtcrf | rs.code() << 21 | mask << 11);
+    return writeInst(PPC_mtcrf | rs.code() << 21 | mask << 12);
 }
 
 BufferOffset Assembler::as_mfcr(Register rd)
@@ -1351,8 +1351,6 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
         spew(#op ".\t%3s,%3s,%d,%d", ra.name(), rs.name(), sh, mb); \
         MOZ_ASSERT(sh < 64); MOZ_ASSERT(mb < 64); \
         return writeInst(PPC_##op | rs.code() << 21 | ra.code() << 16 | ((sh & 0x1f) << 11) | ((mb & 0x1f) << 6) | (mb & 0x20) | ((sh & 0x20) >> 4) | 0x01); }
-
-
 
 DEF_MFORM(rlwnm)
 DEF_MFORM_I(rlwinm)
