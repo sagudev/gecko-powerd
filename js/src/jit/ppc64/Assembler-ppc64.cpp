@@ -276,7 +276,7 @@ Assembler::bind(InstImm* inst, uintptr_t b, uintptr_t target, bool bound)
 
                 // And I get to sing Disney songs again!
                 // See if it's a short jump after all!
-                if (bound && JOffImm26::IsInRange(offset)) {
+                if (bound && JOffImm26::IsInRange(offset - 24)) {
                     // It's a short jump after all!
                     // It's a short #${{@~NO CARRIER
                     spew("# writing in short call");
@@ -284,8 +284,12 @@ Assembler::bind(InstImm* inst, uintptr_t b, uintptr_t target, bool bound)
                     MOZ_ASSERT(inst[7].encode() != PPC_bctr);
                     inst[0].setData(PPC_nop); // obliterate trap
                     inst[1].setData(PPC_nop); // obliterate next-in-chain
-                    // So that the return is after the stanza, the link call must be the last
-                    // instruction in the stanza, not the first.
+                    // So that the return is after the stanza, the link call
+                    // must be the last instruction in the stanza, not the
+                    // first. This means we also need to adjust the offset,
+                    // which is where the 24 comes from (stanza length minus
+                    // the bl instruction).
+                    offset -= 24;
                     inst[6].setData(PPC_b | JOffImm26(offset).encode() | LinkB);
                 } else {
                     // Why doesn't anyone like my singing?
@@ -296,9 +300,10 @@ Assembler::bind(InstImm* inst, uintptr_t b, uintptr_t target, bool bound)
                     inst[6].makeOp_bctr(LinkB);
                 }
             } else if (t == BTag) {
-                // More or less a degenerate case of BCTag. But do they let me sing Disney songs
-                // about that? Noooooooooo. They said it was an HR violation and would summon
-                // lawyers from their undead crypts to lay waste upon the earth. Wimps.
+                // More or less a degenerate case of BCTag. But do they let me
+                // sing Disney songs about that? Noooooooooo. They said it was
+                // an HR violation and would summon lawyers from their undead
+                // crypts to lay waste upon the earth. Wimps.
                 MOZ_ASSERT(inst[2].encode() == PPC_nop);
                 MOZ_ASSERT(inst[3].encode() == PPC_nop);
                 MOZ_ASSERT(inst[4].encode() == PPC_nop);
@@ -1422,17 +1427,6 @@ BufferOffset Assembler::as_addi(Register rd, Register ra, int16_t im, bool actua
 #endif
     return writeInst(InstImm(PPC_addi, rd, ra, im).encode());
 }
-BufferOffset Assembler::as_addi_rc(Register rd, Register ra, int16_t im, bool actually_li) {
-#if DEBUG
-    if (actually_li) {
-        spew("li.\t%3s,%d", rd.name(), im);
-    } else {
-        MOZ_ASSERT(ra != r0); // Because that would be li
-        spew("addi.\t%3s,%3s,%d", rd.name(), ra.name(), im);
-    }
-#endif
-    return writeInst(InstImm(PPC_addi, rd, ra, im).encode() | 0x01);
-}
 BufferOffset Assembler::as_addis(Register rd, Register ra, int16_t im, bool actually_lis) {
 #if DEBUG
     if (actually_lis) {
@@ -1443,17 +1437,6 @@ BufferOffset Assembler::as_addis(Register rd, Register ra, int16_t im, bool actu
     }
 #endif
     return writeInst(InstImm(PPC_addis, rd, ra, im).encode());
-}
-BufferOffset Assembler::as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis) {
-#if DEBUG
-    if (actually_lis) {
-        spew("lis.\t%3s,%d", rd.name(), im);
-    } else {
-        MOZ_ASSERT(ra != r0); // Because that would be lis
-        spew("addis.\t%3s,%3s,%d", rd.name(), ra.name(), im);
-    }
-#endif
-    return writeInst(InstImm(PPC_addis, rd, ra, im).encode() | 0x01);
 }
 
 DEF_ALUI(addic)
@@ -1529,6 +1512,12 @@ DEF_ALUEXT(extsw)
 DEF_MEMd(lbz)
 DEF_MEMd(lha)
 DEF_MEMd(lhz)
+    BufferOffset Assembler::as_lwa(Register ra, Register rs, int16_t im) {
+        spew("lwa\t%3s,%d(%3s)", ra.name(), im, rs.name());
+        MOZ_ASSERT(rs != r0);
+        MOZ_ASSERT(!(im & 0x03));
+        return writeInst(InstImm(PPC_lwa, ra, rs, im).encode()); }
+
 DEF_MEMd(lwz)
 //DEF_MEMd(ld)
 // Assert if the two LSBs of ld's immediate are set, since this assembles
@@ -1543,7 +1532,12 @@ DEF_MEMd(stb)
 DEF_MEMd(stw)
 DEF_MEMd(stwu)
 DEF_MEMd(sth)
-DEF_MEMd(std)
+//DEF_MEMd(std)
+    BufferOffset Assembler::as_std(Register ra, Register rs, int16_t im) {
+        spew("std\t%3s,%d(%3s)", ra.name(), im, rs.name());
+        MOZ_ASSERT(rs != r0);
+        MOZ_ASSERT(!(im & 0x03));
+        return writeInst(InstImm(PPC_std, ra, rs, im).encode()); }
 DEF_MEMd(stdu)
 #undef DEF_MEMd
 

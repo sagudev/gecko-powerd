@@ -497,6 +497,7 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
         MOZ_ASSERT(address.base != SecondScratchReg);
         ma_li(SecondScratchReg, Imm32(address.offset));
         as_add(SecondScratchReg, address.base, SecondScratchReg);
+// XXX: this generates dumb code: li r12,0, add r12,r0,r12
         base = SecondScratchReg;
         encodedOffset = 0;
     } else {
@@ -523,6 +524,7 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
             as_extsh(dest, dest);
         break;
       case SizeWord:
+        // XXX: can use lwa here if we're word aligned and save an extsw
         as_lwz(dest, base, encodedOffset);
         if (SignExtend == extension)
             as_extsw(dest, dest);

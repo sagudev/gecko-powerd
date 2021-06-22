@@ -383,6 +383,7 @@ enum PPCOpcodes {
     PPC_lhz     = 0xA0000000, // load halfword and zero
     PPC_lhzx    = 0x7C00022E, // load halfword and zero indexed
     PPC_lhbrx   = 0x7C00062C, // load hw and zero indexed (byte swapped)
+    PPC_lwa     = 0xE8000002, // load word algebraic
     PPC_lwarx   = 0x7c000028, // load word and reserve indexed
     PPC_lwz     = 0x80000000, // load word and zero
     PPC_lwzx    = 0x7C00002E, // load word and zero indexed
@@ -1171,11 +1172,9 @@ class Assembler : public AssemblerShared
         DEF_ALU2(eqv) // NB: Implemented differently.
 #undef DEF_ALU2
 
-// Special handling due to mscdfr0
+// Special handling due to mscdfr0 (no _rc)
 BufferOffset as_addi(Register rd, Register ra, int16_t im, bool actually_li = false);
 BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = false);
-BufferOffset as_addi_rc(Register rd, Register ra, int16_t im, bool actually_li = false);
-BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis = false);
 
 #define DEF_ALUI(op) BufferOffset as_##op(Register rd, Register ra, int16_t im); \
                      BufferOffset as_##op##_rc(Register rd, Register ra, int16_t im);
@@ -1238,6 +1237,7 @@ BufferOffset as_addis_rc(Register rd, Register ra, int16_t im, bool actually_lis
         DEF_MEMd(lbz)
         DEF_MEMd(lha)
         DEF_MEMd(lhz)
+        DEF_MEMd(lwa)
         DEF_MEMd(lwz)
         DEF_MEMd(ld)
 
