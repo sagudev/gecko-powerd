@@ -39,9 +39,10 @@ EmitBaselineTailCallVM(TrampolinePtr target, MacroAssembler& masm, uint32_t argS
     // called expects the return address to also be pushed on the stack.
     masm.makeFrameDescriptor(scratch, FrameType::BaselineJS, ExitFrameLayout::Size());
     masm.subPtr(Imm32(sizeof(CommonFrameLayout)), StackPointer);
-    masm.xs_mflr(ScratchRegister);
+    // Keep the tail call register current (i.e., don't just use r0).
+    masm.xs_mflr(ICTailCallReg);
     masm.storePtr(scratch, Address(StackPointer, CommonFrameLayout::offsetOfDescriptor()));
-    masm.storePtr(ScratchRegister, Address(StackPointer, CommonFrameLayout::offsetOfReturnAddress()));
+    masm.storePtr(ICTailCallReg, Address(StackPointer, CommonFrameLayout::offsetOfReturnAddress()));
 
     masm.jump(target);
 }
@@ -103,10 +104,11 @@ EmitBaselineEnterStubFrame(MacroAssembler& masm, Register scratch)
 
     // Push frame descriptor and return address.
     masm.makeFrameDescriptor(scratch, FrameType::BaselineJS, BaselineStubFrameLayout::Size());
-    masm.xs_mflr(ScratchRegister);
+    // Keep the tail call register current (i.e., don't just use r0).
+    masm.xs_mflr(ICTailCallReg);
     masm.subPtr(Imm32(STUB_FRAME_SIZE), StackPointer);
     masm.storePtr(scratch, Address(StackPointer, offsetof(BaselineStubFrame, descriptor)));
-    masm.storePtr(ScratchRegister, Address(StackPointer,
+    masm.storePtr(ICTailCallReg, Address(StackPointer,
                                       offsetof(BaselineStubFrame, returnAddress)));
 
     // Save old frame pointer, stack pointer and stub reg.

@@ -626,6 +626,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         loadPtr(src, dest);
         as_rldicl(dest, dest, 0, 64-JSVAL_TAG_SHIFT); // "clrldi"
     }
+    void unboxGCThingForGCBarrier(const ValueOperand& src, Register dest) {
+        as_rldicl(dest, src.valueReg(), 0, 64-JSVAL_TAG_SHIFT); // "clrldi"
+    }
 
     void unboxInt32(const ValueOperand& operand, Register dest);
     void unboxInt32(Register src, Register dest);

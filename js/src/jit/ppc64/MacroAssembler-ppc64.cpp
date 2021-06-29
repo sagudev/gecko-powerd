@@ -1707,10 +1707,7 @@ MacroAssemblerPPC64Compat::tagValue(JSValueType type, Register payload, ValueOpe
 void
 MacroAssemblerPPC64Compat::pushValue(ValueOperand val)
 {
-    // Allocate stack slots for Value. One for each.
-    asMasm().subPtr(Imm32(sizeof(Value)), StackPointer);
-    // Store Value
-    storeValue(val, Address(StackPointer, 0));
+    as_stdu(val.valueReg(), StackPointer, -8);
 }
 
 void
@@ -2202,6 +2199,9 @@ MacroAssembler::branchValueIsNurseryObject(Condition cond, ValueOperand value,
 }
 #endif
 
+// assumed by unboxGCThingForGCBarrier
+static_assert(JS::detail::ValueGCThingPayloadMask == 0x0000'7FFF'FFFF'FFFF);
+
 void
 MacroAssembler::branchValueIsNurseryCell(Condition cond, const Address& address, Register temp,
                                          Label* label)
@@ -2210,30 +2210,21 @@ MacroAssembler::branchValueIsNurseryCell(Condition cond, const Address& address,
     loadValue(address, ValueOperand(temp));
     branchValueIsNurseryCell(cond, ValueOperand(temp), InvalidReg, label);
 }
-
 void
 MacroAssembler::branchValueIsNurseryCell(Condition cond, ValueOperand value, Register temp,
                                          Label* label)
 {
+    ADBlock();
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
+    MOZ_ASSERT(temp != InvalidReg);
+    Label done;
+    branchTestGCThing(Assembler::NotEqual, value,
+                      cond == Assembler::Equal ? &done : label);
 
-    Label done, checkAddress, checkObjectAddress;
-    SecondScratchRegisterScope scratch2(*this);
-
-    splitTag(value, scratch2);
-    branchTestObject(Assembler::Equal, scratch2, &checkObjectAddress);
-    branchTestString(Assembler::NotEqual, scratch2, cond == Assembler::Equal ? &done : label);
-
-    unboxString(value, scratch2);
-    jump(&checkAddress);
-
-    bind(&checkObjectAddress);
-    unboxObject(value, scratch2);
-
-    bind(&checkAddress);
-    orPtr(Imm32(gc::ChunkMask), scratch2);
-    load32(Address(scratch2, gc::ChunkLocationOffsetFromLastByte), scratch2);
-    branch32(cond, scratch2, Imm32(int32_t(gc::ChunkLocation::Nursery)), label);
+    unboxGCThingForGCBarrier(value, temp);
+    orPtr(Imm32(gc::ChunkMask), temp);
+    ma_load(temp, Address(temp, gc::ChunkLocationOffsetFromLastByte), SizeWord, ZeroExtend);
+    branch32(cond, temp, Imm32(int32_t(gc::ChunkLocation::Nursery)), label);
 
     bind(&done);
 }
@@ -2242,6 +2233,7 @@ void
 MacroAssembler::branchTestValue(Condition cond, const ValueOperand& lhs,
                                 const Value& rhs, Label* label)
 {
+    ADBlock();
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     ScratchRegisterScope scratch(*this);
     MOZ_ASSERT(lhs.valueReg() != scratch);

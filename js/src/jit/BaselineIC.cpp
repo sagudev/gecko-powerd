@@ -1815,6 +1815,7 @@ bool DoCallFallback(JSContext* cx, BaselineFrame* frame, ICCall_Fallback* stub,
   // Transition stub state to megamorphic or generic if warranted.
   MaybeTransition(cx, frame, stub);
 
+#if(0)
   bool canAttachStub = stub->state().canAttachStub();
   bool handled = false;
 
@@ -1847,6 +1848,10 @@ bool DoCallFallback(JSContext* cx, BaselineFrame* frame, ICCall_Fallback* stub,
       stub->trackNotAttached(cx, frame->invalidationScript());
     }
   }
+#else
+  bool canAttachStub = true;
+  bool handled = true;
+#endif
 
   if (constructing) {
     if (!ConstructFromStack(cx, callArgs)) {

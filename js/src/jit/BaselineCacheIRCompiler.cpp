@@ -2704,10 +2704,6 @@ bool BaselineCacheIRCompiler::emitCallNativeShared(
   masm.push(argcReg);
 
   EmitBaselineCreateStubFrameDescriptor(masm, scratch, ExitFrameLayout::Size());
-#if defined(JS_CODEGEN_PPC64)
-  // Make sure that ICTailCallReg is current with LR, since LR is not a GPR.
-  masm.xs_mflr(ICTailCallReg);
-#endif
   masm.push(scratch);
   masm.push(ICTailCallReg);
   masm.loadJSContext(scratch);
