@@ -2854,12 +2854,13 @@ void
 MacroAssembler::flexibleRemainder32(Register rhs, Register srcDest,
                                     bool isUnsigned, const LiveRegisterSet &)
 {
+    ADBlock();
     if (isUnsigned)
         as_divwu(ScratchRegister, srcDest, rhs);
     else
         as_divw(ScratchRegister, srcDest, rhs);
     as_mullw(ScratchRegister, ScratchRegister, rhs);
-    as_subf(srcDest, rhs, srcDest);
+    as_subf(srcDest, ScratchRegister, srcDest);
 }
 
 void
@@ -2875,6 +2876,7 @@ MacroAssembler::flexibleDivMod32(Register rhs, Register srcDest,
                                  Register remOutput, bool isUnsigned,
                                  const LiveRegisterSet&)
 {
+    ADBlock();
     Register scratch = ScratchRegister;
 
     if (isUnsigned) {

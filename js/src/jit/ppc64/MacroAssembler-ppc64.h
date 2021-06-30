@@ -197,6 +197,7 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_mul_branch_overflow(Register rd, Register rs, Register rt, Label* overflow);
     void ma_mul_branch_overflow(Register rd, Register rs, Imm32 imm, Label* overflow);
 
+    /*
     // divisions
     void ma_div_branch_overflow(Register rd, Register rs, Register rt, Label* overflow);
     void ma_div_branch_overflow(Register rd, Register rs, Imm32 imm, Label* overflow);
@@ -205,6 +206,7 @@ class MacroAssemblerPPC64 : public Assembler
     // implicitly assumes that we can overwrite dest at the beginning of the sequence
     void ma_mod_mask(Register src, Register dest, Register hold, Register remain,
                      int32_t shift, Label* negZero = nullptr);
+    */
 
     // branches when done from within platform-specific code
     void ma_bc(Condition c, Label* l, JumpKind jumpKind = LongJump);
