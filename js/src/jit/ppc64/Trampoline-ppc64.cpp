@@ -159,10 +159,11 @@ struct EnterJITRegs
     double f29;
     double f30;
     double f31;
-// SP + 416
+
+    uint64_t mo_paddin; // make size 16-byte
 };
 
-static_assert(sizeof(EnterJITRegs) == 408, "Unexpected size of register save frame");
+static_assert(sizeof(EnterJITRegs) == 416, "Unexpected size of register save frame");
 static_assert(offsetof(EnterJITRegs, sp) == 0, "Register save frame is incorrectly oriented");
 
 // Generates a trampoline for calling JIT code from a C++ function.
@@ -410,7 +411,9 @@ JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm)
 
     // The call will push the return address on the stack, thus we check that
     // the stack would be aligned once the call is complete.
-    masm.assertStackAlignment(JitStackAlignment, 16);
+// XXX: I don't think this is appropriate for us. We don't claim to be ABI
+// compliant at this point, and we pass all the stack invariants.
+//    masm.assertStackAlignment(JitStackAlignment, 16);
 
     // Call the function with pushing return address to stack.
 //masm.xs_trap_tagged(Assembler::DebugTag0);
