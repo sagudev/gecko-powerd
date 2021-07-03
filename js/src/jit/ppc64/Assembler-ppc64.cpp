@@ -693,6 +693,8 @@ Assembler::InvertCondition( Condition cond)
             return Zero;
         case Signed:
             return NotSigned;
+        case NotSigned:
+            return Signed;
         case SOBit:
             return NSOBit;
         case NSOBit:

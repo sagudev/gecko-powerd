@@ -3692,8 +3692,8 @@ MacroAssemblerPPC64::loadDouble(const Address& address, FloatRegister dest)
 void
 MacroAssemblerPPC64::loadDouble(const BaseIndex& src, FloatRegister dest)
 {
-    asMasm().computeScaledAddress(src, ScratchRegister);
-    as_lfd(dest, ScratchRegister, src.offset);
+    asMasm().computeScaledAddress(src, SecondScratchReg);
+    as_lfd(dest, SecondScratchReg, src.offset);
 }
 
 void
