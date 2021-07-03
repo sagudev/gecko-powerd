@@ -5074,5 +5074,11 @@ MacroAssembler::atomicFetchOpJS(Scalar::Type arrayType, const Synchronization& s
 void
 MacroAssembler::speculationBarrier()
 {
-    MOZ_CRASH();
+    // eieio appears to be the fastest way of defeating Spectre, since its
+    // memory ordering is sufficient to defeat gadgets and it's less heavy
+    // than even so-called lwsync. Doo doo doo doo doo, a Spectre gadget ...
+    // See a real world demonstration in Shen et al, Restricting Control
+    // Flow During Speculative Execution with Venkman, pp6-7.
+    as_eieio();
+    // Go, Gadget, Go!
 }

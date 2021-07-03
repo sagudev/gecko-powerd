@@ -886,6 +886,13 @@ BufferOffset Assembler::as_nop()
     return writeInst(PPC_nop);
 }
 
+BufferOffset Assembler::as_eieio()
+{
+    // Old McDonald had to order memory access ...
+    spew("eieio");
+    return writeInst(PPC_eieio);
+}
+
 BufferOffset Assembler::as_lwsync()
 {
     spew("lwsync");

@@ -329,6 +329,7 @@ enum PPCOpcodes {
     PPC_divwo   = 0x7C0007D6, // integer divide & OE=1 (can set OV)
     PPC_divwu   = 0x7C000396, // integer divide unsigned
     PPC_divwuo  = 0x7C000796, // integer divide unsigned & OE=1 (can set OV)
+    PPC_eieio   = 0x7C0006AC, // enforce in-order execution of I/O
     PPC_eqv     = 0x7C000238, // equivalence operator
     PPC_extsb   = 0x7C000774, // extend sign byte
     PPC_extsh   = 0x7C000734, // extend sign halfword
@@ -1067,6 +1068,7 @@ class Assembler : public AssemblerShared
     BufferOffset align(int alignment, bool useTrap = false);
 
     BufferOffset as_nop();
+    BufferOffset as_eieio();
     BufferOffset as_lwsync();
     BufferOffset as_sync();
 
