@@ -2805,11 +2805,13 @@ MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail
     ADBlock();
 
 xs_trap();
-    // Set rounding mode to 0b10 (round +inf)
+    // Set rounding mode to 0b11 (round -inf)
     as_mtfsb1(30);
+    as_mtfsb1(31);
     as_fctiw(ScratchDoubleReg, src);
     // Set back to default rounding mode 0b00 (round nearest)
     as_mtfsb0(30);
+    as_mtfsb0(31);
 
     as_mcrfs(cr0, 1); // Check isnan
     ma_bc(SOBit, fail, JumpKind::ShortJump);
