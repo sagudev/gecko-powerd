@@ -1265,22 +1265,17 @@ void
 MacroAssembler::clampDoubleToUint8(FloatRegister input, Register output)
 {
     ADBlock();
-    Label done, tooLow;
+    MOZ_ASSERT(input != ScratchDoubleReg);
 
-    as_fctiwz(ScratchDoubleReg, input);
-
-    as_addi(ScratchRegister, StackPointer, -4);
-    as_stfiwx(ScratchDoubleReg, r0, ScratchRegister);
-    as_lwz(output, ScratchRegister, 0);
-    as_cmplwi(output, 255);
-    ma_bc(LessThanOrEqual, &done, ShortJump);
-    as_cmpwi(output, 0);
-    ma_bc(LessThan, &tooLow, ShortJump);
-    as_ori(output, r0, 255);
-    ma_b(&done, ShortJump);
-    bind(&tooLow);
-    as_ori(output, r0, 0);
-    bind(&done);
+    // Default rounding mode 0b00 (round nearest)
+    as_fctid(ScratchDoubleReg, input);
+#ifdef __POWER8_VECTOR__
+    as_mfvsrd(output, ScratchDoubleReg);
+#else
+    push(ScratchDoubleReg);
+    pop(output);
+#endif
+    clampIntToUint8(output);
 }
 
 void
@@ -2781,8 +2776,9 @@ MacroAssembler::ceilDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 xs_trap();
     // Set rounding mode to 0b10 (round +inf)
     as_mtfsb1(30);
-    as_mtfsb0(31);
     as_fctiw(ScratchDoubleReg, src);
+    // Set back to default rounding mode 0b00 (round nearest)
+    as_mtfsb0(30);
 
     as_mcrfs(cr0, 1); // Check isnan
     ma_bc(SOBit, fail, JumpKind::ShortJump);
@@ -2811,8 +2807,9 @@ MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail
 xs_trap();
     // Set rounding mode to 0b10 (round +inf)
     as_mtfsb1(30);
-    as_mtfsb1(31);
     as_fctiw(ScratchDoubleReg, src);
+    // Set back to default rounding mode 0b00 (round nearest)
+    as_mtfsb0(30);
 
     as_mcrfs(cr0, 1); // Check isnan
     ma_bc(SOBit, fail, JumpKind::ShortJump);
@@ -2840,9 +2837,7 @@ MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
     ADBlock();
 
 xs_trap();
-    // Set rounding mode to 0b00 (round nearest)
-    as_mtfsb0(30);
-    as_mtfsb0(31);
+    // Default rounding mode 0b00 (round nearest)
     as_fctiw(temp, src);
 
     as_mcrfs(cr0, 1); // Check isnan

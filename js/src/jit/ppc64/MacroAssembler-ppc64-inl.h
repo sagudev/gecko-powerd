@@ -2223,9 +2223,9 @@ MacroAssembler::clampIntToUint8(Register reg)
     // If reg is >= 255, then we want to clamp to 255.
     // Essentially, compute max(reg,0), then min(reg,255).
     // This is pretty much what isel was designed for.
-    as_ori(ScratchRegister, r0, 0);
+    ma_li(ScratchRegister, (int64_t)0); // make gcc happy just make it happy
+    ma_li(SecondScratchReg, 255);
     as_cmpd(reg, ScratchRegister); // emit to CR0
-    as_ori(SecondScratchReg, r0, 255);
     as_cmpd(cr1, reg, SecondScratchReg); // emit to CR1
     // Naughtiness: since ScratchRegister is r0, the load is
     // zero anyway (this is a "mscdfr0" instruction). I just

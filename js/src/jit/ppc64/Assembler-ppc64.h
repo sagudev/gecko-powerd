@@ -344,6 +344,8 @@ enum PPCOpcodes {
     PPC_fcmpu   = 0xFC000000, // floating compare unordered
     PPC_fctid   = 0xFC00065C, // floating convert to integer (to -Inf)
     PPC_fctidu  = 0xFC00075C, // floating convert to integer doubleword unsigned
+    PPC_fctidz  = 0xFC00065E, // floating convert to integer DW signed (to zero)
+    PPC_fctiduz = 0xFC00075E, // floating convert to integer USDW (to zero)
     PPC_fctiw   = 0xFC00001C, // floating convert to integer (to -Inf)
     PPC_fctiwu  = 0xFC00011C, // floating convert to integer (to -Inf)
     PPC_fctiwuz = 0xFC00011E, // floating convert to integer (to zero)
