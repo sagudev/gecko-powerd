@@ -490,10 +490,11 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
     int16_t encodedOffset;
     Register base;
     MOZ_ASSERT(extension == ZeroExtend || extension == SignExtend);
+    MOZ_ASSERT(address.base != ScratchRegister);
 
     // XXX: Consider spinning this off into a separate function since the
     // logic gets repeated.
-    if (!Imm16::IsInSignedRange(address.offset) || address.base == ScratchRegister) {
+    if (!Imm16::IsInSignedRange(address.offset)) {
         MOZ_ASSERT(address.base != SecondScratchReg);
         ma_li(SecondScratchReg, Imm32(address.offset));
         as_add(SecondScratchReg, address.base, SecondScratchReg);
@@ -501,7 +502,6 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
         base = SecondScratchReg;
         encodedOffset = 0;
     } else {
-        MOZ_ASSERT(address.base != ScratchRegister); // "mscdfr0"
         encodedOffset = Imm16(address.offset).encode();
         base = address.base;
     }
@@ -558,16 +558,17 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
     //ADBlock(); // spammy
     int16_t encodedOffset;
     Register base;
+    MOZ_ASSERT(address.base != ScratchRegister);
 
     // XXX: as above
-    if (!Imm16::IsInSignedRange(address.offset) || address.base == ScratchRegister) {
+    if (!Imm16::IsInSignedRange(address.offset)) {
         MOZ_ASSERT(address.base != SecondScratchReg);
         ma_li(SecondScratchReg, Imm32(address.offset));
         as_add(SecondScratchReg, address.base, SecondScratchReg);
+// XXX: this generates dumb code: li r12,0, add r12,r0,r12
         base = SecondScratchReg;
         encodedOffset = 0;
     } else {
-        MOZ_ASSERT(address.base != ScratchRegister);
         encodedOffset = Imm16(address.offset).encode();
         base = address.base;
     }
@@ -1045,15 +1046,15 @@ MacroAssemblerPPC64Compat::load32(const BaseIndex& address, Register dest)
 void
 MacroAssemblerPPC64Compat::load32(AbsoluteAddress address, Register dest)
 {
-    movePtr(ImmPtr(address.addr), ScratchRegister);
-    load32(Address(ScratchRegister, 0), dest);
+    movePtr(ImmPtr(address.addr), SecondScratchReg);
+    load32(Address(SecondScratchReg, 0), dest);
 }
 
 void
 MacroAssemblerPPC64Compat::load32(wasm::SymbolicAddress address, Register dest)
 {
-    movePtr(address, ScratchRegister);
-    load32(Address(ScratchRegister, 0), dest);
+    movePtr(address, SecondScratchReg);
+    load32(Address(SecondScratchReg, 0), dest);
 }
 
 void
@@ -1071,15 +1072,15 @@ MacroAssemblerPPC64Compat::loadPtr(const BaseIndex& src, Register dest)
 void
 MacroAssemblerPPC64Compat::loadPtr(AbsoluteAddress address, Register dest)
 {
-    movePtr(ImmPtr(address.addr), ScratchRegister);
-    loadPtr(Address(ScratchRegister, 0), dest);
+    movePtr(ImmPtr(address.addr), SecondScratchReg);
+    loadPtr(Address(SecondScratchReg, 0), dest);
 }
 
 void
 MacroAssemblerPPC64Compat::loadPtr(wasm::SymbolicAddress address, Register dest)
 {
-    movePtr(address, ScratchRegister);
-    loadPtr(Address(ScratchRegister, 0), dest);
+    movePtr(address, SecondScratchReg);
+    loadPtr(Address(SecondScratchReg, 0), dest);
 }
 
 void
@@ -1105,8 +1106,9 @@ MacroAssemblerPPC64Compat::loadUnalignedFloat32(const wasm::MemoryAccessDesc& ac
 void
 MacroAssemblerPPC64Compat::store8(Imm32 imm, const Address& address)
 {
-    ma_li(SecondScratchReg, imm);
-    ma_store(SecondScratchReg, address, SizeByte);
+    MOZ_ASSERT(address.base != ScratchRegister);
+    ma_li(ScratchRegister, imm);
+    ma_store(ScratchRegister, address, SizeByte);
 }
 
 void
@@ -1130,8 +1132,9 @@ MacroAssemblerPPC64Compat::store8(Register src, const BaseIndex& dest)
 void
 MacroAssemblerPPC64Compat::store16(Imm32 imm, const Address& address)
 {
-    ma_li(SecondScratchReg, imm);
-    ma_store(SecondScratchReg, address, SizeHalfWord);
+    MOZ_ASSERT(address.base != ScratchRegister);
+    ma_li(ScratchRegister, imm);
+    ma_store(ScratchRegister, address, SizeHalfWord);
 }
 
 void
@@ -1155,8 +1158,9 @@ MacroAssemblerPPC64Compat::store16(Register src, const BaseIndex& address)
 void
 MacroAssemblerPPC64Compat::store32(Register src, AbsoluteAddress address)
 {
-    movePtr(ImmPtr(address.addr), ScratchRegister);
-    store32(src, Address(ScratchRegister, 0));
+    MOZ_ASSERT(src != SecondScratchReg);
+    movePtr(ImmPtr(address.addr), SecondScratchReg);
+    store32(src, Address(SecondScratchReg, 0));
 }
 
 void
@@ -1168,8 +1172,9 @@ MacroAssemblerPPC64Compat::store32(Register src, const Address& address)
 void
 MacroAssemblerPPC64Compat::store32(Imm32 src, const Address& address)
 {
-    move32(src, SecondScratchReg);
-    ma_store(SecondScratchReg, address, SizeWord);
+    MOZ_ASSERT(address.base != ScratchRegister);
+    move32(src, ScratchRegister);
+    ma_store(ScratchRegister, address, SizeWord);
 }
 
 void
@@ -1188,8 +1193,8 @@ template <typename T>
 void
 MacroAssemblerPPC64Compat::storePtr(ImmWord imm, T address)
 {
-    ma_li(SecondScratchReg, imm);
-    ma_store(SecondScratchReg, address, SizeDouble);
+    ma_li(ScratchRegister, imm);
+    ma_store(ScratchRegister, address, SizeDouble);
 }
 
 template void MacroAssemblerPPC64Compat::storePtr<Address>(ImmWord imm, Address address);
@@ -1209,8 +1214,8 @@ template <typename T>
 void
 MacroAssemblerPPC64Compat::storePtr(ImmGCPtr imm, T address)
 {
-    movePtr(imm, SecondScratchReg);
-    storePtr(SecondScratchReg, address);
+    movePtr(imm, ScratchRegister);
+    storePtr(ScratchRegister, address);
 }
 
 template void MacroAssemblerPPC64Compat::storePtr<Address>(ImmGCPtr imm, Address address);
@@ -1231,8 +1236,9 @@ MacroAssemblerPPC64Compat::storePtr(Register src, const BaseIndex& address)
 void
 MacroAssemblerPPC64Compat::storePtr(Register src, AbsoluteAddress dest)
 {
-    movePtr(ImmPtr(dest.addr), ScratchRegister);
-    storePtr(src, Address(ScratchRegister, 0));
+    MOZ_ASSERT(src != SecondScratchReg);
+    movePtr(ImmPtr(dest.addr), SecondScratchReg);
+    storePtr(src, Address(SecondScratchReg, 0));
 }
 
 void
@@ -3153,6 +3159,7 @@ MacroAssemblerPPC64::ma_load_unaligned(const wasm::MemoryAccessDesc& access, Reg
                                             LoadStoreSize size, LoadStoreExtension extension)
 {
     MOZ_ASSERT(MOZ_LITTLE_ENDIAN(), "Wasm-only; wasm is disabled on big-endian.");
+    MOZ_CRASH();
 #if 0
     int16_t lowOffset, hiOffset;
     Register base;
@@ -3207,38 +3214,18 @@ void
 MacroAssemblerPPC64::ma_store(Register data, const BaseIndex& dest,
                                    LoadStoreSize size, LoadStoreExtension extension)
 {
-    if (Imm8::IsInSignedRange(dest.offset)) {
-        Register index = dest.index;
-
-        if (dest.scale != TimesOne) {
-            int32_t shift = Imm32::ShiftOf(dest.scale).value;
-
-            MOZ_ASSERT(SecondScratchReg != dest.base);
-            index = SecondScratchReg;
-            asMasm().ma_dsll(index, dest.index, Imm32(shift));
-        }
-
-        switch (size) {
-          case SizeByte:
-            as_stb(data, dest.base, dest.offset);
-            break;
-          case SizeHalfWord:
-            as_sth(data, dest.base, dest.offset);
-            break;
-          case SizeWord:
-            as_stw(data, dest.base, dest.offset);
-            break;
-          case SizeDouble:
-            as_std(data, dest.base, dest.offset);
-            break;
-          default:
-            MOZ_CRASH("Invalid argument for ma_store");
-        }
-        return;
-    }
-
+    MOZ_ASSERT(data != SecondScratchReg);
     asMasm().computeScaledAddress(dest, SecondScratchReg);
-    asMasm().ma_store(data, Address(SecondScratchReg, dest.offset), size, extension);
+
+    // If dest.offset is out of 16-bit signed range, we will hit an assert
+    // doing the next ma_store() because the second scratch register is needed
+    // again. In that case, hoist the add up since we can freely clobber it.
+    if (!Imm16::IsInSignedRange(dest.offset)) {
+        ma_add(SecondScratchReg, SecondScratchReg, Imm32(dest.offset));
+        ma_store(data, Address(SecondScratchReg, 0), size, extension);
+    } else {
+        asMasm().ma_store(data, Address(SecondScratchReg, dest.offset), size, extension);
+    }
 }
 
 void
