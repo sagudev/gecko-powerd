@@ -1282,12 +1282,17 @@ MacroAssembler::maxDouble(FloatRegister other, FloatRegister srcDest, bool handl
 void
 MacroAssembler::lshift32(Register src, Register dest)
 {
-    as_sld(dest, dest, src);
+    // slw will zero out any shift amount greater than 32, but JavaScript
+    // expects this to act like a modulo, so ...
+    MOZ_ASSERT(src != ScratchRegister);
+    as_andi_rc(ScratchRegister, src, 31);
+    as_slw(dest, dest, ScratchRegister);
 }
 
 void
 MacroAssembler::lshift32(Imm32 imm, Register dest)
 {
+    // Mod the constant directly, et voila.
     x_slwi(dest, dest, imm.value % 32);
 }
 
@@ -1300,7 +1305,10 @@ MacroAssembler::flexibleLshift32(Register src, Register dest)
 void
 MacroAssembler::rshift32(Register src, Register dest)
 {
-    as_srw(dest, dest, src);
+    // Same deal.
+    MOZ_ASSERT(src != ScratchRegister);
+    as_andi_rc(ScratchRegister, src, 31);
+    as_srw(dest, dest, ScratchRegister);
 }
 
 void
@@ -1318,7 +1326,10 @@ MacroAssembler::flexibleRshift32(Register src, Register dest)
 void
 MacroAssembler::rshift32Arithmetic(Register src, Register dest)
 {
-    as_sraw(dest, dest, src);
+    // Same deal.
+    MOZ_ASSERT(src != ScratchRegister);
+    as_andi_rc(ScratchRegister, src, 31);
+    as_sraw(dest, dest, ScratchRegister);
 }
 
 void
