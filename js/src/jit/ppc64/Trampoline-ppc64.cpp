@@ -954,8 +954,10 @@ JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
         break;
 
       case Type_Bool:
-        // Boolean on Power ISA is not natively a byte.
-        masm.load32(Address(StackPointer, 0), ReturnReg);
+        // Boolean on Power ISA is not necessarily a byte, but we should
+        // treat it like one.
+        masm.loadPtr(Address(StackPointer, 0), ReturnReg);
+        masm.as_andi_rc(ReturnReg, ReturnReg, 255);
         masm.freeStack(2 * sizeof(int32_t));
         break;
 
