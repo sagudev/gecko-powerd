@@ -1692,17 +1692,22 @@ MacroAssemblerPPC64Compat::loadValue(Address src, ValueOperand val)
 }
 
 void
-MacroAssemblerPPC64Compat::tagValue(JSValueType type, Register payload, ValueOperand dest)
-{
-    ADBlock();
-    MOZ_ASSERT(dest.valueReg() != ScratchRegister);
-    if (payload != dest.valueReg())
-      ma_move(dest.valueReg(), payload);
+MacroAssemblerPPC64Compat::boxValue(JSValueType type, Register src, Register dest) {
+    MOZ_ASSERT(dest != ScratchRegister);
+    if (dest != src)
+      ma_move(dest, src);
     ma_li(ScratchRegister, ImmTag(JSVAL_TYPE_TO_TAG(type)));
     // Shift the tag left and mask in the value, which is pretty much
     // what rldimi/rlwimi were created for. We don't need to clear bits
-    // in between because lwz and lbz do that for us for int32 and bool.
-    as_rldimi(dest.valueReg(), ScratchRegister, JSVAL_TAG_SHIFT, 0);
+    // inbetween for bool/int32 because unboxing will do that for us.
+    as_rldimi(dest, ScratchRegister, JSVAL_TAG_SHIFT, 0);
+}
+
+void
+MacroAssemblerPPC64Compat::tagValue(JSValueType type, Register payload, ValueOperand dest)
+{
+    ADBlock();
+    boxValue(type, payload, dest.valueReg());
 }
 
 void

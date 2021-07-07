@@ -770,15 +770,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         }
     }
 
-    void boxValue(JSValueType type, Register src, Register dest) {
-        MOZ_ASSERT(src != dest);
-
-        JSValueTag tag = (JSValueTag)JSVAL_TYPE_TO_TAG(type);
-        ma_li(dest, Imm32(tag));
-        ma_dsll(dest, dest, Imm32(JSVAL_TAG_SHIFT));
-        ma_dins(dest, src, Imm32(0), Imm32(JSVAL_TAG_SHIFT));
-    }
-
+    void boxValue(JSValueType type, Register src, Register dest);
     void storeValue(ValueOperand val, Operand dst);
     void storeValue(ValueOperand val, const BaseIndex& dest);
     void storeValue(JSValueType type, Register reg, BaseIndex dest);
@@ -815,8 +807,10 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         }
     }
     void pushValue(JSValueType type, Register reg) {
-        boxValue(type, reg, ScratchRegister);
-        push(ScratchRegister);
+        // Use SecondScratchReg as the temp since boxValue uses ScratchRegister
+        // for the tag.
+        boxValue(type, reg, SecondScratchReg);
+        push(SecondScratchReg);
     }
     void pushValue(const Address& addr);
 
