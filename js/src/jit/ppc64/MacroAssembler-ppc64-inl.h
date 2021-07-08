@@ -1673,6 +1673,11 @@ void
 MacroAssembler::branchTest32(Condition cond, Register lhs, Register rhs, L label)
 {
     MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
+    if (cond == Signed || cond == NotSigned) {
+        MOZ_ASSERT(lhs == rhs);
+        // Sign extend first.
+        as_extsw(lhs, lhs);
+    }
     if (lhs == rhs) {
         ma_bc(lhs, rhs, label, cond);
     } else {
@@ -1685,7 +1690,7 @@ template <class L>
 void
 MacroAssembler::branchTest32(Condition cond, Register lhs, Imm32 rhs, L label)
 {
-    MOZ_ASSERT(cond == Zero || cond == NonZero || cond == Signed || cond == NotSigned);
+    MOZ_ASSERT(cond == Zero || cond == NonZero);
     ma_and(ScratchRegister, lhs, rhs);
     ma_bc(ScratchRegister, ScratchRegister, label, cond);
 }

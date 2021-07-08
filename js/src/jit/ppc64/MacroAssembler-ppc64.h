@@ -844,6 +844,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load16UnalignedSignExtend(const S& src, Register dest) {
+        MOZ_CRASH();
         //ma_load_unaligned(dest, src, SizeHalfWord, SignExtend);
     }
 
@@ -852,6 +853,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load16UnalignedZeroExtend(const S& src, Register dest) {
+        MOZ_CRASH();
         //ma_load_unaligned(dest, src, SizeHalfWord, ZeroExtend);
     }
 
@@ -866,6 +868,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load32Unaligned(const S& src, Register dest) {
+        MOZ_CRASH();
         //ma_load_unaligned(dest, src, SizeWord, SignExtend);
     }
 
@@ -875,6 +878,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load64Unaligned(const S& src, Register64 dest) {
+        MOZ_CRASH();
         //ma_load_unaligned(dest.reg, src, SizeDouble, ZeroExtend);
     }
 

@@ -127,8 +127,8 @@ void
 MacroAssemblerPPC64Compat::convertUInt32ToDouble(Register src, FloatRegister dest)
 {
     ADBlock();
-    // Clear any tag and extend the sign.
-    as_srawi(ScratchRegister, src, 0);
+    // Clear any tag and sign.
+    as_rldicl(ScratchRegister, src, 0, 32); // "clrldi"
     asMasm().convertUInt64ToDouble(Register64(ScratchRegister), dest, InvalidReg);
 }
 
@@ -137,7 +137,7 @@ void
 MacroAssemblerPPC64Compat::convertUInt32ToFloat32(Register src, FloatRegister dest)
 {
     ADBlock();
-    as_srawi(ScratchRegister, src, 0);
+    as_rldicl(ScratchRegister, src, 0, 32); // "clrldi"
     asMasm().convertUInt64ToFloat32(Register64(ScratchRegister), dest, InvalidReg);
 }
 
