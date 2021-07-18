@@ -2667,9 +2667,12 @@ MacroAssembler::convertInt64ToDouble(Register64 src, FloatRegister dest)
 {
     ADBlock();
 
-xs_trap();
+#ifdef __POWER8_VECTOR__
+    as_mtvsrd(dest, src.reg);
+#else
     ma_push(src.reg);
     ma_pop(dest);
+#endif
     as_fcfid(dest, dest);
 }
 
@@ -2678,23 +2681,23 @@ MacroAssembler::convertInt64ToFloat32(Register64 src, FloatRegister dest)
 {
     ADBlock();
 
-xs_trap();
-    ma_push(src.reg);
-    ma_pop(dest);
-    as_fcfid(dest, dest);
-    as_frsp(dest, dest);
+    convertInt64ToDouble(src, dest);
+    as_frsp(dest, dest); // probably paranoia
 }
 
 bool
 MacroAssembler::convertUInt64ToDoubleNeedsTemp()
 {
+    // We're not like those other inferior pansy architectures.
     return false;
 }
 
 void
 MacroAssembler::convertUInt64ToDouble(Register64 src, FloatRegister dest, Register temp)
 {
+    ADBlock();
     MOZ_ASSERT(temp == Register::Invalid());
+
     MacroAssemblerSpecific::convertUInt64ToDouble(src.reg, dest);
 }
 
@@ -2704,10 +2707,8 @@ MacroAssembler::convertUInt64ToFloat32(Register64 src, FloatRegister dest, Regis
     ADBlock();
     MOZ_ASSERT(temp == Register::Invalid());
 
-xs_trap();
-    ma_push(src.reg);
-    ma_pop(dest);
-    as_fcfidu(dest, dest);
+    convertUInt64ToDouble(src, dest, temp);
+    as_frsp(dest, dest);
 }
 
 void

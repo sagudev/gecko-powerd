@@ -1181,8 +1181,8 @@ MacroAssembler::mulDouble(FloatRegister src, FloatRegister dest)
 void
 MacroAssembler::mulDoublePtr(ImmPtr imm, Register temp, FloatRegister dest)
 {
-    movePtr(imm, ScratchRegister);
-    loadDouble(Address(ScratchRegister, 0), ScratchDoubleReg);
+    movePtr(imm, SecondScratchReg);
+    loadDouble(Address(SecondScratchReg, 0), ScratchDoubleReg);
     mulDouble(ScratchDoubleReg, dest);
 }
 
