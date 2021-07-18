@@ -1618,72 +1618,89 @@ MacroAssemblerPPC64Compat::storeValue(ValueOperand val, Operand dst)
 void
 MacroAssemblerPPC64Compat::storeValue(ValueOperand val, const BaseIndex& dest)
 {
+    ADBlock();
     computeScaledAddress(dest, SecondScratchReg);
-    storeValue(val, Address(SecondScratchReg, dest.offset));
+
+    int32_t offset = dest.offset;
+    if (!Imm16::IsInSignedRange(offset)) {
+        ma_li(ScratchRegister, Imm32(offset));
+        as_add(SecondScratchReg, ScratchRegister, SecondScratchReg);
+        offset = 0;
+    }
+
+    storeValue(val, Address(SecondScratchReg, offset));
 }
 
 void
 MacroAssemblerPPC64Compat::storeValue(JSValueType type, Register reg, BaseIndex dest)
 {
-    computeScaledAddress(dest, ScratchRegister);
+    ADBlock();
+    computeScaledAddress(dest, SecondScratchReg);
 
     int32_t offset = dest.offset;
     if (!Imm16::IsInSignedRange(offset)) {
-        ma_li(SecondScratchReg, Imm32(offset));
-        as_add(ScratchRegister, ScratchRegister, SecondScratchReg);
+        ma_li(ScratchRegister, Imm32(offset));
+        as_add(SecondScratchReg, ScratchRegister, SecondScratchReg);
         offset = 0;
     }
 
-    storeValue(type, reg, Address(ScratchRegister, offset));
+    storeValue(type, reg, Address(SecondScratchReg, offset));
 }
 
 void
 MacroAssemblerPPC64Compat::storeValue(ValueOperand val, const Address& dest)
 {
-    storePtr(val.valueReg(), Address(dest.base, dest.offset));
+    storePtr(val.valueReg(), dest);
 }
 
 void
 MacroAssemblerPPC64Compat::storeValue(JSValueType type, Register reg, Address dest)
 {
-    MOZ_ASSERT(dest.base != SecondScratchReg);
+    ADBlock();
 
     if (type == JSVAL_TYPE_INT32 || type == JSVAL_TYPE_BOOLEAN) {
+        // This isn't elegant, but saves us some scratch register contention.
+        MOZ_ASSERT(reg != SecondScratchReg);
+
         store32(reg, dest);
         JSValueShiftedTag tag = (JSValueShiftedTag)JSVAL_TYPE_TO_SHIFTED_TAG(type);
+        // ENDIAN!!!
         store32(((Imm64(tag)).secondHalf()), Address(dest.base, dest.offset + 4));
     } else {
-        ma_li(SecondScratchReg, ImmTag(JSVAL_TYPE_TO_TAG(type)));
-        ma_dsll(SecondScratchReg, SecondScratchReg, Imm32(JSVAL_TAG_SHIFT));
-        ma_dins(SecondScratchReg, reg, Imm32(0), Imm32(JSVAL_TAG_SHIFT));
-        storePtr(SecondScratchReg, Address(dest.base, dest.offset));
+        MOZ_ASSERT(reg != SecondScratchReg);
+        MOZ_ASSERT(dest.base != SecondScratchReg);
+
+        boxValue(type, reg, SecondScratchReg);
+        storePtr(SecondScratchReg, dest);
     }
 }
 
 void
 MacroAssemblerPPC64Compat::storeValue(const Value& val, Address dest)
 {
+    ADBlock();
     if (val.isGCThing()) {
         writeDataRelocation(val);
-        movWithPatch(ImmWord(val.asRawBits()), SecondScratchReg);
+        movWithPatch(ImmWord(val.asRawBits()), ScratchRegister);
     } else {
-        ma_li(SecondScratchReg, ImmWord(val.asRawBits()));
+        ma_li(ScratchRegister, ImmWord(val.asRawBits()));
     }
-    storePtr(SecondScratchReg, Address(dest.base, dest.offset));
+    storePtr(ScratchRegister, dest);
 }
 
 void
 MacroAssemblerPPC64Compat::storeValue(const Value& val, BaseIndex dest)
 {
-    computeScaledAddress(dest, ScratchRegister);
+    ADBlock();
+    computeScaledAddress(dest, SecondScratchReg);
 
     int32_t offset = dest.offset;
     if (!Imm16::IsInSignedRange(offset)) {
-        ma_li(SecondScratchReg, Imm32(offset));
-        as_add(ScratchRegister, ScratchRegister, SecondScratchReg);
+        ma_li(ScratchRegister, Imm32(offset));
+        as_add(SecondScratchReg, ScratchRegister, SecondScratchReg);
         offset = 0;
     }
-    storeValue(val, Address(ScratchRegister, offset));
+    storeValue(val, Address(SecondScratchReg, offset));
 }
 
 void
@@ -1696,7 +1713,7 @@ MacroAssemblerPPC64Compat::loadValue(const BaseIndex& addr, ValueOperand val)
 void
 MacroAssemblerPPC64Compat::loadValue(Address src, ValueOperand val)
 {
-    loadPtr(Address(src.base, src.offset), val.valueReg());
+    loadPtr(src, val.valueReg());
 }
 
 void
