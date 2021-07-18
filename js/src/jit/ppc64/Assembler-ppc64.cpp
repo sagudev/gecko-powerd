@@ -1254,12 +1254,12 @@ DForm(uint32_t op, FloatRegister frt, Register ra, int16_t imm)
 
 #define DEF_AFORM(op)   \
     BufferOffset Assembler::as_##op(FloatRegister rd, FloatRegister ra, FloatRegister rc, FloatRegister rb) { \
-        spew(#op "\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name()); \
+        spew(#op "\t%3s,%3s,%3s,%3s", rd.name(), ra.name(), rc.name(), rb.name()); \
         return writeInst(AForm(PPC_##op, rd, ra, rb, rc, false)); }
 
 #define DEF_AFORM_RC(op) \
     BufferOffset Assembler::as_##op##_rc(FloatRegister rd, FloatRegister ra, FloatRegister rc, FloatRegister rb) {\
-        spew(#op ".\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name()); \
+        spew(#op ".\t%3s,%3s,%3s,%3s", rd.name(), ra.name(), rc.name(), rb.name()); \
         return writeInst(AForm(PPC_##op, rd, ra, rb, rc, true)); }
 
 #define DEF_XFORMS_I(op)   \
@@ -1583,7 +1583,7 @@ BufferOffset Assembler::as_isel(Register rt, Register ra, Register rb, uint16_t 
 // Sometimes you don't. Almond Joy's got nuts, Mounds don't.
 BufferOffset Assembler::as_isel0(Register rt, Register ra, Register rb, uint16_t bc, CRegisterID cr)
 {
-    spew("isel\t%3s,%3s,%3s,cr%d:%d", rt.name(), ra.name(), rb.name(), cr, bc);
+    spew("isel\t%3s,%3s,%3s,cr%d:0x%02x", rt.name(), ra.name(), rb.name(), cr, bc);
     // Only bits that can be directly tested for in the CR are valid.
     // The upper nybble of the condition contains the CR bit.
     MOZ_ASSERT((bc < 0x40) && ((bc & 0x0f) == 0x0c));

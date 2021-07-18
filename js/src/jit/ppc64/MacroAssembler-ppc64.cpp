@@ -825,6 +825,7 @@ MacroAssemblerPPC64::ma_bal(Label* label) // The whole world has gone MIPS, I te
 void
 MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmWord imm, Condition c)
 {
+    ADBlock();
     if (imm.value <= INT16_MAX) {
         ma_cmp_set(rd, rs, Imm16(uint16_t(imm.value)), c);
     } else {
@@ -842,7 +843,10 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmPtr imm, Condition 
 void
 MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Register rs, Condition c)
 {
-    ma_add(ScratchRegister, addr.base, Imm32(addr.offset));
+    ADBlock();
+    MOZ_ASSERT(rs != ScratchRegister);
+
+    asMasm().loadPtr(addr, ScratchRegister);
     ma_cmp_set(rd, ScratchRegister, rs, c);
 }
 
@@ -853,8 +857,12 @@ MacroAssemblerPPC64::ma_lid(FloatRegister dest, double value)
     ImmWord imm(mozilla::BitwiseCast<uint64_t>(value));
 
     ma_li(ScratchRegister, imm);
+#ifdef __POWER8_VECTOR__
+    as_mtvsrd(dest, ScratchRegister);
+#else
     ma_push(ScratchRegister);
     ma_pop(dest);
+#endif
 }
 
 void
@@ -2120,6 +2128,7 @@ MacroAssembler::callWithABINoProfiler(const Address& fun, MoveOp::Type result)
 {
     uint32_t stackAdjust;
     ADBlock();
+    MOZ_ASSERT(fun.base != SecondScratchReg);
 
     // This requires a bit of fancy dancing: the address base could be one
     // of the argregs and the MoveEmitter might clobber it positioning the
@@ -3626,49 +3635,58 @@ void
 MacroAssemblerPPC64::minMaxDouble(FloatRegister srcDest, FloatRegister second,
                                        bool handleNaN, bool isMax)
 {
-    FloatRegister first = srcDest;
-    FloatRegister fromReg = second;
+    ADBlock();
+    Label zero, done, nan;
 
-    Assembler::DoubleCondition cond = isMax
-                                      ? Assembler::DoubleLessThanOrEqual
-                                      : Assembler::DoubleGreaterThanOrEqual;
-    Label nan, equal, done, success;
-
-    // First or second is NaN, result is NaN.
-    compareFloatingPoint(first, fromReg, Assembler::DoubleUnordered);
-    ma_bc(Assembler::DoubleUnordered, &nan, ShortJump);
-    // Make sure we handle -0 and 0 right.
-    compareFloatingPoint(first, fromReg, Assembler::DoubleEqual);
-    ma_bc(Assembler::DoubleEqual, &nan, ShortJump);
-    compareFloatingPoint(first, second, cond);
-    ma_bc(cond, &done, ShortJump);
-
-    // Check for zero.
-    bind(&equal);
-    asMasm().loadConstantDouble(0.0, ScratchDoubleReg);
-    compareFloatingPoint(first, ScratchDoubleReg, Assembler::DoubleEqual);
-
-    // So now both operands are either -0 or 0.
-    if (isMax) {
-        // -0 + -0 = -0 and -0 + 0 = 0.
-        as_fadd(ScratchDoubleReg, first, second);
-    } else {
-        as_fneg(ScratchDoubleReg, first);
-        as_fsub(ScratchDoubleReg, ScratchDoubleReg, second);
-        as_fneg(ScratchDoubleReg, ScratchDoubleReg);
+    if (handleNaN) {
+        // First or second is NaN, result is NaN.
+        compareFloatingPoint(srcDest, second, Assembler::DoubleUnordered);
+        ma_bc(Assembler::DoubleUnordered, &nan, ShortJump);
     }
-    // First is 0 or -0, move max/min to it, else just return it.
-    fromReg = ScratchDoubleReg;
-    ma_bc(cond, &success, ShortJump);
+    // Check for zero and equal.
+    asMasm().loadConstantDouble(0.0, ScratchDoubleReg);
+    as_fcmpo(srcDest, ScratchDoubleReg);
+    as_fcmpo(cr1, second, ScratchDoubleReg);
+    // Hoist the sub here because we've already done the compare and the
+    // crand will serialize.
+    as_fsub(ScratchDoubleReg, srcDest, second);
+    as_crand(2, 6, 2); // CR0[EQ] &= CR1[EQ]
+    // We can use ::Equal, because the unordered check is done, and save
+    // emitting a crandc we don't actually need.
+    ma_bc(Assembler::Equal, &zero, ShortJump);
+
+    // Neither can be zero. Use fsel.
+    if (isMax) {
+        as_fsel(srcDest, ScratchDoubleReg, srcDest, second);
+    } else {
+        as_fsel(srcDest, ScratchDoubleReg, second, srcDest);
+    }
     ma_b(&done, ShortJump);
 
-    bind(&nan);
-    asMasm().loadConstantDouble(JS::GenericNaN(), srcDest);
-    ma_b(&done, ShortJump);
+    if (handleNaN) {
+        bind(&nan);
+        asMasm().loadConstantDouble(JS::GenericNaN(), srcDest);
+        ma_b(&done, ShortJump);
+    }
 
-    bind(&success);
-    as_fmr(first, fromReg);
-
+    // Make sure we handle -0 and 0 right. Dump A into a GPR and check
+    // the sign bit.
+    bind(&zero);
+#ifdef __POWER8_VECTOR__
+    as_mfvsrd(ScratchRegister, srcDest);
+#else
+    push(srcDest);
+    pop(ScratchRegister);
+#endif
+    as_cmpdi(ScratchRegister, 0);
+    if (isMax) {
+        // If a == -0, then b is either -0 or 0. In this case, return b.
+        ma_bc(Assembler::GreaterThanOrEqual, &done, ShortJump); // a == 0
+    } else {
+        // If a == -0, then b is either -0 or 0. In this case, return a.
+        ma_bc(Assembler::LessThan, &done, ShortJump); // a == -0
+    }
+    as_fmr(srcDest, second);
     bind(&done);
 }
 
@@ -3720,8 +3738,8 @@ MacroAssemblerPPC64::ma_call(ImmPtr dest)
 void
 MacroAssemblerPPC64::ma_jump(ImmPtr dest)
 {
-    asMasm().ma_liPatchable(ScratchRegister, dest);
-    xs_mtctr(ScratchRegister);
+    asMasm().ma_liPatchable(SecondScratchReg, dest);
+    xs_mtctr(SecondScratchReg);
     as_bctr();
 }
 

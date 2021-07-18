@@ -265,8 +265,7 @@ static MethodStatus CanEnterBaselineJIT(JSContext* cx, HandleScript script,
     return Method_Skipped;
   }
 
-  if (!IsBaselineJitEnabled(cx) || script->lineno() > 1) {
-fprintf(stderr, "Method_CantCompile\n");
+  if (!IsBaselineJitEnabled(cx)) {
     script->disableBaselineCompile();
     return Method_CantCompile;
   }
