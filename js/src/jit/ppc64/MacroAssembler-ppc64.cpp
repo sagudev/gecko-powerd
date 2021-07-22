@@ -440,6 +440,18 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Imm32 imm, Lab
     ma_addTestOverflow(rd, rs, SecondScratchReg, overflow);
 }
 
+void
+MacroAssemblerPPC64::ma_negTestOverflow(Register rd, Label* overflow)
+{
+    ADBlock();
+    MOZ_ASSERT(rd != ScratchRegister);
+
+    xs_li(ScratchRegister, 0);
+    xs_mtxer(ScratchRegister);
+    as_nego(rd, rd);
+    ma_bc(Assembler::Overflow, overflow);
+}
+
 // Subtract.
 // ma_* subtraction functions invert operand order for as_subf.
 void
@@ -2830,30 +2842,27 @@ MacroAssembler::floorFloat32ToInt32(FloatRegister src, Register dest,
     return floorDoubleToInt32(src, dest, fail);
 }
 
-// XXX: use VSR
 void
 MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
     ADBlock();
 
-xs_trap();
     // Set rounding mode to 0b11 (round -inf)
     as_mtfsb1(30);
     as_mtfsb1(31);
-    as_fctiw(ScratchDoubleReg, src);
+    as_fctiw_rc(ScratchDoubleReg, src);
     // Set back to default rounding mode 0b00 (round nearest)
     as_mtfsb0(30);
     as_mtfsb0(31);
+    // Any FP exception is a failure (FPSCR FX -> CR0[LT]).
+    ma_bc(LessThan, fail);
 
-    as_mcrfs(cr0, 1); // Check isnan
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-    as_mcrfs(cr0, 5); // Check overflow and underflow
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-
-    x_subi(StackPointer, StackPointer, 4);
-    as_stfiwx(ScratchDoubleReg, r0, StackPointer);
-    as_lwz(dest, StackPointer, 0);
-    as_addi(StackPointer, StackPointer, 4);
+#ifdef __POWER8_VECTOR__
+    as_mfvsrd(dest, ScratchDoubleReg);
+#else
+    push(ScratchDoubleReg);
+    pop(dest);
+#endif
 }
 
 void

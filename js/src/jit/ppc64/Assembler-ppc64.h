@@ -416,6 +416,7 @@ enum PPCOpcodes {
     PPC_mullwo  = 0x7C0005D6, // multiply low word with overflow
     PPC_nand    = 0x7C0003B8, // nand
     PPC_neg     = 0x7C0000D0, // negate
+    PPC_nego    = 0x7C0004D0, // negate & OE=1 (can set OV)
     PPC_nor     = 0x7C0000F8, // nor
     PPC_or      = 0x7C000378, // or
     PPC_ori     = 0x60000000, // or immediate
@@ -1114,6 +1115,7 @@ class Assembler : public AssemblerShared
 	
 	// GPR operations and load-stores.
 	BufferOffset as_neg(Register rd, Register rs);
+	BufferOffset as_nego(Register rd, Register rs);
 	
 	BufferOffset as_cmpd(CRegisterID cr, Register ra, Register rb);
 	BufferOffset as_cmpdi(CRegisterID cr, Register ra, int16_t im);

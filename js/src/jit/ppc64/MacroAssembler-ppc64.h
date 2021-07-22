@@ -313,6 +313,9 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_addTestOverflow(Register rd, Register rs, Register rt, Label* overflow);
     void ma_addTestOverflow(Register rd, Register rs, Imm32 imm, Label* overflow);
 
+    // neg
+    void ma_negTestOverflow(Register rd, Label* overflow);
+
     // subtract
     void ma_dsubu(Register rd, Register rs, Imm32 imm);
     void ma_dsubu(Register rd, Register rs);

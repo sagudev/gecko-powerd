@@ -1102,6 +1102,12 @@ BufferOffset Assembler::as_neg(Register rd, Register rs)
     return writeInst(InstReg(PPC_neg, rd, rs, r0).encode());
 }
 
+BufferOffset Assembler::as_nego(Register rd, Register rs)
+{
+    spew("nego %3s,%3s", rd.name(), rs.name());
+    return writeInst(InstReg(PPC_nego, rd, rs, r0).encode());
+}
+
 BufferOffset Assembler::as_cmpd(CRegisterID cr, Register ra, Register rb)
 {
     spew("cmpd\tcr%d,%3s,%3s", cr, ra.name(), rb.name());

@@ -679,8 +679,7 @@ MacroAssembler::branch64(Condition cond, const Address& lhs, const Address& rhs,
 
 void MacroAssembler::branchNeg32(Condition cond, Register reg, Label* label) {
   MOZ_ASSERT(cond == Overflow);
-  as_neg(reg, reg);
-  branchPtr(cond, reg, Imm32(INT32_MIN), label);
+  ma_negTestOverflow(reg, label);
 }
 
 void
@@ -874,10 +873,10 @@ MacroAssembler::branchTruncateDoubleMaybeModUint32(FloatRegister src, Register d
 {
     MOZ_ASSERT(src != ScratchDoubleReg);
 
-    // Treat FPSCR FX or VX as conversion failure (LT and EQ in CR1).
+    // Any exception is failure, so just test for FPSCR FX (CR0[LT]).
     as_fctiwz_rc(ScratchDoubleReg, src);
     moveFromDouble(ScratchDoubleReg, dest); // MIPS does this in advance.
-    ma_bc(cr1, Assembler::LessThanOrEqual, fail);
+    ma_bc(cr1, Assembler::LessThan, fail);
 }
 
 void
