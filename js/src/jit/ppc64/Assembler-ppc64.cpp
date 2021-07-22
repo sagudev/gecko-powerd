@@ -85,7 +85,7 @@ TraceOneDataRelocation(JSTracer* trc, Instruction* inst)
     void* ptr = (void*)Assembler::ExtractLoad64Value(inst);
     void* prior = ptr;
 
-    // All pointers on MIPS64 will have the top bits cleared. If those bits
+    // All pointers will have the top bits clear. If those bits
     // are not cleared, this must be a Value.
     uintptr_t word = reinterpret_cast<uintptr_t>(ptr);
     if (word >> JSVAL_TAG_SHIFT) {
@@ -100,7 +100,7 @@ TraceOneDataRelocation(JSTracer* trc, Instruction* inst)
 
     if (ptr != prior) {
         Assembler::UpdateLoad64Value(inst, uint64_t(ptr));
-        FlushICache(inst, 6 * sizeof(uint32_t));
+        FlushICache(inst, 5 * sizeof(uint32_t));
     }
 }
 
@@ -129,6 +129,7 @@ Assembler::Bind(uint8_t* rawCode, const CodeLabel& label)
             MOZ_ASSERT(mode == CodeLabel::MoveImmediate || mode == CodeLabel::JumpImmediate);
             Instruction* inst = (Instruction*) (rawCode + offset);
             Assembler::UpdateLoad64Value(inst, (uint64_t)(rawCode + target));
+            FlushICache(inst, 5 * sizeof(uint32_t));
         }
     }
 }
@@ -602,8 +603,7 @@ Assembler::PatchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newVal
 
     // Replace with new value
     Assembler::UpdateLoad64Value(inst, uint64_t(newValue.value));
-
-    FlushICache(inst, 6 * sizeof(uint32_t));
+    FlushICache(inst, 5 * sizeof(uint32_t));
 }
 
 void
