@@ -4,8 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "jit/ppc64/Assembler-ppc64.h"
 #include "jit/FlushICache.h"
+#include "jit/AutoWritableJitCode.h"
+#include "jit/ppc64/Assembler-ppc64.h"
 
 #include "mozilla/DebugOnly.h"
 
@@ -107,9 +108,14 @@ TraceOneDataRelocation(JSTracer* trc, Instruction* inst)
 /* static */ void
 Assembler::TraceDataRelocations(JSTracer* trc, JitCode* code, CompactBufferReader& reader)
 {
+    mozilla::Maybe<AutoWritableJitCode> awjc;
+
     while (reader.more()) {
         size_t offset = reader.readUnsigned();
         Instruction* inst = (Instruction*)(code->raw() + offset);
+        if (awjc.isNothing()) {
+            awjc.emplace(code);
+        }
         TraceOneDataRelocation(trc, inst);
     }
 }
