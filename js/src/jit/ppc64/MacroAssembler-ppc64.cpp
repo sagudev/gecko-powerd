@@ -233,6 +233,7 @@ void
 MacroAssemblerPPC64Compat::convertInt32ToFloat32(const Address& src, FloatRegister dest)
 {
     ADBlock();
+xs_trap();
     ma_li(ScratchRegister, ImmWord(src.offset));
     as_lfiwax(dest, src.base, ScratchRegister);
     as_fcfid(dest, dest);
@@ -1389,7 +1390,7 @@ MacroAssemblerPPC64Compat::unboxDouble(const ValueOperand& operand, FloatRegiste
 void
 MacroAssemblerPPC64Compat::unboxDouble(const Address& src, FloatRegister dest)
 {
-    ma_ld(dest, Address(src.base, src.offset));
+    ma_ld(dest, src);
 }
 
 void
@@ -3612,12 +3613,11 @@ MacroAssemblerPPC64::ma_lis(FloatRegister dest, float value)
     Imm32 imm(mozilla::BitwiseCast<uint32_t>(value));
 
     ma_li(ScratchRegister, imm);
-#ifdef __POWER8_VECTOR__
-    as_mtvsrd(dest, ScratchRegister);
-#else
-    ma_push(ScratchRegister);
-    ma_pop(dest);
-#endif
+    // Unfortunately there is no VSX instruction to load a single-precision
+    // float directly from a GPR, so we have to dump this on the stack.
+    as_stwu(ScratchRegister, StackPointer, -4);
+    as_lfs(dest, StackPointer, 0);
+    as_addi(StackPointer, StackPointer, 4);
 }
 
 void
@@ -3720,38 +3720,37 @@ MacroAssemblerPPC64::minMaxDouble(FloatRegister srcDest, FloatRegister second,
 void
 MacroAssemblerPPC64::loadDouble(const Address& address, FloatRegister dest)
 {
-    as_lfd(dest, address.base, address.offset);
+    ma_ld(dest, address);
 }
 
 void
 MacroAssemblerPPC64::loadDouble(const BaseIndex& src, FloatRegister dest)
 {
-    asMasm().computeScaledAddress(src, SecondScratchReg);
-    as_lfd(dest, SecondScratchReg, src.offset);
+    ma_ld(dest, src);
 }
 
 void
 MacroAssemblerPPC64::loadFloatAsDouble(const Address& address, FloatRegister dest)
 {
-    as_lfs(dest, address.base, address.offset);
+    ma_ls(dest, address);
 }
 
 void
 MacroAssemblerPPC64::loadFloatAsDouble(const BaseIndex& src, FloatRegister dest)
 {
-    asMasm().loadFloat32(src, dest);
+    ma_ls(dest, src);
 }
 
 void
 MacroAssemblerPPC64::loadFloat32(const Address& address, FloatRegister dest)
 {
-    asMasm().ma_ls(dest, address);
+    ma_ls(dest, address);
 }
 
 void
 MacroAssemblerPPC64::loadFloat32(const BaseIndex& src, FloatRegister dest)
 {
-    asMasm().ma_ls(dest, src);
+    ma_ls(dest, src);
 }
 
 void
