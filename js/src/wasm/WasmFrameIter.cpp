@@ -770,6 +770,13 @@ void wasm::GenerateJitEntryPrologue(MacroAssembler& masm, Offsets* offsets) {
     masm.Sub(sp, sp, 8);
     masm.storePtr(lr, Address(masm.getStackPointer(), 0));
     masm.adjustFrame(8);
+#elif defined(JS_CODEGEN_PPC64)
+    offsets->begin = masm.currentOffset();
+
+    // We have to burn a nop here to match the other prologue length.
+    masm.xs_mflr(ScratchRegister);
+    masm.as_nop(); // might as well explicitly wait for the mfspr to complete
+    masm.as_stdu(ScratchRegister, StackPointer, -8);
 #else
     // The x86/x64 call instruction pushes the return address.
     offsets->begin = masm.currentOffset();

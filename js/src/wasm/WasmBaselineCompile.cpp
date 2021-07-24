@@ -15805,6 +15805,10 @@ bool js::wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
           (insn[-1] & 0xfc000000) == 0x94000000 ||    // bl simm26
           (debugEnabled && insn[-1] == 0xd503201f));  // nop
 
+#  elif defined(JS_CODEGEN_PPC64)
+  fprintf(stderr, "IsValidStackMapKey: 0x%lx\n", (uint64_t)nextPC);
+  __asm__("trap\n");
+  return true; // because why not
 #  else
   MOZ_CRASH("IsValidStackMapKey: requires implementation on this platform");
 #  endif

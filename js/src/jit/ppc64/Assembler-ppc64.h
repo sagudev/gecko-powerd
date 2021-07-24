@@ -148,7 +148,7 @@ static constexpr Register ABINonArgReg2 = r21;
 static constexpr Register ABINonArgReg3 = r22;
 static constexpr Register ABINonArgReturnReg0 = r5;
 static constexpr Register ABINonArgReturnReg1 = r6;
-static constexpr Register ABINonArgReturnVolatileReg = r0;
+static constexpr Register ABINonArgReturnVolatileReg = r11;
 static constexpr Register ABINonVolatileReg = r14;
 
 static constexpr Register PreBarrierReg = r4;
