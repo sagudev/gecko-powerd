@@ -17,8 +17,8 @@
 #include "jit/MoveEmitter.h"
 #include "jit/SharedICRegisters.h"
 
-#include "jit/MacroAssembler-inl.h"
 #include "vm/JitActivation.h"
+#include "jit/MacroAssembler-inl.h"
 
 using namespace js;
 using namespace jit;

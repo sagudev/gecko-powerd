@@ -11,8 +11,8 @@
 #include "jit/JitRealm.h"
 #include "jit/JitSpewer.h"
 #include "jit/Linker.h"
-#include "jit/ppc64/SharedICHelpers-ppc64.h"
 #include "jit/ppc64/Bailouts-ppc64.h"
+#include "jit/ppc64/SharedICHelpers-ppc64.h"
 #ifdef JS_ION_PERF
 # include "jit/PerfSpewer.h"
 #endif
