@@ -7,12 +7,12 @@
 #ifndef jit_ppc64_shared_MacroAssembler_ppc64_shared_h
 #define jit_ppc64_shared_MacroAssembler_ppc64_shared_h
 
-#include "jit/ppc64/Assembler-ppc64.h"
+#include "jit/AtomicOp.h"
 #include "jit/JitFrames.h"
 #include "jit/MoveResolver.h"
+#include "jit/ppc64/Assembler-ppc64.h"
 #include "vm/BytecodeUtil.h"
 
-#include "jit/AtomicOp.h"
 
 namespace js {
 namespace jit {

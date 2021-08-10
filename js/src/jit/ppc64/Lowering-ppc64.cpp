@@ -7,8 +7,8 @@
 #include "mozilla/MathAlgorithms.h"
 
 #include "jit/Lowering.h"
-#include "jit/ppc64/Assembler-ppc64.h"
 #include "jit/MIR.h"
+#include "jit/ppc64/Assembler-ppc64.h"
 
 #include "jit/shared/Lowering-shared-inl.h"
 

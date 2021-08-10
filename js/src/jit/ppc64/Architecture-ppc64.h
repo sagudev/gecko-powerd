@@ -7,9 +7,6 @@
 #ifndef jit_ppc_Architecture_ppc_h
 #define jit_ppc_Architecture_ppc_h
 
-#include <limits.h>
-#include <stdint.h>
-
 #include "mozilla/Assertions.h"
 #include "mozilla/MathAlgorithms.h"
 
