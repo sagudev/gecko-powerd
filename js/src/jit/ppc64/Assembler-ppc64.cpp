@@ -580,10 +580,10 @@ Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg, uint64_t va
     Instruction* inst3 = inst2->next();
     Instruction* inst4 = inst3->next();
 
-    *inst0 = InstImm(PPC_addis, reg, r0, Imm16::Lower(Imm32(value >> 32)).encode()); // mscdfr0
-    *inst1 = InstImm(PPC_ori, reg, reg, Imm16::Upper(Imm32(value >> 32)).encode());
-    // Manually construct 'sldi reg, reg, 32'
-    *inst2 = InstImm(PPC_rldicr, reg, reg, Imm16((32 << 11)  | (31 << 4) | (1 << 2)));
+    *inst0 = InstImm(PPC_addis, reg, r0, Imm16::Upper(Imm32(value >> 32)).encode()); // mscdfr0
+    *inst1 = InstImm(PPC_ori, reg, reg, Imm16::Lower(Imm32(value >> 32)).encode());
+    // rldicr reg, reg, 32, 31
+    *inst2 = InstImm(PPC_rldicr, reg, reg, ((31 << 6) | (32 >> 4)));
     *inst3 = InstImm(PPC_oris, reg, reg, Imm16::Upper(Imm32(value)).encode());
     *inst4 = InstImm(PPC_ori, reg, reg, Imm16::Lower(Imm32(value)).encode());
 }
@@ -612,61 +612,49 @@ Assembler::PatchDataWithValueCheck(CodeLocationLabel label, PatchedImmPtr newVal
     FlushICache(inst, 5 * sizeof(uint32_t));
 }
 
+// See MacroAssemblerPPC64Compat::toggledJump and
+// MacroAssemblerPPC64Compat::toggledCall.
+// These patch our suspicious oris r0,r0,0 to either skip the next
+// instruction or not.
+
 void
 Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled)
 {
 __asm__("trap\n");
     Instruction* inst = (Instruction*)inst_.raw();
-    InstImm* i0 = (InstImm*) inst;
-    InstImm* i1 = (InstImm*) i0->next();
-    InstImm* i3 = (InstImm*) i1->next()->next();
-    InstImm* i4 = (InstImm*) i3->next();
-    Instruction* i5 = (Instruction*) i4->next();
-    Instruction* i6 = (Instruction*) i5->next();
-
-// XXX; Should assert if the register being set isn't r12.
-    MOZ_ASSERT(i0->extractOpcode() == (uint32_t)PPC_addis);
-    MOZ_ASSERT(i1->extractOpcode() == (uint32_t)PPC_ori);
-    MOZ_ASSERT(i3->extractOpcode() == (uint32_t)PPC_oris);
-    MOZ_ASSERT(i4->extractOpcode() == (uint32_t)PPC_ori);
-
+    MOZ_ASSERT((inst->encode() == PPC_oris) || (inst->encode() == (PPC_b | 0x20)));
     if (enabled) {
-        i5->makeOp_mtctr(SecondScratchReg);
-        i6->makeOp_bctr(LinkB);
+        inst->setData(PPC_oris);     // oris 0,0,0
     } else {
-        *i5 = Instruction(PPC_nop);
-        *i6 = Instruction(PPC_nop);
+        inst->setData(PPC_b | 0x20); // b .+32
     }
 
-    FlushICache(i4, sizeof(uint32_t));
+    FlushICache(inst, sizeof(uint32_t));
 }
+
+// JMP and CMP are from the icky x86 perspective. Since we have a jump
+// stanza, making it a "JMP" means setting the gate instruction to oris 0,0,0
+// so the stanza is run; making it a "CMP" means setting it to b+.32 so it
+// isn't.
 
 void
 Assembler::ToggleToJmp(CodeLocationLabel inst_)
 {
-    InstImm* inst = (InstImm*)inst_.raw();
+    Instruction* inst = (Instruction*)inst_.raw();
+    MOZ_ASSERT(inst->encode() == (PPC_b | 0x20));
+    inst->setData(PPC_oris);
 
-    __asm__("trap\n");
-    MOZ_ASSERT(inst->extractOpcode() == PPC_andis);
-#if 0 // TODO
-    // We converted beq to andi, so now we restore it.
-    inst->setOpcode(op_beq);
-    *inst = InstImm(PPC_bc, 
-#endif
+    FlushICache(inst, sizeof(uint32_t));
 }
 
 void
 Assembler::ToggleToCmp(CodeLocationLabel inst_)
 {
-    InstImm* inst = (InstImm*)inst_.raw();
+    Instruction* inst = (Instruction*)inst_.raw();
+    MOZ_ASSERT(inst->encode() == PPC_oris);
+    inst->setData(PPC_b | 0x20);
 
-    __asm__("trap\n");
-    // toggledJump is allways used for short jumps.
-    MOZ_ASSERT(inst->extractOpcode() == PPC_bc);
-#if 0 // TODO
-    // Replace "beq $zero, $zero, offset" with "andi $zero, $zero, offset"
-    inst->setOpcode(op_andi);
-#endif
+    FlushICache(inst, sizeof(uint32_t));
 }
 
 Assembler::Condition

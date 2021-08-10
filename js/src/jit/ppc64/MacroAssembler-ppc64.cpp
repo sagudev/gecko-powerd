@@ -3969,55 +3969,55 @@ CodeOffset
 MacroAssembler::nopPatchableToCall()
 {
     ADBlock();
-    CodeOffset offset(currentOffset()); // XXX
-                // MIPS32   //PPC64
-    as_nop();   // oris     // lis
-    as_nop();   // ori      // ori
-    as_nop();   // mtctr    // rldicr
-    as_nop();   // bctrl    // oris
-#ifdef JS_CODEGEN_PPC64
-    as_nop();               // ori
-    as_nop();               // mtctr
-    as_nop();               // bctrl
-#endif
+    CodeOffset offset(currentOffset());
+    as_nop();   // lis
+    as_nop();   // ori
+    as_nop();   // rldicr
+    as_nop();   // oris
+    as_nop();   // ori
+    as_nop();   // mtctr
+    as_nop();   // bctrl
     return offset;
 }
 
 void
 MacroAssembler::patchNopToCall(uint8_t* call, uint8_t* target)
 {
-    MOZ_CRASH("NYI");
-#ifdef JS_CODEGEN_PPC64
-    Instruction* inst = (Instruction*) call - 7 /* six nops */;
-    Assembler::WriteLoad64Instructions(inst, ScratchRegister, (uint64_t) target);
-    inst[5].makeOp_mtctr(ScratchRegister);
+    // This will always be a full call stanza.
+    Instruction* inst = (Instruction*) call;
+    MOZ_ASSERT(inst[0].encode() == PPC_nop);
+    MOZ_ASSERT(inst[1].encode() == PPC_nop);
+    MOZ_ASSERT(inst[2].encode() == PPC_nop);
+    MOZ_ASSERT(inst[3].encode() == PPC_nop);
+    MOZ_ASSERT(inst[4].encode() == PPC_nop);
+    MOZ_ASSERT(inst[5].encode() == PPC_nop);
+    MOZ_ASSERT(inst[6].encode() == PPC_nop);
+
+    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, (uint64_t) target);
+    inst[5].makeOp_mtctr(SecondScratchReg);
     inst[6].makeOp_bctr(LinkB);
-#else
-    Instruction* inst = (Instruction*) call - 4 /* four nops */;
-    Assembler::WriteLuiOriInstructions(inst, &inst[1], ScratchRegister, (uint32_t) target);
-    inst[2] = InstReg(op_special, ScratchRegister, zero, ra, ff_jalr);
-#endif
+
+    FlushICache(inst, sizeof(uint32_t) * 7);
 }
 
 void
 MacroAssembler::patchCallToNop(uint8_t* call)
 {
-    MOZ_CRASH("NYI");
-#ifdef JS_CODEGEN_PPC64
-    Instruction* inst = (Instruction*) call - 6 /* six nops */;
-#else
-    Instruction* inst = (Instruction*) call - 4 /* four nops */;
-#endif
+    // everything be nops now yo
+__asm__("trap\n");
+    Instruction* inst = (Instruction*) call;
+    MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
+    MOZ_ASSERT(inst[6].encode() == (PPC_bctr | LinkB)); // bctrl
 
     inst[0].makeOp_nop();
     inst[1].makeOp_nop();
     inst[2].makeOp_nop();
     inst[3].makeOp_nop();
-#ifdef JS_CODEGEN_PPC64
     inst[4].makeOp_nop();
     inst[5].makeOp_nop();
     inst[6].makeOp_nop();
-#endif
+
+    FlushICache(inst, sizeof(uint32_t) * 7);
 }
 
 void
