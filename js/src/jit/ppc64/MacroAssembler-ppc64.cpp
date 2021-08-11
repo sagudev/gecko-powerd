@@ -151,7 +151,6 @@ MacroAssemblerPPC64Compat::convertDoubleToFloat32(FloatRegister src, FloatRegist
 // Checks whether a double is representable as a 32-bit integer. If so, the
 // integer is written to the output register. Otherwise, a bailout is taken to
 // the given snapshot. This function overwrites the scratch float register.
-// XXX! can we use mfvsrwz/mtvsrwz/mtvsrwa?
 void
 MacroAssemblerPPC64Compat::convertDoubleToInt32(FloatRegister src, Register dest,
                                                  Label* fail, bool negativeZeroCheck)
@@ -159,18 +158,21 @@ MacroAssemblerPPC64Compat::convertDoubleToInt32(FloatRegister src, Register dest
     ADBlock();
     MOZ_ASSERT(src != ScratchDoubleReg);
 
-xs_trap();
     // fctiwz. will set an exception to CR1 if conversion is inexact
     // or invalid. We don't need to know the exact exception, just that
     // it went boom, so no need to check the FPSCR.
     as_fctiwz_rc(ScratchDoubleReg, src);
     ma_bc(cr1, Assembler::LessThan, fail);
 
+#ifdef __POWER8_VECTOR__
+    as_mfvsrd(dest, ScratchDoubleReg);
+#else
     // Spill to memory and pick up the value.
     as_stfdu(ScratchDoubleReg, StackPointer, -8);
     // Power CPUs with traditional dispatch groups will need NOPs here.
     // Pull out the lower 32 bits. ENDIAN!!!
-    as_lwz(dest, StackPointer, 0); // 4 for BE
+    as_lwz(dest, StackPointer, 4); // 0 for LE
+#endif
 
     if (negativeZeroCheck) {
         // If we need to check negative 0, then dump the FPR on the stack
@@ -186,11 +188,15 @@ xs_trap();
         ma_bc(Assembler::NotEqual, &done, ShortJump);
 
         // Damn, the result was zero.
-        // Dump the original float and check the two 32-bit halves.
+        // Dump the original float to memory and check the two 32-bit halves.
         // 0x8000000 00000000 = -0.0
         // 0x0000000 00000000 = 0.0
         // Thus, if they're not the same, negative zero; bailout.
+#ifdef __POWER8_VECTOR__
+        as_stfdu(src, StackPointer, -8);
+#else
         as_stfd(src, StackPointer, 0); // reuse existing allocation
+#endif
         // Power CPUs with traditional dispatch groups will need NOPs here.
         as_lwz(ScratchRegister, StackPointer, 0);
         as_lwz(SecondScratchReg, StackPointer, 4);
@@ -200,7 +206,9 @@ xs_trap();
 
         bind(&done);
     } else {
+#ifndef __POWER8_VECTOR__
         as_addi(StackPointer, StackPointer, 8);
+#endif
     }
 }
 
