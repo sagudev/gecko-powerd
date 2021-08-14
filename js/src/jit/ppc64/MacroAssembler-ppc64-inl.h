@@ -873,10 +873,13 @@ MacroAssembler::branchTruncateDoubleMaybeModUint32(FloatRegister src, Register d
 {
     MOZ_ASSERT(src != ScratchDoubleReg);
 
-    // Any exception is failure, so just test for FPSCR FX (CR0[LT]).
-    as_fctiwz_rc(ScratchDoubleReg, src);
-    moveFromDouble(ScratchDoubleReg, dest); // MIPS does this in advance.
-    ma_bc(cr1, Assembler::LessThan, fail);
+    // If the conversion is invalid (see Power ISA v3.1, page 173), fail.
+    as_mtfsb0(23); // whack VXCVI
+    as_fctiwz(ScratchDoubleReg, src);
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI
+    moveFromDouble(ScratchDoubleReg, dest);
+    as_srawi(dest, dest, 0); // clear upper word and sign extend
+    ma_bc(Assembler::SOBit, fail);
 }
 
 void

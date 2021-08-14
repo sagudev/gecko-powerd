@@ -78,15 +78,7 @@ MacroAssemblerPPC64Compat::convertInt32ToDouble(Register src, FloatRegister dest
     // longer have to faff around with fake constants like we did in 32-bit).
     ADBlock();
 
-#ifdef __POWER8_VECTOR__
-    as_mtvsrd(dest, src);
-#else
-    // Alternative with no GPR<->FPR moves.
-    // Treat src as a 64-bit register (since it is) and spill to stack.
-    as_stdu(src, StackPointer, -8);
-    // Power CPUs with traditional dispatch groups will need NOPs here.
-    as_lfd(dest, StackPointer, 0);
-#endif
+    moveToDouble(src, dest);
     as_fcfid(dest, dest); // easy!
 }
 
@@ -96,14 +88,7 @@ MacroAssemblerPPC64Compat::convertUInt64ToDouble(Register src, FloatRegister des
     // Approximately the same as above, but using fcfidu.
     ADBlock();
 
-#ifdef __POWER8_VECTOR__
-    as_mtvsrd(dest, src);
-#else
-    // Alternative with no GPR<->FPR moves.
-    as_stdu(src, StackPointer, -8);
-    // Power CPUs with traditional dispatch groups will need NOPs here.
-    as_lfd(ScratchDoubleReg, StackPointer, 0);
-#endif
+    moveToDouble(src, dest);
     as_fcfidu(dest, dest);
 }
 
@@ -158,57 +143,36 @@ MacroAssemblerPPC64Compat::convertDoubleToInt32(FloatRegister src, Register dest
     ADBlock();
     MOZ_ASSERT(src != ScratchDoubleReg);
 
-    // fctiwz. will set an exception to CR1 if conversion is inexact
-    // or invalid. We don't need to know the exact exception, just that
-    // it went boom, so no need to check the FPSCR.
-    as_fctiwz_rc(ScratchDoubleReg, src);
-    ma_bc(cr1, Assembler::LessThan, fail);
-
-#ifdef __POWER8_VECTOR__
-    as_mfvsrd(dest, ScratchDoubleReg);
-#else
-    // Spill to memory and pick up the value.
-    as_stfdu(ScratchDoubleReg, StackPointer, -8);
-    // Power CPUs with traditional dispatch groups will need NOPs here.
-    // Pull out the lower 32 bits. ENDIAN!!!
-    as_lwz(dest, StackPointer, 4); // 0 for LE
-#endif
+    // Throw an failure if the integer conversion is invalid (VXCVI) or
+    // inexact (FI).
+    as_mtfsb0(23); // whack VXCVI; FI is not sticky
+    as_fctiwz(ScratchDoubleReg, src);
+    as_mcrfs(cr0, 3); // VXVC - FR - FI - FPRF[C]
+    as_mcrfs(cr1, 5); // resv'd - VXSOFT - VXSQRT - VXCVI
+    moveFromDouble(ScratchDoubleReg, dest);
+    as_cror(0, 2, 7); // CR0[LT] = FI->CR0[EQ] | VXCVI->CR1[SO]
+    as_srawi(dest, dest, 0); // clear upper word and sign extend
+    ma_bc(Assembler::LessThan, fail);
 
     if (negativeZeroCheck) {
-        // If we need to check negative 0, then dump the FPR on the stack
-        // and look at the sign bit. fctiwz. will merrily convert -0 with
-        // no exception because, well, it's zero!
+        // If we need to check negative 0, then grab the original FPR
+        // and look at the sign bit.
         // The MIPS version happily clobbers dest from the beginning, so
         // no worries doing this check here to save some work.
 
         Label done;
-        MOZ_ASSERT(dest != ScratchRegister && dest != SecondScratchReg);
+        MOZ_ASSERT(dest != ScratchRegister);
+xs_trap();
         // Don't bother if the result was not zero.
         as_cmpldi(dest, 0);
         ma_bc(Assembler::NotEqual, &done, ShortJump);
 
-        // Damn, the result was zero.
-        // Dump the original float to memory and check the two 32-bit halves.
-        // 0x8000000 00000000 = -0.0
-        // 0x0000000 00000000 = 0.0
-        // Thus, if they're not the same, negative zero; bailout.
-#ifdef __POWER8_VECTOR__
-        as_stfdu(src, StackPointer, -8);
-#else
-        as_stfd(src, StackPointer, 0); // reuse existing allocation
-#endif
-        // Power CPUs with traditional dispatch groups will need NOPs here.
-        as_lwz(ScratchRegister, StackPointer, 0);
-        as_lwz(SecondScratchReg, StackPointer, 4);
-        as_cmplw(ScratchRegister, SecondScratchReg);
-        as_addi(StackPointer, StackPointer, 8);
-        ma_bc(Assembler::NotEqual, fail);
+        // Damn, the result was zero. Treat as a 64-bit int and check sign.
+        moveFromDouble(src, ScratchRegister);
+        as_cmpdi(ScratchRegister, 0);
+        ma_bc(Assembler::LessThan, fail);
 
         bind(&done);
-    } else {
-#ifndef __POWER8_VECTOR__
-        as_addi(StackPointer, StackPointer, 8);
-#endif
     }
 }
 
@@ -875,15 +839,11 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Register rs, Conditio
 void
 MacroAssemblerPPC64::ma_lid(FloatRegister dest, double value)
 {
+    ADBlock();
     ImmWord imm(mozilla::BitwiseCast<uint64_t>(value));
 
     ma_li(ScratchRegister, imm);
-#ifdef __POWER8_VECTOR__
-    as_mtvsrd(dest, ScratchRegister);
-#else
-    ma_push(ScratchRegister);
-    ma_pop(dest);
-#endif
+    asMasm().moveToDouble(ScratchRegister, dest);
 }
 
 void
@@ -1298,12 +1258,7 @@ MacroAssembler::clampDoubleToUint8(FloatRegister input, Register output)
 
     // Default rounding mode 0b00 (round nearest)
     as_fctid(ScratchDoubleReg, input);
-#ifdef __POWER8_VECTOR__
-    as_mfvsrd(output, ScratchDoubleReg);
-#else
-    push(ScratchDoubleReg);
-    pop(output);
-#endif
+    moveFromDouble(ScratchDoubleReg, output);
     clampIntToUint8(output);
 }
 
@@ -1387,12 +1342,7 @@ MacroAssemblerPPC64Compat::unboxBoolean(const BaseIndex& src, Register dest)
 void
 MacroAssemblerPPC64Compat::unboxDouble(const ValueOperand& operand, FloatRegister dest)
 {
-#ifdef __POWER8_VECTOR__
-    as_mtvsrd(dest, operand.valueReg()); // sooooo nice
-#else
-    ma_push(operand.valueReg());
-    ma_pop(dest);
-#endif
+    moveToDouble(operand.valueReg(), dest);
 }
 
 void
@@ -1487,12 +1437,7 @@ MacroAssemblerPPC64Compat::unboxPrivate(const ValueOperand& src, Register dest)
 void
 MacroAssemblerPPC64Compat::boxDouble(FloatRegister src, const ValueOperand& dest, FloatRegister)
 {
-#ifdef __POWER8_VECTOR__
-    as_mfvsrd(dest.valueReg(), src); // sooooo nice
-#else
-    ma_push(src);
-    ma_pop(dest.valueReg());
-#endif
+    moveFromDouble(src, dest.valueReg());
 }
 
 void MacroAssemblerPPC64Compat::unboxBigInt(const ValueOperand& operand,
@@ -2367,6 +2312,7 @@ void
 MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output, bool isSaturating,
                                            Label* oolEntry)
 {
+xs_trap();
     as_fctiwu(ScratchDoubleReg, input);
     ma_push(ScratchDoubleReg);
     ma_pop(output);
@@ -2418,6 +2364,7 @@ MacroAssembler::wasmTruncateDoubleToInt64(FloatRegister input, Register64 output
 {
     MOZ_ASSERT(tempDouble.isInvalid());
 
+xs_trap();
     as_fctid(ScratchDoubleReg, input);
     ma_push(ScratchDoubleReg);
     ma_pop(output.reg);
@@ -2438,6 +2385,7 @@ MacroAssembler::wasmTruncateDoubleToUInt64(FloatRegister input, Register64 outpu
 
     Label done;
 
+xs_trap();
     as_fctidu(ScratchDoubleReg, input);
     // TODO: check saturation!
 
@@ -2705,12 +2653,7 @@ MacroAssembler::convertInt64ToDouble(Register64 src, FloatRegister dest)
 {
     ADBlock();
 
-#ifdef __POWER8_VECTOR__
-    as_mtvsrd(dest, src.reg);
-#else
-    ma_push(src.reg);
-    ma_pop(dest);
-#endif
+    moveToDouble(src.reg, dest);
     as_fcfid(dest, dest);
 }
 
@@ -2856,22 +2799,22 @@ MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail
 {
     ADBlock();
 
+    // We only care if the conversion is invalid, not if it's inexact.
+    // Whack VXCVI.
+    as_mtfsb0(23);
     // Set rounding mode to 0b11 (round -inf)
     as_mtfsb1(30);
     as_mtfsb1(31);
-    as_fctiw_rc(ScratchDoubleReg, src);
+    as_fctiw(ScratchDoubleReg, src);
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
     // Set back to default rounding mode 0b00 (round nearest)
     as_mtfsb0(30);
     as_mtfsb0(31);
-    // Any FP exception is a failure (FPSCR FX -> CR0[LT]).
-    ma_bc(LessThan, fail);
+    // VXCVI is a failure (over/underflow, NaN, etc.)
+    ma_bc(Assembler::SOBit, fail);
 
-#ifdef __POWER8_VECTOR__
-    as_mfvsrd(dest, ScratchDoubleReg);
-#else
-    push(ScratchDoubleReg);
-    pop(dest);
-#endif
+    moveFromDouble(ScratchDoubleReg, dest);
+    as_srawi(dest, dest, 0); // clear upper word and sign extend
 }
 
 void
@@ -3707,12 +3650,7 @@ MacroAssemblerPPC64::minMaxDouble(FloatRegister srcDest, FloatRegister second,
     // Make sure we handle -0 and 0 right. Dump A into a GPR and check
     // the sign bit.
     bind(&zero);
-#ifdef __POWER8_VECTOR__
-    as_mfvsrd(ScratchRegister, srcDest);
-#else
-    push(srcDest);
-    pop(ScratchRegister);
-#endif
+    asMasm().moveFromDouble(srcDest, ScratchRegister);
     as_cmpdi(ScratchRegister, 0);
     if (isMax) {
         // If a == -0, then b is either -0 or 0. In this case, return b.
@@ -4107,6 +4045,7 @@ void
 MacroAssembler::wasmTruncateDoubleToInt32(FloatRegister input, Register output, bool isSaturating,
                                           Label* oolEntry)
 {
+xs_trap();
     as_fctiw(ScratchDoubleReg, input);
     ma_push(ScratchDoubleReg);
     ma_pop(output);

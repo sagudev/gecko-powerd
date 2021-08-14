@@ -999,7 +999,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     }
 
     void zeroDouble(FloatRegister reg) {
-        as_fsub(reg, reg, reg);
+        xs_li(ScratchRegister, 0);
+        moveToDouble(ScratchRegister, reg);
     }
 
     void moveFromDouble(FloatRegister src, Register dest) {
@@ -1018,17 +1019,21 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         as_mtvsrd(dest, src);
 #else
         // Sigh.
-        as_std(src, StackPointer, -8);
+        as_stdu(src, StackPointer, -8);
         as_lfd(dest, StackPointer, 0);
         as_addi(StackPointer, StackPointer, 8);
 #endif
     }
 
     void moveFromFloat32(FloatRegister src, Register dest) {
+#ifdef __POWER8_VECTOR__
+        as_mfvsrd(dest, src);
+#else
         // Sigh.
         as_stfsu(src, StackPointer, -4);
         as_lwz(dest, StackPointer, 0);
         as_addi(StackPointer, StackPointer, 4);
+#endif
     }
 
     void moveToFloat32(Register src, FloatRegister dest) {
@@ -1036,7 +1041,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         as_mtvsrd(dest, src);
 #else
         // Sigh.
-        as_stw(src, StackPointer, -4);
+        as_stwu(src, StackPointer, -4);
         as_lfs(dest, StackPointer, 0);
         as_addi(StackPointer, StackPointer, 4);
 #endif
