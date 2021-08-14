@@ -2706,24 +2706,22 @@ MacroAssembler::truncFloat32ToInt32(FloatRegister src, Register dest, Label* fai
     return truncDoubleToInt32(src, dest, fail);
 }
 
-// XXX: use VSR?
 void
 MacroAssembler::truncDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
     ADBlock();
+    MOZ_ASSERT(src != ScratchDoubleReg);
 
-xs_trap();
+    // We only care if the conversion is invalid, not if it's inexact.
+    // Whack VXCVI.
+    as_mtfsb0(23);
     as_fctiwz(ScratchDoubleReg, src);
+    // VXCVI is a failure (over/underflow, NaN, etc.)
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+    ma_bc(Assembler::SOBit, fail);
 
-    as_mcrfs(cr0, 1); // Check isnan
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-    as_mcrfs(cr0, 5); // Check overflow and underflow
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-
-    x_subi(StackPointer, StackPointer, 4);
-    as_stfiwx(ScratchDoubleReg, r0, StackPointer);
-    as_lwz(dest, StackPointer, 0);
-    as_addi(StackPointer, StackPointer, 4);
+    moveFromDouble(ScratchDoubleReg, dest);
+    as_srawi(dest, dest, 0); // clear upper word and sign extend
 }
 
 void
