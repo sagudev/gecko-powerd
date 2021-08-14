@@ -2740,7 +2740,7 @@ xs_trap();
         case RoundingMode::Down:
             as_frim(dest, src);
             break;
-        case RoundingMode::NearestTiesToEven:
+        case RoundingMode::NearestTiesToEven: // XXX: WRONG, see 4.6.7.3 p177
             as_frin(dest, src);
             break;
         case RoundingMode::TowardsZero:
@@ -2763,28 +2763,30 @@ MacroAssembler::ceilFloat32ToInt32(FloatRegister src, Register dest,
     return ceilDoubleToInt32(src, dest, fail);
 }
 
-// XXX: use VSR
 void
 MacroAssembler::ceilDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
     ADBlock();
+    MOZ_ASSERT(dest != ScratchRegister);
+    MOZ_ASSERT(src != ScratchDoubleReg);
 
-xs_trap();
-    // Set rounding mode to 0b10 (round +inf)
-    as_mtfsb1(30);
-    as_fctiw(ScratchDoubleReg, src);
-    // Set back to default rounding mode 0b00 (round nearest)
-    as_mtfsb0(30);
+    // We only care if the conversion is invalid, not if it's inexact.
+    // However, JavaScript defines Math.ceil(-0) == -0, so we need a check.
+    // Whack VXCVI.
+    as_mtfsb0(23);
+    // "Pre-round" to +inf. Any NaN will get passed to fctiw.
+    // (For pre-v2.02, set rounding to 0b10.)
+    as_frip(ScratchDoubleReg, src);
+    as_fctiw(ScratchDoubleReg, ScratchDoubleReg);
+    // VXCVI is a failure (over/underflow, NaN, etc.)
+    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_cror(0, 0, 7); // Bond, James Bond: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 
-    as_mcrfs(cr0, 1); // Check isnan
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-    as_mcrfs(cr0, 5); // Check overflow and underflow
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-
-    x_subi(StackPointer, StackPointer, 4);
-    as_stfiwx(ScratchDoubleReg, r0, StackPointer);
-    as_lwz(dest, StackPointer, 0);
-    as_addi(StackPointer, StackPointer, 4);
+    moveFromDouble(ScratchDoubleReg, dest);
+    as_srawi(dest, dest, 0); // clear upper word and sign extend
 }
 
 void
@@ -2798,20 +2800,23 @@ void
 MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
     ADBlock();
+    MOZ_ASSERT(dest != ScratchRegister);
+    MOZ_ASSERT(src != ScratchDoubleReg);
 
     // We only care if the conversion is invalid, not if it's inexact.
+    // However, we have to check -0 here too for the same stupid reason.
     // Whack VXCVI.
     as_mtfsb0(23);
-    // Set rounding mode to 0b11 (round -inf)
-    as_mtfsb1(30);
-    as_mtfsb1(31);
-    as_fctiw(ScratchDoubleReg, src);
-    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
-    // Set back to default rounding mode 0b00 (round nearest)
-    as_mtfsb0(30);
-    as_mtfsb0(31);
+    // "Pre-round" to -inf. Any NaN will get passed to fctiw.
+    // (For pre-v2.02, set rounding to 0b11.)
+    as_frim(ScratchDoubleReg, src);
+    as_fctiw(ScratchDoubleReg, ScratchDoubleReg);
     // VXCVI is a failure (over/underflow, NaN, etc.)
-    ma_bc(Assembler::SOBit, fail);
+    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_cror(0, 0, 7); // Licenced to kill: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 
     moveFromDouble(ScratchDoubleReg, dest);
     as_srawi(dest, dest, 0); // clear upper word and sign extend
@@ -2824,26 +2829,35 @@ MacroAssembler::roundFloat32ToInt32(FloatRegister src, Register dest,
     return floorDoubleToInt32(src, dest, fail);
 }
 
-// XXX: use VSR
 void
 MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
                                    FloatRegister temp, Label* fail)
 {
     ADBlock();
+    MOZ_ASSERT(dest != ScratchRegister);
+    MOZ_ASSERT(src != ScratchDoubleReg);
 
-xs_trap();
-    // Default rounding mode 0b00 (round nearest)
-    as_fctiw(temp, src);
+    // We only care if the conversion is invalid, not if it's inexact.
+    // And, you know, negative zero. BECAUSE THAT HAPPENS SOOO MUCH.
+    // Whack VXCVI.
+    as_mtfsb0(23);
+    // The default b00 rounding mode is implemented as IEEE round-to-nearest
+    // and ties-to-even. This means round(0.5) == 0. However, JavaScript
+    // expects round(0.5) == 1, so we "pre-round" with frin which is an
+    // exact duplicate of C++ round(). If frin gets a NaN, it will pass on an
+    // invalid conversion in fctiw anyway, so we needn't check VXSNAN first.
+    // (For pre-v2.02, you'll need to add a 0.5 fudge, and round to -inf.)
+    as_frin(ScratchDoubleReg, src);
+    as_fctiw(ScratchDoubleReg, ScratchDoubleReg);
+    // VXCVI is a failure (over/underflow, NaN, etc.)
+    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_cror(0, 0, 7); // Nobody does it better: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 
-    as_mcrfs(cr0, 1); // Check isnan
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-    as_mcrfs(cr0, 5); // Check overflow and underflow
-    ma_bc(SOBit, fail, JumpKind::ShortJump);
-
-    x_subi(StackPointer, StackPointer, 4);
-    as_stfiwx(temp, r0, StackPointer);
-    as_lwz(dest, StackPointer, 0);
-    as_addi(StackPointer, StackPointer, 4);
+    moveFromDouble(ScratchDoubleReg, dest);
+    as_srawi(dest, dest, 0); // clear upper word and sign extend
 }
 
 void
