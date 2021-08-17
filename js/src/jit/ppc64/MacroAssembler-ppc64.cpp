@@ -3506,14 +3506,18 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c
     // Handle any synthetic codes.
     MOZ_ASSERT_IF((c & ConditionZero), (imm.encode() == 0));
     MOZ_ASSERT(!(c & ConditionOnlyXER));
-xs_trap();
     if (c & ConditionUnsigned) {
         MOZ_ASSERT(Imm16::IsInUnsignedRange(imm.encode())); // paranoia
         as_cmpldi(rs, imm.encode());
     } else {
         // Just because it's an Imm16 doesn't mean it always fits.
-        MOZ_ASSERT(Imm16::IsInSignedRange(imm.encode()));
-        as_cmpdi(rs, imm.encode());
+        if (!Imm16::IsInSignedRange(imm.encode())) {
+            MOZ_ASSERT(rs != ScratchRegister);
+            ma_li(ScratchRegister, imm.encode());
+            as_cmpd(rs, ScratchRegister);
+        } else {
+            as_cmpdi(rs, imm.encode());
+        }
     }
     // Common routine to extract or flip the appropriate CR bit.
     ma_cmp_set_coda(rd, c);
