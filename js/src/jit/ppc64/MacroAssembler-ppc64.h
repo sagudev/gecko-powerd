@@ -215,6 +215,7 @@ class MacroAssemblerPPC64 : public Assembler
 
     void ma_bc(Register lhs, Register rhs, Label* l, Condition c, JumpKind jumpKind = LongJump);
     void ma_bc(Register lhs, Imm32 imm, Label* l, Condition c, JumpKind jumpKind = LongJump);
+    void ma_bc64(Register lhs, Imm32 imm, Label* l, Condition c, JumpKind jumpKind = LongJump);
     void ma_bc(Register lhs, ImmPtr imm, Label* l, Condition c, JumpKind jumpKind = LongJump);
     void ma_bc(Register lhs, ImmGCPtr imm, Label* l, Condition c, JumpKind jumpKind = LongJump) {
         MOZ_ASSERT(lhs != ScratchRegister);
@@ -847,8 +848,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load16UnalignedSignExtend(const S& src, Register dest) {
-        MOZ_CRASH();
-        //ma_load_unaligned(dest, src, SizeHalfWord, SignExtend);
+        ma_load(dest, src, SizeHalfWord, SignExtend);
     }
 
     void load16ZeroExtend(const Address& address, Register dest);
@@ -856,8 +856,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load16UnalignedZeroExtend(const S& src, Register dest) {
-        MOZ_CRASH();
-        //ma_load_unaligned(dest, src, SizeHalfWord, ZeroExtend);
+        ma_load(dest, src, SizeHalfWord, ZeroExtend);
     }
 
     void load32(const Address& address, Register dest);
@@ -871,8 +870,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load32Unaligned(const S& src, Register dest) {
-        MOZ_CRASH();
-        //ma_load_unaligned(dest, src, SizeWord, SignExtend);
+        ma_load(dest, src, SizeWord, SignExtend);
     }
 
     void load64(const BaseIndex& address, Register64 dest) {
@@ -881,8 +879,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     template <typename S>
     void load64Unaligned(const S& src, Register64 dest) {
-        MOZ_CRASH();
-        //ma_load_unaligned(dest.reg, src, SizeDouble, ZeroExtend);
+        ma_load(dest.reg, src, SizeDouble, ZeroExtend);
     }
 
     void loadPtr(const Address& address, Register dest);
@@ -1027,7 +1024,12 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void moveFromFloat32(FloatRegister src, Register dest) {
 #ifdef __POWER8_VECTOR__
-        as_mfvsrd(dest, src);
+        MOZ_ASSERT(src != ScratchDoubleReg);
+        // Downconvert prior to storage.
+        // XXX: can we just treat it as a float32 and save using f0?
+        // It seems that the JIT is already treating it that way ...
+        as_frsp(ScratchDoubleReg, src);
+        as_mfvsrd(dest, ScratchDoubleReg);
 #else
         // Sigh.
         as_stfsu(src, StackPointer, -4);
@@ -1038,7 +1040,10 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void moveToFloat32(Register src, FloatRegister dest) {
 #ifdef __POWER8_VECTOR__
-        as_mtvsrd(dest, src);
+        // Splat the 32-bit word as singles throughout the VSR, then upconvert
+        // to double.
+        as_mtvsrws(dest, src);
+        as_xscvspdp(dest, dest); // resulting two doubles are equal
 #else
         // Sigh.
         as_stwu(src, StackPointer, -4);

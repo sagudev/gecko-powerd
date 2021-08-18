@@ -397,16 +397,14 @@ MacroAssembler::quotient32(Register rhs, Register srcDest, bool isUnsigned)
 void
 MacroAssembler::byteSwap16SignExtend(Register reg)
 {
-    xs_mr(ScratchRegister, reg);
-    
-    as_rlwinm(reg, ScratchRegister, 8, 16, 23);
-    as_rlwimi(reg, ScratchRegister, 24, 24, 31);
+    byteSwap16ZeroExtend(reg);
     as_extsh(reg, reg);
 }
 
 void
 MacroAssembler::byteSwap16ZeroExtend(Register reg)
 {
+    MOZ_ASSERT(reg != ScratchRegister);
     xs_mr(ScratchRegister, reg);
     
     as_rlwinm(reg, ScratchRegister, 8, 16, 23);
@@ -416,35 +414,30 @@ MacroAssembler::byteSwap16ZeroExtend(Register reg)
 void
 MacroAssembler::byteSwap32(Register reg)
 {
-    xs_mr(ScratchRegister, reg);
-    
-    as_rlwinm(reg, ScratchRegister, 24, 0, 7);    // << 24
-    as_rlwimi(reg, ScratchRegister, 16, 8, 16);   // << 16
-    as_rlwimi(reg, ScratchRegister, 24, 16, 23);  // >> 8
-    as_rlwimi(reg, ScratchRegister, 16, 24, 31);  // >> 16
+    // cribbed off gcc __builtin_swap32
+    // POWER10 has/will have brw, but POWER10 is naughty and has non-free
+    // RAM firmware. Naughty OMI! Spank spank!
+    MOZ_ASSERT(reg != ScratchRegister);
+    as_rlwinm(ScratchRegister, reg, 8, 0, 31); // "rotlwi"
+    as_rlwimi(ScratchRegister, reg, 24, 0, 7);
+    as_rlwimi(ScratchRegister, reg, 24, 16, 23);
+    xs_mr(reg, ScratchRegister);
 }
 
 void
 MacroAssembler::byteSwap64(Register64 reg)
 {
     Register r = reg.reg;
-    xs_mr(ScratchRegister, r);
-    
-    as_rldicr(r, ScratchRegister, 56, 7);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 48, 8);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 40, 16);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 32, 24);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 24, 32);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 16, 40);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 8, 48);
-    x_srdi(ScratchRegister, ScratchRegister, 8);
-    as_rldimi(r, ScratchRegister, 0, 56);
+    // Use VSX for this because the 64-bit swap with rld* is just hideous.
+    // POWER10 has/will have brd, but, more electric spanking of war babies!
+#ifdef __POWER8_VECTOR__
+    // XXX: should really be __POWER9_VECTOR__ but needs -mcpu=power9
+    as_mtvsrd(ScratchDoubleReg, r);
+    as_xxbrd(ScratchDoubleReg, ScratchDoubleReg); // ISA 3.0
+    as_mfvsrd(r, ScratchDoubleReg);
+#else
+#error NYI for pre-POWER9
+#endif
 }
 
 // ===============================================================
@@ -1469,7 +1462,8 @@ MacroAssembler::branchPtr(Condition cond, Register lhs, Register rhs, L label)
 void
 MacroAssembler::branchPtr(Condition cond, Register lhs, Imm32 rhs, Label* label)
 {
-    ma_bc(lhs, rhs, label, cond);
+    // Need to hint the MacroAssembler that this needs a 64-bit compare.
+    ma_bc64(lhs, rhs, label, cond);
 }
 
 void

@@ -494,7 +494,7 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
     // It is entirely possible for the encodedOffset to trigger an
     // unaligned load. The Baseline Interpreter's byte opcodes may lead a
     // 32-bit quantity, so the offset is 1 to load that quantity even
-    // though this means a trip to the system handler. We should see if
+    // though this may mean a trip to a system handler. We should see if
     // there is potential for optimization there, but the operation is
     // deliberate, and we must not assert.
     switch (size) {
@@ -504,29 +504,37 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
             as_extsb(dest, dest);
         break;
       case SizeHalfWord:
-        as_lhz(dest, base, encodedOffset);
         if (SignExtend == extension)
-            as_extsh(dest, dest);
+            as_lha(dest, base, encodedOffset);
+        else
+            as_lhz(dest, base, encodedOffset);
         break;
       case SizeWord:
-        // XXX: can use lwa here if we're word aligned and save an extsw
-        as_lwz(dest, base, encodedOffset);
-        if (SignExtend == extension)
-            as_extsw(dest, dest);
+        if (ZeroExtend == extension)
+            as_lwz(dest, base, encodedOffset);
+        else {
+            // lwa only valid if word-aligned.
+            if (encodedOffset & 0x03) {
+                as_lwz(dest, base, encodedOffset);
+                as_extsw(dest, dest);
+            } else {
+                as_lwa(dest, base, encodedOffset);
+            }
+        }
         break;
       case SizeDouble:
         // However, unaligned loads really make a difference here, because
         // the ld instruction can only load on word boundaries (the lowest
-        // two LSBs are part of the instruction encoding). We assert on that
+        // two bits are part of the instruction encoding). We assert on that
         // in the Assembler.
         if (encodedOffset & 0x03) {
             // Load as two word halves. ENDIAN!
-            MOZ_ASSERT(dest != ScratchRegister);
+            Register t = (dest == ScratchRegister) ? SecondScratchReg : ScratchRegister;
 
             as_lwz(dest, base, encodedOffset+4); // hi
-            as_lwz(ScratchRegister, base, encodedOffset); // lo
+            as_lwz(t, base, encodedOffset); // lo
             as_rldicr(dest, dest, 32, 31); // shift
-            as_or(dest, dest, ScratchRegister); // merge
+            as_or(dest, dest, t); // merge
         } else {
             as_ld(dest, base, encodedOffset);
         }
@@ -724,7 +732,7 @@ void
 MacroAssemblerPPC64::ma_bc(Register lhs, ImmWord imm, Label* label, Condition c, JumpKind jumpKind)
 {
     if (imm.value <= INT32_MAX) {
-        ma_bc(lhs, Imm32(uint32_t(imm.value)), label, c, jumpKind);
+        ma_bc64(lhs, Imm32(uint32_t(imm.value)), label, c, jumpKind);
     } else {
         MOZ_ASSERT(lhs != ScratchRegister);
         ma_li(ScratchRegister, imm);
@@ -3161,7 +3169,7 @@ MacroAssemblerPPC64::ma_load_unaligned(const wasm::MemoryAccessDesc& access, Reg
                                             LoadStoreSize size, LoadStoreExtension extension)
 {
     MOZ_ASSERT(MOZ_LITTLE_ENDIAN(), "Wasm-only; wasm is disabled on big-endian.");
-    MOZ_CRASH();
+    MOZ_CRASH("only needed for 64-bit loads");
 #if 0
     int16_t lowOffset, hiOffset;
     Register base;
@@ -3259,6 +3267,7 @@ MacroAssemblerPPC64::ma_store_unaligned(const wasm::MemoryAccessDesc& access, Re
                                              LoadStoreSize size, LoadStoreExtension extension)
 {
     MOZ_ASSERT(MOZ_LITTLE_ENDIAN(), "Wasm-only; wasm is disabled on big-endian.");
+    MOZ_CRASH("only needed for 64-bit loads");
 #if 0
     int16_t lowOffset, hiOffset;
     Register base;
@@ -3323,6 +3332,44 @@ MacroAssemblerPPC64::ma_bc(Register lhs, Register rhs, Label* label, Condition c
     }
 }
 
+// For an explicit 64-bit compare.
+void
+MacroAssemblerPPC64::ma_bc64(Register lhs, Imm32 imm, Label* label, Condition c, JumpKind jumpKind)
+{
+    ADBlock();
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    if (c == Always) {
+        ma_b(label, jumpKind);
+        return;
+    }
+    if (c & ConditionZero) {
+        MOZ_ASSERT(imm.value == 0);
+        as_cmpdi(lhs, 0);
+        ma_bc(c, label, jumpKind);
+        return;
+    }
+    if (c & ConditionUnsigned) {
+        if (Imm16::IsInUnsignedRange(imm.value)) {
+            as_cmpldi(lhs, imm.value);
+        } else {
+            MOZ_ASSERT(lhs != ScratchRegister);
+            ma_li(ScratchRegister, imm);
+            as_cmpld(lhs, ScratchRegister);
+        }
+    } else {
+        MOZ_ASSERT(c < 0x100); // just in case
+        if (Imm16::IsInSignedRange(imm.value)) {
+            as_cmpdi(lhs, imm.value);
+        } else {
+            MOZ_ASSERT(lhs != ScratchRegister);
+            ma_li(ScratchRegister, imm);
+            as_cmpd(lhs, ScratchRegister);
+        }
+    }
+    ma_bc(c, label, jumpKind);
+}
+
+// For everyone else, there's MasterCard.
 void
 MacroAssemblerPPC64::ma_bc(Register lhs, Imm32 imm, Label* label, Condition c, JumpKind jumpKind)
 {

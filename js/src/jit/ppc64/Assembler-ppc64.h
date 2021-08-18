@@ -404,6 +404,7 @@ enum PPCOpcodes {
     PPC_mtfsb1  = 0xFC00004C, // move one bit into FPSCR
     PPC_mtfsfi  = 0xFC00010C, // move 4-bit immediate into FPSCR field
     PPC_mtvsrd  = 0x7C000166, // move to VSR doubleword (used for FPR)
+    PPC_mtvsrws = 0x7C000326, // move to VSR word and splat (used for FPR)
     PPC_mtspr   = 0x7C0003A6, // move to spr
     PPC_mulhd   = 0x7C000092, // multiply high signed doubleword
     PPC_mulhdu  = 0x7C000012, // multiply high signed doubleword
@@ -482,6 +483,8 @@ enum PPCOpcodes {
     PPC_xor     = 0x7C000278, // xor
     PPC_xori    = 0x68000000, // xor immediate
     PPC_xoris   = 0x6C000000, // xor immediate shifted
+    PPC_xscvspdp= 0xF0000524, // VSX scalar convert single to double (for FPR)
+    PPC_xxbrd   = 0xF017076C, // VSX byte-reverse doubleword
 
     // simplified mnemonics
     PPC_mr = PPC_or,
@@ -1365,11 +1368,15 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
 	BufferOffset as_mcrfs(CRegisterID bf, uint8_t bfa);
 
 // VSX
+// Currently supported only for FPRs.
     BufferOffset as_mfvsrd(Register ra, FloatRegister xs);
     BufferOffset as_mtvsrd(FloatRegister xs, Register ra);
+    BufferOffset as_mtvsrws(FloatRegister xs, Register ra);
+    BufferOffset as_xxbrd(FloatRegister xt, FloatRegister xb);
+    BufferOffset as_xscvspdp(FloatRegister xt, FloatRegister xb);
 
 	// Conveniences and generally accepted alternate mnemonics.
-// XXX: change these to xs_
+// XXX: change these to xs_ and remove ones we don't actually use
 	BufferOffset xs_trap();
 	BufferOffset xs_trap_tagged(TrapTag tag); // Codegen for marking traps in output.
 	BufferOffset xs_mr(Register rd, Register ra);

@@ -1713,6 +1713,7 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
 }
 
 // VSX
+// Currently only supported for FPRs.
 // No RC forms for these (least significant bit sets vector or FPR).
     BufferOffset Assembler::as_mfvsrd(Register ra, FloatRegister xs) {
         spew("mfvsrd\t%3s,%3s", ra.name(), xs.name());
@@ -1722,6 +1723,18 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
         spew("mtvsrd\t%3s,%3s", xt.name(), ra.name());
         // Yes, same operand order (see PowerISA v3.1 page 121)
         return writeInst(XForm(PPC_mtvsrd, xt, ra, r0, false));
+    }
+    BufferOffset Assembler::as_mtvsrws(FloatRegister xt, Register ra) {
+        spew("mtvsrws\t%3s,%3s", xt.name(), ra.name());
+        return writeInst(XForm(PPC_mtvsrws, xt, ra, r0, false));
+    }
+    BufferOffset Assembler::as_xxbrd(FloatRegister xt, FloatRegister xb) {
+        spew("xxbrd\t%3s,%3s", xt.name(), xb.name());
+        return writeInst(XForm(PPC_xxbrd, xt, f0, xb, false));
+    }
+    BufferOffset Assembler::as_xscvspdp(FloatRegister xt, FloatRegister xb) {
+        spew("xscvspdp\t%3s,%3s", xt.name(), xb.name());
+        return writeInst(XForm(PPC_xscvspdp, xt, f0, xb, false));
     }
 
 // Conveniences and generally accepted alternate mnemonics.
