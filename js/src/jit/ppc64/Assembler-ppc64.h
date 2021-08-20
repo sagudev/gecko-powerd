@@ -353,6 +353,7 @@ enum PPCOpcodes {
     PPC_fdiv    = 0xFC000024, // floating divide (double precision)
     PPC_fdivs   = 0xEC000024, // floating divide (single precision)
     PPC_fmr     = 0xFC000090, // floating move register
+    PPC_fmrgew  = 0xFC00078C, // floating merge even word
     PPC_fmul    = 0xFC000032, // floating multiply (double precision)
     PPC_fmuls   = 0xEC000032, // floating multiply (single precision)
     PPC_fneg    = 0xFC000050, // floating negate
@@ -483,6 +484,7 @@ enum PPCOpcodes {
     PPC_xor     = 0x7C000278, // xor
     PPC_xori    = 0x68000000, // xor immediate
     PPC_xoris   = 0x6C000000, // xor immediate shifted
+    PPC_xscvdpsp= 0xF0000424, // VSX scalar convert double to single (for FPR)
     PPC_xscvspdp= 0xF0000524, // VSX scalar convert single to double (for FPR)
     PPC_xxbrd   = 0xF017076C, // VSX byte-reverse doubleword
 
@@ -1304,6 +1306,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
         DEF_FPUAB(fdivs)
         DEF_FPUAB(fsubs)
         DEF_FPUAB(fcpsgn)
+        DEF_FPUAB(fmrgew)
 #undef DEF_FPUAB
 
 #define DEF_FPUDS(op) BufferOffset as_##op(FloatRegister rd, FloatRegister rs); \
@@ -1373,6 +1376,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
     BufferOffset as_mtvsrd(FloatRegister xs, Register ra);
     BufferOffset as_mtvsrws(FloatRegister xs, Register ra);
     BufferOffset as_xxbrd(FloatRegister xt, FloatRegister xb);
+    BufferOffset as_xscvdpsp(FloatRegister xt, FloatRegister xb);
     BufferOffset as_xscvspdp(FloatRegister xt, FloatRegister xb);
 
 	// Conveniences and generally accepted alternate mnemonics.

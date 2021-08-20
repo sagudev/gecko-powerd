@@ -1025,11 +1025,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void moveFromFloat32(FloatRegister src, Register dest) {
 #ifdef __POWER8_VECTOR__
         MOZ_ASSERT(src != ScratchDoubleReg);
-        // Downconvert prior to storage.
-        // XXX: can we just treat it as a float32 and save using f0?
-        // It seems that the JIT is already treating it that way ...
-        as_frsp(ScratchDoubleReg, src);
+        // Downconvert prior to processing and splat it into 32-bit singles.
+        as_xscvdpsp(ScratchDoubleReg, src);
         as_mfvsrd(dest, ScratchDoubleReg);
+        // Take off the top word, leaving the float.
+        as_rldicl(dest, dest, 0, 32); // "clrldi"
 #else
         // Sigh.
         as_stfsu(src, StackPointer, -4);

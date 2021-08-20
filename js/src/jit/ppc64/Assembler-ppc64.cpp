@@ -1627,6 +1627,7 @@ DEF_FPUAB(fadds)
 DEF_FPUAB(fdivs)
 DEF_FPUAB(fsubs)
 DEF_FPUAB(fcpsgn)
+DEF_FPUAB(fmrgew) /* rc form invalid */
 #undef DEF_FPUAB
 
 #define DEF_FPUDS(op) DEF_XFORM2_F(op) DEF_XFORM2_F_RC(op)
@@ -1731,6 +1732,10 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
     BufferOffset Assembler::as_xxbrd(FloatRegister xt, FloatRegister xb) {
         spew("xxbrd\t%3s,%3s", xt.name(), xb.name());
         return writeInst(XForm(PPC_xxbrd, xt, f0, xb, false));
+    }
+    BufferOffset Assembler::as_xscvdpsp(FloatRegister xt, FloatRegister xb) {
+        spew("xscvdpsp\t%3s,%3s", xt.name(), xb.name());
+        return writeInst(XForm(PPC_xscvdpsp, xt, f0, xb, false));
     }
     BufferOffset Assembler::as_xscvspdp(FloatRegister xt, FloatRegister xb) {
         spew("xscvspdp\t%3s,%3s", xt.name(), xb.name());
