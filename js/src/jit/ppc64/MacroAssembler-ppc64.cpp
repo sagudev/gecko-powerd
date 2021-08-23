@@ -2937,7 +2937,23 @@ MacroAssemblerPPC64::ma_li(Register dest, ImmGCPtr ptr)
 void
 MacroAssemblerPPC64::ma_li(Register dest, Imm32 imm)
 {
-    asMasm().ma_li(dest, (uint64_t)imm.value);
+    // Careful of sign extension!
+    if (imm.value <= 0) {
+        asMasm().ma_li(dest, (uint64_t)imm.value);
+        return;
+    }
+
+    // Check if this is a positive integer with a misinterpretable bit.
+    uint32_t check = (uint32_t)imm.value;
+    if ((check & 0xffff8000) == 0x8000 || // 16-bit
+        (check & 0x80000000) == 0x80000000) {
+        // Load the quantity with manual |ori(s)| to avoid sign extension.
+        xs_li(dest, 0);
+        if (check & 0xffff0000) as_oris(dest, dest, check >> 16);
+        if (check & 0x0000ffff) as_ori(dest, dest, check & 0xffff);
+    } else {
+        asMasm().ma_li(dest, (uint64_t)imm.value);
+    }
 }
 
 // This method generates lis and ori instruction pair that can be modified by
@@ -3896,45 +3912,53 @@ MacroAssembler::call(Label* label)
 CodeOffset
 MacroAssembler::callWithPatch()
 {
-// XXX: this is probably wrong
-    xs_trap();
-    as_b(928, RelativeBranch, LinkB); // make this an obvious number
-
-    return CodeOffset(currentOffset());
+    // Use r12 "as expected" even though this is probably not to ABI-compliant code.
+    m_buffer.ensureSpace(7 * sizeof(uint32_t));
+    CodeOffset farCall(currentOffset());
+    ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
+    xs_mtctr(SecondScratchReg);
+    as_bctr(LinkB);
+    return farCall;
 }
 
 void
 MacroAssembler::patchCall(uint32_t callerOffset, uint32_t calleeOffset)
 {
-    MOZ_CRASH("NYI");
-    BufferOffset call(callerOffset - 7 * sizeof(uint32_t));
-
-    // TODO: patchCall
-    BOffImm16 offset = BufferOffset(calleeOffset).diffB<BOffImm16>(call);
-    if (!offset.isInvalid()) {
-        InstImm* bal = (InstImm*)editSrc(call);
-        bal->setBOffImm16(offset);
-    } else {
-        uint32_t u32Offset = callerOffset - 5 * sizeof(uint32_t);
-        uint32_t* u32 = reinterpret_cast<uint32_t*>(editSrc(BufferOffset(u32Offset)));
-        *u32 = calleeOffset - callerOffset;
-    }
+    // TODO: It may be possible the target still fits in bl's standard
+    // displacement.
+__asm__("trap\n");
+    Instruction* inst = editSrc(BufferOffset(callerOffset));
+    MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
+    MOZ_ASSERT(inst[6].encode() == (PPC_bctr | LinkB)); // bctrl
+    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, (uint64_t)calleeOffset);
+    FlushICache(inst, sizeof(uint32_t) * 5);
+__asm__("trap\n");
 }
 
 CodeOffset
 MacroAssembler::farJumpWithPatch()
 {
-    MOZ_CRASH("NYI");
+    // Use r12 "as expected" even though this is probably not to ABI-compliant code.
+    m_buffer.ensureSpace(7 * sizeof(uint32_t));
     CodeOffset farJump(currentOffset());
+    ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
+    xs_mtctr(SecondScratchReg);
+    as_bctr();
     return farJump;
 }
 
 void
 MacroAssembler::patchFarJump(CodeOffset farJump, uint32_t targetOffset)
 {
-    uint32_t* u32 = reinterpret_cast<uint32_t*>(editSrc(BufferOffset(farJump.offset())));
-    MOZ_ASSERT(*u32 == UINT32_MAX);
-    *u32 = targetOffset - farJump.offset();
+    // TODO: It may be possible, despite calling it a far jump, that the branch
+    // target still fits in b's standard displacement.
+__asm__("trap\n");
+    Instruction* inst = editSrc(BufferOffset(farJump.offset()));
+    MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
+    MOZ_ASSERT(inst[6].encode() == PPC_bctr); // bctr
+    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, (uint64_t)targetOffset);
+    FlushICache(inst, sizeof(uint32_t) * 5);
+__asm__("trap\n");
 }
 
 CodeOffset
@@ -4013,7 +4037,6 @@ void
 MacroAssembler::patchCallToNop(uint8_t* call)
 {
     // everything be nops now yo
-__asm__("trap\n");
     Instruction* inst = (Instruction*) call;
     MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
     MOZ_ASSERT(inst[6].encode() == (PPC_bctr | LinkB)); // bctrl
