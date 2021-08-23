@@ -2718,15 +2718,20 @@ void
 MacroAssembler::truncDoubleToInt32(FloatRegister src, Register dest, Label* fail)
 {
     ADBlock();
+    MOZ_ASSERT(dest != ScratchRegister);
     MOZ_ASSERT(src != ScratchDoubleReg);
 
     // We only care if the conversion is invalid, not if it's inexact.
+    // However, JavaScript defines Math.trunc(-0) == -0, so we need a check.
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctiwz(ScratchDoubleReg, src);
     // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
-    ma_bc(Assembler::SOBit, fail);
+    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_cror(0, 0, 7); // Bond, James Bond: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 
     moveFromDouble(ScratchDoubleReg, dest);
     as_srawi(dest, dest, 0); // clear upper word and sign extend
@@ -2788,7 +2793,7 @@ MacroAssembler::ceilDoubleToInt32(FloatRegister src, Register dest, Label* fail)
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
     moveFromDouble(src, ScratchRegister);
     as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Bond, James Bond: CR0[LT] |= CR1[SO]
+    as_cror(0, 0, 7); // Licenced to kill: CR0[LT] |= CR1[SO]
     ma_bc(Assembler::LessThan, fail);
 
     moveFromDouble(ScratchDoubleReg, dest);
@@ -2821,7 +2826,7 @@ MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
     moveFromDouble(src, ScratchRegister);
     as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Licenced to kill: CR0[LT] |= CR1[SO]
+    as_cror(0, 0, 7); // Nobody does it better: CR0[LT] |= CR1[SO]
     ma_bc(Assembler::LessThan, fail);
 
     moveFromDouble(ScratchDoubleReg, dest);
@@ -2859,7 +2864,7 @@ MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
     moveFromDouble(src, ScratchRegister);
     as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Nobody does it better: CR0[LT] |= CR1[SO]
+    as_cror(0, 0, 7); // Makes me feel sad for the rest: CR0[LT] |= CR1[SO]
     ma_bc(Assembler::LessThan, fail);
 
     moveFromDouble(ScratchDoubleReg, dest);
