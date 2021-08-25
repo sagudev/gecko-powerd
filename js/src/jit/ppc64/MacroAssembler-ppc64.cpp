@@ -3917,53 +3917,125 @@ MacroAssembler::call(Label* label)
 CodeOffset
 MacroAssembler::callWithPatch()
 {
-    // Use r12 "as expected" even though this is probably not to ABI-compliant code.
-    m_buffer.ensureSpace(7 * sizeof(uint32_t));
+    ADBlock();
+
+    // Patched by |patchCall|. However, Wasm code doesn't seem to have a
+    // link phase; everything is relative. Since we may exceed the
+    // allowable displacement of a bl instruction, we need to find a way to
+    // add to PC. The easiest way is to use a short-hop bl to an internal
+    // stanza. Use r12 "as expected" even though this is probably not to
+    // ABI-compliant code.
+    m_buffer.ensureSpace(11 * sizeof(uint32_t));
     CodeOffset farCall(currentOffset());
-    ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
-    xs_mtctr(SecondScratchReg);
-    as_bctr(LinkB);
+
+    // Gate bl instruction. This either directly links to the subroutine, or
+    // falls down to the PC-adder. If not patched, it freezes here.
+    as_b(0, RelativeBranch, LinkB); // 4
+    // When returning from either a direct subroutine link or when we branch
+    // to the PC-adder, this is the return address. It skips the PC-adder.
+    as_b(10 * sizeof(uint32_t)); // 8
+
+    // PC adder. In this setup, the gate is set to link here, so LR will be
+    // pointing at the b instruction above. We can take a full 64-bit
+    // displacement with this method, allowing such useful Wasm programs as
+    // "hello world" and "add one to integer."
+    xs_mflr(SecondScratchReg); // 12
+    ma_liPatchable(ScratchRegister, ImmWord(LabelBase::INVALID_OFFSET)); // 32
+    as_add(SecondScratchReg, SecondScratchReg, ScratchRegister); // 36
+    xs_mtctr(SecondScratchReg); // 40
+    // Link here, setting the new return address to the following instruction.
+    // This saves having to bounce through the b.
+    as_bctr(LinkB); // 44
     return farCall;
 }
 
 void
 MacroAssembler::patchCall(uint32_t callerOffset, uint32_t calleeOffset)
 {
-    // TODO: It may be possible the target still fits in bl's standard
-    // displacement.
-__asm__("trap\n");
+    int32_t offset = calleeOffset - callerOffset;
+
+    // Get a handle to the gate instruction.
     Instruction* inst = editSrc(BufferOffset(callerOffset));
-    MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
-    MOZ_ASSERT(inst[6].encode() == (PPC_bctr | LinkB)); // bctrl
-    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, (uint64_t)calleeOffset);
-    FlushICache(inst, sizeof(uint32_t) * 5);
+    MOZ_ASSERT(inst->extractOpcode() == PPC_b);
+    MOZ_ASSERT((inst[0].encode() & LinkB) == LinkB); // don't patch jumps!
+
+    if (JOffImm26::IsInRange(offset)) {
+        // It's in range, so just patch the gate to call directly.
+        inst[0].setData(PPC_b | JOffImm26(offset).encode() | LinkB);
+        FlushICache(inst, sizeof(uint32_t));
+    } else {
+fprintf(stderr, "patchCall LONG!\n");
 __asm__("trap\n");
+        // Point the gate to the PC-adder.
+        inst[0].setData(PPC_b | (2 * sizeof(uint32_t)) | LinkB);
+        // LR is pointing to callerOffset + 4, so take 4 away from offset
+        // and patch the PC-adder.
+        Assembler::WriteLoad64Instructions(&(inst[3]), ScratchRegister, (uint64_t)(offset - 4));
+        // Nuke most of the call site from orbit. It's the only way to be sure.
+        FlushICache(inst, sizeof(uint32_t) * 8);
+    }
 }
 
 CodeOffset
 MacroAssembler::farJumpWithPatch()
 {
-    // Use r12 "as expected" even though this is probably not to ABI-compliant code.
-    m_buffer.ensureSpace(7 * sizeof(uint32_t));
+    ADBlock();
+
+    // Like the call, this uses a gate and PC-adder for PC-relative branching.
+    // Despite the name, though, we may get "near calls" for smaller scripts,
+    // so we may still use the gate for branches within usual displacement.
+    // I don't know of any wasm scripts that are in fact small, but I'm sure
+    // they exist, potentially as amusing degenerate test cases at parties.
+    // Use r12 "as expected" even though this is probably not to ABI-compliant
+    // code.
+xs_trap();
+    m_buffer.ensureSpace(13 * sizeof(uint32_t));
     CodeOffset farJump(currentOffset());
-    ma_liPatchable(SecondScratchReg, ImmWord(LabelBase::INVALID_OFFSET));
-    xs_mtctr(SecondScratchReg);
-    as_bctr();
+
+    // Gate. Infinite loop if not patched.
+    as_b(0); // 4
+
+    // Patcher immediately follows. Because this whacks LR, we have to save
+    // it first. Unfortunately we'll need a third scratch register here.
+    xs_mflr(ThirdScratchReg); // 8
+    // Use the special bcl-Always (20,31) form to avoid tainting the BHRB.
+    xs_bcl_always(4);
+    xs_mflr(SecondScratchReg); // 16; LR points here
+    ma_liPatchable(ScratchRegister, ImmWord(LabelBase::INVALID_OFFSET)); // 36
+    as_add(SecondScratchReg, SecondScratchReg, ScratchRegister); // 40
+    xs_mtctr(SecondScratchReg); // 44
+    xs_mtlr(ThirdScratchReg); // 48; restore LR
+    as_bctr(); // 52
     return farJump;
 }
 
 void
 MacroAssembler::patchFarJump(CodeOffset farJump, uint32_t targetOffset)
 {
-    // TODO: It may be possible, despite calling it a far jump, that the branch
-    // target still fits in b's standard displacement.
-__asm__("trap\n");
+    int32_t offset = targetOffset - farJump.offset();
+
+    // Get a handle to the gate instruction.
     Instruction* inst = editSrc(BufferOffset(farJump.offset()));
-    MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
-    MOZ_ASSERT(inst[6].encode() == PPC_bctr); // bctr
-    Assembler::WriteLoad64Instructions(inst, SecondScratchReg, (uint64_t)targetOffset);
-    FlushICache(inst, sizeof(uint32_t) * 5);
+    MOZ_ASSERT(inst->extractOpcode() == PPC_b);
+    MOZ_ASSERT(!(inst[0].encode() & LinkB)); // don't patch calls!
+
+    if (JOffImm26::IsInRange(offset)) {
+        // It's in range, so just patch the gate to jump directly.
+        inst[0].setData(PPC_b | JOffImm26(offset).encode());
+        FlushICache(inst, sizeof(uint32_t));
+    } else {
+fprintf(stderr, "farJump LONG!\n");
 __asm__("trap\n");
+        // Point the gate to the PC-adder. This probably should be just a
+        // nop but this instruction sequence is so heavyweight this makes it
+        // easier to debug and reason about.
+        inst[0].setData(PPC_b | sizeof(uint32_t));
+        // LR is pointing to callerOffset + 12, so take 12 away from offset
+        // and patch the PC-adder.
+        Assembler::WriteLoad64Instructions(&(inst[4]), ScratchRegister, (uint64_t)(offset - 12));
+        // Nuke most of the jump site from orbit. It's the only way to be sure.
+        FlushICache(inst, sizeof(uint32_t) * 9);
+    }
 }
 
 CodeOffset

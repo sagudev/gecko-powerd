@@ -1384,6 +1384,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
 	BufferOffset xs_trap();
 	BufferOffset xs_trap_tagged(TrapTag tag); // Codegen for marking traps in output.
 	BufferOffset xs_mr(Register rd, Register ra);
+        BufferOffset xs_bcl_always(int16_t off, LikelyBit lkb = NotLikelyB);
 	BufferOffset x_beq(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bne(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bdnz(int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);

@@ -1784,6 +1784,15 @@ BufferOffset Assembler::x_bdnz(int16_t off, LikelyBit lkb, LinkBit lb)
     return writeInst(PPC_bc | 0x10 << 21 | off | lkb << 21 | lb);
 }
 
+// Emit specialized bcl form to avoid tainting branch history.
+// Link bit is implied; this is meaningless without it.
+BufferOffset Assembler::xs_bcl_always(int16_t off, LikelyBit lkb)
+{
+    spew("bcl 20,4*cr7+so,.+%d\n", off);
+    MOZ_ASSERT(!(off & 0x03));
+    return writeInst(PPC_bc | (20 << 21) | (31 << 16) | off | 0x01);
+}
+
 BufferOffset Assembler::xs_mtctr(Register ra)
 {
     return as_mtspr(ctr, ra);
