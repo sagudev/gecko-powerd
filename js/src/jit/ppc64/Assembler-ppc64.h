@@ -63,38 +63,38 @@ static constexpr Register r29{ Registers::r29 };
 static constexpr Register r30{ Registers::r30 };
 static constexpr Register r31{ Registers::r31 };
 
-static constexpr FloatRegister f0{ FloatRegisters::f0 };
-static constexpr FloatRegister f1{ FloatRegisters::f1 };
-static constexpr FloatRegister f2{ FloatRegisters::f2 };
-static constexpr FloatRegister f3{ FloatRegisters::f3 };
-static constexpr FloatRegister f4{ FloatRegisters::f4 };
-static constexpr FloatRegister f5{ FloatRegisters::f5 };
-static constexpr FloatRegister f6{ FloatRegisters::f6 };
-static constexpr FloatRegister f7{ FloatRegisters::f7 };
-static constexpr FloatRegister f8{ FloatRegisters::f8 };
-static constexpr FloatRegister f9{ FloatRegisters::f9 };
-static constexpr FloatRegister f10{ FloatRegisters::f10 };
-static constexpr FloatRegister f11{ FloatRegisters::f11 };
-static constexpr FloatRegister f12{ FloatRegisters::f12 };
-static constexpr FloatRegister f13{ FloatRegisters::f13 };
-static constexpr FloatRegister f14{ FloatRegisters::f14 };
-static constexpr FloatRegister f15{ FloatRegisters::f15 };
-static constexpr FloatRegister f16{ FloatRegisters::f16 };
-static constexpr FloatRegister f17{ FloatRegisters::f17 };
-static constexpr FloatRegister f18{ FloatRegisters::f18 };
-static constexpr FloatRegister f19{ FloatRegisters::f19 };
-static constexpr FloatRegister f20{ FloatRegisters::f20 };
-static constexpr FloatRegister f21{ FloatRegisters::f21 };
-static constexpr FloatRegister f22{ FloatRegisters::f22 };
-static constexpr FloatRegister f23{ FloatRegisters::f23 };
-static constexpr FloatRegister f24{ FloatRegisters::f24 };
-static constexpr FloatRegister f25{ FloatRegisters::f25 };
-static constexpr FloatRegister f26{ FloatRegisters::f26 };
-static constexpr FloatRegister f27{ FloatRegisters::f27 };
-static constexpr FloatRegister f28{ FloatRegisters::f28 };
-static constexpr FloatRegister f29{ FloatRegisters::f29 };
-static constexpr FloatRegister f30{ FloatRegisters::f30 };
-static constexpr FloatRegister f31{ FloatRegisters::f31 };
+static constexpr FloatRegister f0{ FloatRegisters::f0, FloatRegisters::Double };
+static constexpr FloatRegister f1{ FloatRegisters::f1, FloatRegisters::Double };
+static constexpr FloatRegister f2{ FloatRegisters::f2, FloatRegisters::Double };
+static constexpr FloatRegister f3{ FloatRegisters::f3, FloatRegisters::Double };
+static constexpr FloatRegister f4{ FloatRegisters::f4, FloatRegisters::Double };
+static constexpr FloatRegister f5{ FloatRegisters::f5, FloatRegisters::Double };
+static constexpr FloatRegister f6{ FloatRegisters::f6, FloatRegisters::Double };
+static constexpr FloatRegister f7{ FloatRegisters::f7, FloatRegisters::Double };
+static constexpr FloatRegister f8{ FloatRegisters::f8, FloatRegisters::Double };
+static constexpr FloatRegister f9{ FloatRegisters::f9, FloatRegisters::Double };
+static constexpr FloatRegister f10{ FloatRegisters::f10, FloatRegisters::Double };
+static constexpr FloatRegister f11{ FloatRegisters::f11, FloatRegisters::Double };
+static constexpr FloatRegister f12{ FloatRegisters::f12, FloatRegisters::Double };
+static constexpr FloatRegister f13{ FloatRegisters::f13, FloatRegisters::Double };
+static constexpr FloatRegister f14{ FloatRegisters::f14, FloatRegisters::Double };
+static constexpr FloatRegister f15{ FloatRegisters::f15, FloatRegisters::Double };
+static constexpr FloatRegister f16{ FloatRegisters::f16, FloatRegisters::Double };
+static constexpr FloatRegister f17{ FloatRegisters::f17, FloatRegisters::Double };
+static constexpr FloatRegister f18{ FloatRegisters::f18, FloatRegisters::Double };
+static constexpr FloatRegister f19{ FloatRegisters::f19, FloatRegisters::Double };
+static constexpr FloatRegister f20{ FloatRegisters::f20, FloatRegisters::Double };
+static constexpr FloatRegister f21{ FloatRegisters::f21, FloatRegisters::Double };
+static constexpr FloatRegister f22{ FloatRegisters::f22, FloatRegisters::Double };
+static constexpr FloatRegister f23{ FloatRegisters::f23, FloatRegisters::Double };
+static constexpr FloatRegister f24{ FloatRegisters::f24, FloatRegisters::Double };
+static constexpr FloatRegister f25{ FloatRegisters::f25, FloatRegisters::Double };
+static constexpr FloatRegister f26{ FloatRegisters::f26, FloatRegisters::Double };
+static constexpr FloatRegister f27{ FloatRegisters::f27, FloatRegisters::Double };
+static constexpr FloatRegister f28{ FloatRegisters::f28, FloatRegisters::Double };
+static constexpr FloatRegister f29{ FloatRegisters::f29, FloatRegisters::Double };
+static constexpr FloatRegister f30{ FloatRegisters::f30, FloatRegisters::Double };
+static constexpr FloatRegister f31{ FloatRegisters::f31, FloatRegisters::Double };
 // The rest of the FPRs are the business of the allocator, not the assembler.
 // SPRs and CRs are defined in their respective enums (see Architecture-ppc.h).
 
@@ -219,10 +219,6 @@ static constexpr FloatRegister ScratchSimd128Reg = InvalidFloatReg;
 static constexpr FloatRegister ScratchFloat32Reg = {FloatRegisters::f0,
                                                     FloatRegisters::Single};
 static constexpr FloatRegister ScratchDoubleReg = {FloatRegisters::f0,
-                                                   FloatRegisters::Double};
-static constexpr FloatRegister SecondScratchFloat32Reg = {FloatRegisters::f2,
-                                                    FloatRegisters::Single};
-static constexpr FloatRegister SecondScratchDoubleReg = {FloatRegisters::f2,
                                                    FloatRegisters::Double};
 
 struct ScratchFloat32Scope : public AutoFloatRegisterScope {
@@ -459,6 +455,7 @@ enum PPCOpcodes {
     PPC_sth     = 0xB0000000, // store halfword
     PPC_sthx    = 0x7C00032E, // store halfword indexed
     PPC_sthbrx  = 0x7C00072C, // store halfword indexed (byte swapped)
+    PPC_stop    = 0x4C0002E4, // wasm-specific trap word (see note)
     PPC_stw     = 0x90000000, // store word
     PPC_stwu    = 0x94000000, // store word with update
     PPC_stwux   = 0x7C00016E, // store word with update indexed
@@ -1412,6 +1409,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
 	// Traps
 	BufferOffset as_tw(uint8_t to, Register ra, Register rb);
 	BufferOffset as_twi(uint8_t to, Register ra, int16_t si);
+        BufferOffset as_stop();
 
     // Label operations.
     void bind(InstImm* inst, uintptr_t branch, uintptr_t target, bool bound = false);

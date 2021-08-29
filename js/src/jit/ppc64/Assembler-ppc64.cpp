@@ -1780,7 +1780,7 @@ BufferOffset Assembler::x_bne(CRegisterID cr, int16_t off, LikelyBit lkb, LinkBi
 
 BufferOffset Assembler::x_bdnz(int16_t off, LikelyBit lkb, LinkBit lb)
 {
-    spew("bdnz %d\n", off);
+    spew("bdnz %d", off);
     return writeInst(PPC_bc | 0x10 << 21 | off | lkb << 21 | lb);
 }
 
@@ -1788,7 +1788,7 @@ BufferOffset Assembler::x_bdnz(int16_t off, LikelyBit lkb, LinkBit lb)
 // Link bit is implied; this is meaningless without it.
 BufferOffset Assembler::xs_bcl_always(int16_t off, LikelyBit lkb)
 {
-    spew("bcl 20,4*cr7+so,.+%d\n", off);
+    spew("bcl 20,4*cr7+so,.+%d", off);
     MOZ_ASSERT(!(off & 0x03));
     return writeInst(PPC_bc | (20 << 21) | (31 << 16) | off | 0x01);
 }
@@ -1878,4 +1878,10 @@ BufferOffset Assembler::as_tw(uint8_t to, Register ra, Register rb)
 BufferOffset Assembler::as_twi(uint8_t to, Register ra, int16_t si)
 {
     return writeInst(PPC_twi | (uint32_t)to << 21 | ra.code() << 16 | si);
+}
+
+BufferOffset Assembler::as_stop()
+{
+    spew("stop!!!\n");
+    return writeInst(PPC_stop);
 }

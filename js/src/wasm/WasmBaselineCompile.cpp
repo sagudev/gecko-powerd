@@ -290,6 +290,12 @@ static constexpr Register RabaldrScratchI32 = CallTempReg2;
 #  endif
 #endif
 
+#ifdef JS_CODEGEN_PPC64
+#  define RABALDR_SCRATCH_I32
+// Avoid scratch regs commonly used for argregs.
+static constexpr Register RabaldrScratchI32 = r10;
+#endif
+
 template <MIRType t>
 struct RegTypeOf {
 #ifdef ENABLE_WASM_SIMD
@@ -354,6 +360,10 @@ struct RegPtr : public Register {
 struct RegF32 : public FloatRegister {
   RegF32() : FloatRegister() {}
   explicit RegF32(FloatRegister reg) : FloatRegister(reg) {
+#if defined JS_CODEGEN_PPC64
+    // Explicitly convert to single, or the assert will fail (gcc?).
+    kind_ = FloatRegisters::Single;
+#endif
     MOZ_ASSERT(isSingle());
   }
   bool isValid() const { return !isInvalid(); }

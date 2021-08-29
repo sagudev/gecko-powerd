@@ -454,6 +454,7 @@ static void GenerateCallablePrologue(MacroAssembler& masm, uint32_t* entry) {
 
     // These must be in this precise order. Fortunately we can subsume the
     // SPR load into the initial "verse" since it is treated atomically.
+    // The linkage area required for ABI compliance is baked into the Frame.
     masm.xs_mflr(ScratchRegister);
     masm.as_addi(StackPointer, StackPointer, -(sizeof(Frame)));
     masm.as_std(ScratchRegister, StackPointer, Frame::returnAddressOffset());
@@ -467,7 +468,7 @@ static void GenerateCallablePrologue(MacroAssembler& masm, uint32_t* entry) {
     // just screwed us.
     masm.as_nop(); // 24
     masm.as_nop(); // 28
-    masm.as_nop(); // 32
+    masm.as_nop(); // 32 // trap point
   }
 #else
   {

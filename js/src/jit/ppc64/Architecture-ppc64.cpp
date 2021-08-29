@@ -40,31 +40,15 @@ Registers::FromName(const char *name)
     return Invalid;
 }
 
-FloatRegisters::Encoding
+FloatRegisters::Code
 FloatRegisters::FromName(const char *name)
 {
-    for (uint32_t i = 0; i < Total; i++) {
+    for (size_t i = 0; i < TotalPhys; i++) { // no alternate names
         if (strcmp(GetName(i), name) == 0)
-            return Encoding(i);
+            return Code(i); // thus double
     }
 
     return Invalid;
-}
-
-FloatRegister FloatRegister::singleOverlay() const {
-  MOZ_ASSERT(!isInvalid());
-  if (kind_ == Codes::Double) {
-    return FloatRegister(reg_, Codes::Single);
-  }
-  return *this;
-}
-
-FloatRegister FloatRegister::doubleOverlay() const {
-  MOZ_ASSERT(!isInvalid());
-  if (kind_ != Codes::Double) {
-    return FloatRegister(reg_, Codes::Double);
-  }
-  return *this;
 }
 
 FloatRegisterSet FloatRegister::ReduceSetForPush(const FloatRegisterSet& s) {
@@ -76,7 +60,7 @@ FloatRegisterSet FloatRegister::ReduceSetForPush(const FloatRegisterSet& s) {
   for (FloatRegisterIterator iter(s); iter.more(); ++iter) {
     if ((*iter).isSingle()) {
       // Even for floats, save a full double.
-      mod.addUnchecked((*iter).doubleOverlay());
+      mod.addUnchecked((*iter).asDouble());
     } else {
       mod.addUnchecked(*iter);
     }
@@ -92,13 +76,13 @@ uint32_t FloatRegister::GetPushSizeInBytes(const FloatRegisterSet& s) {
   FloatRegisterSet ss = s.reduceSetForPush();
   uint64_t bits = ss.bits();
   // We only push double registers.
-  MOZ_ASSERT((bits & 0xffffffff) == 0);
-  uint32_t ret = mozilla::CountPopulation32(bits >> 32) * sizeof(double);
+  MOZ_ASSERT((bits & 0xffffffff00000000) == 0);
+  uint32_t ret = mozilla::CountPopulation32(bits) * sizeof(double);
   return ret;
 }
 
 uint32_t FloatRegister::getRegisterDumpOffsetInBytes() {
-  return id() * sizeof(double);
+  return encoding() * sizeof(double);
 }
 
 } // namespace ion
