@@ -365,10 +365,10 @@ MacroAssembler::mulBy3(Register src, Register dest)
 void
 MacroAssembler::inc64(AbsoluteAddress dest)
 {
-    ma_li(ScratchRegister, ImmWord(uintptr_t(dest.addr)));
-    as_ld(SecondScratchReg, ScratchRegister, 0);
-    as_addi(SecondScratchReg, SecondScratchReg, 1);
-    as_std(SecondScratchReg, ScratchRegister, 0);
+    ma_li(SecondScratchReg, ImmWord(uintptr_t(dest.addr)));
+    as_ld(ThirdScratchReg, SecondScratchReg, 0);
+    as_addi(ScratchRegister, ThirdScratchReg, 1);
+    as_std(ScratchRegister, SecondScratchReg, 0);
 }
 
 void
