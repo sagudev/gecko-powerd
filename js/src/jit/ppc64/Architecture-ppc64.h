@@ -389,12 +389,10 @@ struct FloatRegister {
   // These fields only hold valid values: an invalid register is always
   // represented as a valid encoding and kind with the invalid_ bit set.
   uint8_t encoding_;  // 32 encodings
+  uint8_t kind_;      // Double, Single, Simd128
   bool invalid_;
 
  public:
-  // wasm's RegF32 constructor needs this, see WasmBaselineCompile.cpp (gcc difference?)
-  uint8_t kind_;      // Double, Single, Simd128
-
   constexpr FloatRegister(Encoding encoding, Kind kind = FloatRegisters::Double)
       : encoding_(encoding), kind_(kind), invalid_(false) {
     // assert(uint32_t(encoding) < Codes::TotalPhys);

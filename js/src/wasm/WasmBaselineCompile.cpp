@@ -360,10 +360,6 @@ struct RegPtr : public Register {
 struct RegF32 : public FloatRegister {
   RegF32() : FloatRegister() {}
   explicit RegF32(FloatRegister reg) : FloatRegister(reg) {
-#if defined JS_CODEGEN_PPC64
-    // Explicitly convert to single, or the assert will fail (gcc?).
-    kind_ = FloatRegisters::Single;
-#endif
     MOZ_ASSERT(isSingle());
   }
   bool isValid() const { return !isInvalid(); }

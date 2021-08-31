@@ -46,7 +46,8 @@ ABIArgGenerator::next(MIRType type)
         if (usedFPRs_ == 12)
             MOZ_CRASH("ABIArgGenerator overflow(FPRs)");
 
-        current_ = ABIArg(FloatRegister::FromCode((Register::Code)(usedFPRs_ + 1)));
+        current_ = ABIArg(FloatRegister(FloatRegisters::Encoding(usedFPRs_ + 1),
+            type == MIRType::Double ? FloatRegisters::Double : FloatRegisters::Single));
         usedGPRs_++;
         usedFPRs_++;
         break;
