@@ -119,8 +119,8 @@ static constexpr Register IntArgReg5 = r8;
 static constexpr Register IntArgReg6 = r9;
 static constexpr Register IntArgReg7 = r10;
 
-static constexpr Register GlobalReg = r20; // used by AsmJS. Allocatable, but non-volatile.
-static constexpr Register HeapReg = r21; // Ditto.
+static constexpr Register GlobalReg = r23; // used by AsmJS. Allocatable, but non-volatile. Must not clash with wasm.
+static constexpr Register HeapReg = r24; // Ditto.
 
 // These are defined, but not actually used, at least by us (see GetTempRegForIntArg).
 static constexpr Register CallTempNonArgRegs[] = { r10, r9, r8, r7 };

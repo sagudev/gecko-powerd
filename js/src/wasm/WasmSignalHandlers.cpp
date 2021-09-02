@@ -106,6 +106,7 @@ using mozilla::DebugOnly;
 #  if defined(__ppc64__) || defined(__PPC64__) || defined(__ppc64le__) || \
       defined(__PPC64LE__)
 #    define R01_sig(p) ((p)->sc_frame.fixreg[1])
+#    define R31_sig(p) ((p)->sc_frame.fixreg[31])
 #    define R32_sig(p) ((p)->sc_frame.srr0)
 #  endif
 #elif defined(__linux__) || defined(__sun)
@@ -152,6 +153,7 @@ using mozilla::DebugOnly;
 #  if defined(__linux__) && (defined(__ppc64__) || defined(__PPC64__) || \
                              defined(__ppc64le__) || defined(__PPC64LE__))
 #    define R01_sig(p) ((p)->uc_mcontext.gp_regs[1])
+#    define R31_sig(p) ((p)->uc_mcontext.gp_regs[31])
 #    define R32_sig(p) ((p)->uc_mcontext.gp_regs[32])
 #  endif
 #elif defined(__NetBSD__)
@@ -178,6 +180,7 @@ using mozilla::DebugOnly;
 #  if defined(__ppc64__) || defined(__PPC64__) || defined(__ppc64le__) || \
       defined(__PPC64LE__)
 #    define R01_sig(p) ((p)->uc_mcontext.__gregs[_REG_R1])
+#    define R31_sig(p) ((p)->uc_mcontext.__gregs[_REG_R31])
 #    define R32_sig(p) ((p)->uc_mcontext.__gregs[_REG_PC])
 #  endif
 #elif defined(__DragonFly__) || defined(__FreeBSD__) || \
@@ -212,6 +215,7 @@ using mozilla::DebugOnly;
 #  if defined(__FreeBSD__) && (defined(__ppc64__) || defined(__PPC64__) || \
                                defined(__ppc64le__) || defined(__PPC64LE__))
 #    define R01_sig(p) ((p)->uc_mcontext.mc_gpr[1])
+#    define R31_sig(p) ((p)->uc_mcontext.mc_gpr[31])
 #    define R32_sig(p) ((p)->uc_mcontext.mc_srr0)
 #  endif
 #elif defined(XP_DARWIN)
@@ -394,7 +398,7 @@ struct macos_aarch64_context {
     defined(__PPC64LE__)
 #  define PC_sig(p) R32_sig(p)
 #  define SP_sig(p) R01_sig(p)
-#  define FP_sig(p) R01_sig(p)
+#  define FP_sig(p) R31_sig(p)
 #endif
 
 static void SetContextPC(CONTEXT* context, uint8_t* pc) {
