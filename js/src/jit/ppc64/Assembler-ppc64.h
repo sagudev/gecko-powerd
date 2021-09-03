@@ -146,8 +146,11 @@ static constexpr Register ABINonArgReg0 = r19;
 static constexpr Register ABINonArgReg1 = r20;
 static constexpr Register ABINonArgReg2 = r21;
 static constexpr Register ABINonArgReg3 = r22;
-static constexpr Register ABINonArgReturnReg0 = r5;
-static constexpr Register ABINonArgReturnReg1 = r6;
+// These can be non-volatile; they are only used by Wasm, and only after
+// all registers have been spilled. These must not be argregs as they may
+// be used after all argregs are exhausted.
+static constexpr Register ABINonArgReturnReg0 = r29;
+static constexpr Register ABINonArgReturnReg1 = r30;
 static constexpr Register ABINonArgReturnVolatileReg = r11;
 static constexpr Register ABINonVolatileReg = r14;
 
@@ -157,7 +160,7 @@ static constexpr Register InvalidReg{ Registers::invalid_reg };
 static constexpr FloatRegister InvalidFloatReg;
 
 static constexpr Register StackPointer = sp;
-static constexpr Register FramePointer = r31;
+static constexpr Register FramePointer = r31; // wasm
 
 static constexpr Register ScratchRegister = r0;
 static constexpr Register SecondScratchReg = r12;

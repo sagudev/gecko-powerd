@@ -28,6 +28,11 @@ ABIArgGenerator::ABIArgGenerator()
     current_()
 {}
 
+// This is used for inter-Wasm procedure calls as well as regular ABI calls,
+// so when we're compiling Wasm we can "expand" the ABI.
+// However, we must not do anything that assumes the presence of an argument
+// area, since our variant Frame doesn't have one.
+
 ABIArg
 ABIArgGenerator::next(MIRType type)
 {
@@ -35,8 +40,12 @@ ABIArgGenerator::next(MIRType type)
       case MIRType::Int32:
       case MIRType::Int64:
       case MIRType::Pointer: {
-        if (usedGPRs_ == 8)
-            MOZ_CRASH("ABIArgGenerator overflow (GPR)");
+        if (usedGPRs_ == 8) {
+            MOZ_ASSERT(IsCompilingWasm());
+            current_ = ABIArg(stackOffset_);
+            stackOffset_ += sizeof(uintptr_t);
+            break;
+        }
         current_ = ABIArg(Register::FromCode((Register::Code)(usedGPRs_ + 3)));
         usedGPRs_++;
         break;

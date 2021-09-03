@@ -54,6 +54,7 @@ MacroAssembler::move32To64ZeroExtend(Register src, Register64 dest)
 {
     // If the register was loaded with lwz or otherwise
     // the upper word was cleared, a simple move suffices.
+    if (dest.reg != src)
     as_or(dest.reg, src, src);
 }
 
