@@ -3994,7 +3994,9 @@ MacroAssembler::farJumpWithPatch()
 void
 MacroAssembler::patchFarJump(CodeOffset farJump, uint32_t targetOffset)
 {
-    int32_t offset = targetOffset - farJump.offset();
+    // The offset is the patchable stanza, but LR is pointing at the mflr
+    // right before it.
+    int32_t offset = sizeof(uint32_t) + targetOffset - farJump.offset();
 
     // Get a handle to the branch stanza.
     Instruction* inst = editSrc(BufferOffset(farJump.offset()));
@@ -4045,7 +4047,6 @@ CodeOffset
 MacroAssembler::nopPatchableToCall()
 {
     ADBlock();
-    CodeOffset offset(currentOffset());
     as_nop();   // lis
     as_nop();   // ori
     as_nop();   // rldicr
@@ -4053,7 +4054,9 @@ MacroAssembler::nopPatchableToCall()
     as_nop();   // ori
     as_nop();   // mtctr
     as_nop();   // bctrl
-    return offset;
+    // Even though this isn't a call (yet), treat it like one, and have
+    // the returned offset match the future return address.
+    return CodeOffset(currentOffset());
 }
 
 void
@@ -4061,6 +4064,7 @@ MacroAssembler::patchNopToCall(uint8_t* call, uint8_t* target)
 {
     // This will always be a full call stanza.
     Instruction* inst = (Instruction*) call;
+    inst -= 7; // rewind to the first nop
     MOZ_ASSERT(inst[0].encode() == PPC_nop);
     MOZ_ASSERT(inst[1].encode() == PPC_nop);
     MOZ_ASSERT(inst[2].encode() == PPC_nop);
@@ -4081,6 +4085,7 @@ MacroAssembler::patchCallToNop(uint8_t* call)
 {
     // everything be nops now yo
     Instruction* inst = (Instruction*) call;
+    inst -= 7; // rewind to the stanza entry
     MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
     MOZ_ASSERT(inst[6].encode() == (PPC_bctr | LinkB)); // bctrl
 
