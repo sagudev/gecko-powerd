@@ -4000,10 +4000,8 @@ MacroAssembler::patchFarJump(CodeOffset farJump, uint32_t targetOffset)
     Instruction* inst = editSrc(BufferOffset(farJump.offset()));
     MOZ_ASSERT(inst->extractOpcode() == PPC_addis);
 
-__asm__("trap\n");
     Assembler::WriteLoad64Instructions(inst, ScratchRegister, (uint64_t)offset);
     FlushICache(inst, sizeof(uint32_t) * 5);
-__asm__("trap\n");
 }
 
 CodeOffset
