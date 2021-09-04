@@ -41,7 +41,7 @@ ABIArgGenerator::next(MIRType type)
       case MIRType::Int64:
       case MIRType::Pointer: {
         if (usedGPRs_ == 8) {
-            MOZ_ASSERT(IsCompilingWasm());
+            MOZ_RELEASE_ASSERT(IsCompilingWasm(), "no stack corruption from GPR overflow kthxbye");
             current_ = ABIArg(stackOffset_);
             stackOffset_ += sizeof(uintptr_t);
             break;
@@ -52,9 +52,12 @@ ABIArgGenerator::next(MIRType type)
       }
       case MIRType::Float32:
       case MIRType::Double: {
-        if (usedFPRs_ == 12)
-            MOZ_CRASH("ABIArgGenerator overflow(FPRs)");
-
+        if (usedFPRs_ == 12) {
+            MOZ_RELEASE_ASSERT(IsCompilingWasm(), "no stack corruption from FPR overflow kthxbye");
+            current_ = ABIArg(stackOffset_);
+            stackOffset_ += sizeof(double); // keep stack aligned to double
+            break;
+        }
         current_ = ABIArg(FloatRegister(FloatRegisters::Encoding(usedFPRs_ + 1),
             type == MIRType::Double ? FloatRegisters::Double : FloatRegisters::Single));
         usedGPRs_++;
