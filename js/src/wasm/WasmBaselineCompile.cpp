@@ -6705,7 +6705,7 @@ class BaseCompiler final : public BaseCompilerInterface {
       masm.wasmLoad(*access, srcAddr, dest.any());
     }
 #elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     if (IsUnaligned(*access)) {
       switch (dest.tag) {
         case AnyReg::I64:
@@ -15817,8 +15817,13 @@ bool js::wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
   fprintf(stderr, "IsValidStackMapKey: 0x%lx 0x%08x\n", (uint64_t)nextPC, insn[0]);
   return (((uintptr_t(insn) & 3) == 0) &&
           (inst[0].extractOpcode() == js::jit::PPC_addi ||  // stack allocate
-           inst[0].extractOpcode() == js::jit::PPC_ld ||
-           inst[0].extractOpcode() == js::jit::PPC_b));     // branch
+           inst[0].extractOpcode() == js::jit::PPC_addis || // load immediate
+           inst[0].extractOpcode() == js::jit::PPC_lfd ||   // load FPR
+           inst[0].extractOpcode() == js::jit::PPC_lfs ||   // load FPR
+           inst[0].extractOpcode() == js::jit::PPC_ld ||    // load GPR
+           inst[0].extractOpcode() == js::jit::PPC_b ||     // branch
+           inst[0].encode() == js::jit::PPC_nop ||
+           inst[0].encode() == js::jit::PPC_stop));         // designated throw
 #  else
   MOZ_CRASH("IsValidStackMapKey: requires implementation on this platform");
 #  endif

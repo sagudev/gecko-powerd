@@ -42,20 +42,16 @@ MacroAssembler::moveGPR64ToDouble(Register64 src, FloatRegister dest)
 void
 MacroAssembler::move64To32(Register64 src, Register dest)
 {
-    // Registers are registers, so why should it be:
+    // Registers are registers, so why should it be
     // 32 bits are treated differently?
     // (with apologies to Depeche Mode)
-    // Seriously, XXX: should we mask the upper word off??
-    as_or(dest, src.reg, src.reg);
+    as_srawi(dest, src.reg, 0); // clear upper word and sign extend
 }
 
 void
 MacroAssembler::move32To64ZeroExtend(Register src, Register64 dest)
 {
-    // If the register was loaded with lwz or otherwise
-    // the upper word was cleared, a simple move suffices.
-    if (dest.reg != src)
-    as_or(dest.reg, src, src);
+    as_rldicl(dest.reg, src, 0, 32); // "clrldi"
 }
 
 void
@@ -75,13 +71,13 @@ MacroAssembler::move16To64SignExtend(Register src, Register64 dest)
 void
 MacroAssembler::move32To64SignExtend(Register src, Register64 dest)
 {
-    as_extsw(dest.reg, src);
+    as_srawi(dest.reg, src, 0);
 }
 
 void
 MacroAssembler::move32ZeroExtendToPtr(Register src, Register dest)
 {
-    as_rldicl(dest, src, 0, 32);
+    as_rldicl(dest, src, 0, 32); // "clrldi"
 }
 
 

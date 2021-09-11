@@ -2324,23 +2324,33 @@ MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
     ma_bc(index, SecondScratchReg, label, cond);
 }
 
-// XXX: use VSR
 void
 MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output, bool isSaturating,
                                            Label* oolEntry)
 {
+    ADBlock();
+
 xs_trap();
-    as_fctiwu(ScratchDoubleReg, input);
-    ma_push(ScratchDoubleReg);
-    ma_pop(output);
-    ma_bc(ScratchRegister, Imm32(0), oolEntry, Assembler::NotEqual);
+    // We only care if the conversion is invalid, not if it's inexact.
+    // Whack VXCVI.
+    as_mtfsb0(23);
+    as_fctiwuz(ScratchDoubleReg, input);
+    // VXCVI is a failure (over/underflow, NaN, etc.)
+    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
+    moveFromDouble(input, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_cror(0, 0, 7); // CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, oolEntry);
+
+    // OutOfLineTruncateCheckF32/F64ToU32 -> outOfLineWasmTruncateToUInt32Check
+    moveFromDouble(ScratchDoubleReg, output);
+    // Don't sign extend.
 }
 
 void
 MacroAssembler::wasmTruncateFloat32ToUInt32(FloatRegister input, Register output, bool isSaturating,
                                             Label* oolEntry)
 {
-    /* On PowerPC FP registers are always 64-bit, so no difference here. */
     wasmTruncateDoubleToUInt32(input, output, isSaturating, oolEntry);
 }
 
@@ -4065,13 +4075,20 @@ MacroAssembler::patchNopToCall(uint8_t* call, uint8_t* target)
     // This will always be a full call stanza.
     Instruction* inst = (Instruction*) call;
     inst -= 7; // rewind to the first nop
-    MOZ_ASSERT(inst[0].encode() == PPC_nop);
-    MOZ_ASSERT(inst[1].encode() == PPC_nop);
-    MOZ_ASSERT(inst[2].encode() == PPC_nop);
-    MOZ_ASSERT(inst[3].encode() == PPC_nop);
-    MOZ_ASSERT(inst[4].encode() == PPC_nop);
-    MOZ_ASSERT(inst[5].encode() == PPC_nop);
-    MOZ_ASSERT(inst[6].encode() == PPC_nop);
+#if DEBUG
+    if (inst[0].encode() == PPC_nop) {
+        MOZ_ASSERT(inst[1].encode() == PPC_nop);
+        MOZ_ASSERT(inst[2].encode() == PPC_nop);
+        MOZ_ASSERT(inst[3].encode() == PPC_nop);
+        MOZ_ASSERT(inst[4].encode() == PPC_nop);
+        MOZ_ASSERT(inst[5].encode() == PPC_nop);
+        MOZ_ASSERT(inst[6].encode() == PPC_nop);
+    } else {
+        // It is permitted to patch a pre-existing call.
+        MOZ_ASSERT(inst->extractOpcode() == PPC_addis); // lis
+        MOZ_ASSERT(inst[6].encode() == (PPC_bctr | LinkB)); // bctrl
+    }
+#endif
 
     Assembler::WriteLoad64Instructions(inst, SecondScratchReg, (uint64_t) target);
     inst[5].makeOp_mtctr(SecondScratchReg);
@@ -4186,11 +4203,23 @@ void
 MacroAssembler::wasmTruncateDoubleToInt32(FloatRegister input, Register output, bool isSaturating,
                                           Label* oolEntry)
 {
-xs_trap();
-    as_fctiw(ScratchDoubleReg, input);
-    ma_push(ScratchDoubleReg);
-    ma_pop(output);
-    ma_bc(ScratchRegister, Imm32(0), oolEntry, Assembler::NotEqual);
+    ADBlock();
+
+    // We only care if the conversion is invalid, not if it's inexact.
+    // Whack VXCVI.
+    as_mtfsb0(23);
+    as_fctiwz(ScratchDoubleReg, input);
+    // VXCVI is a failure (over/underflow, NaN, etc.)
+    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
+    moveFromDouble(input, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_cror(0, 0, 7); // CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, oolEntry);
+
+    // OutOfLineTruncateCheckF32/F64ToI32 -> outOfLineWasmTruncateToInt32Check
+    moveFromDouble(ScratchDoubleReg, output);
+    // clear and sign extend
+    as_srawi(output, output, 0);
 }
 
 
@@ -4239,63 +4268,31 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt32Check(FloatRegister input, Regi
                                                             Label* rejoin,
                                                             wasm::BytecodeOffset trapOffset)
 {
-    MOZ_CRASH("NYI");
-#if 0 // TODO: outOfLineWasmTruncateToInt32Check
-    bool isUnsigned = flags & TRUNC_UNSIGNED;
-    bool isSaturating = flags & TRUNC_SATURATING;
-
-    if(isSaturating) {
-
-        if(fromType == MIRType::Double)
-            asMasm().loadConstantDouble(0.0, ScratchDoubleReg);
-        else
-            asMasm().loadConstantFloat32(0.0f, ScratchFloat32Reg);
-
-        if(isUnsigned) {
-
-            ma_li(output, Imm32(UINT32_MAX));
-
-            FloatTestKind moveCondition;
-            compareFloatingPoint(input, ScratchDoubleReg,
-                                 Assembler::DoubleLessThanOrUnordered);
-            MOZ_ASSERT(moveCondition == TestForTrue);
-
-            as_movt(output, zero);
-        } else {
-
-            // Positive overflow is already saturated to INT32_MAX, so we only have
-            // to handle NaN and negative overflow here.
-
-            FloatTestKind moveCondition;
-            compareFloatingPoint(input, input, Assembler::DoubleUnordered);
-            MOZ_ASSERT(moveCondition == TestForTrue);
-
-            as_movt(output, zero);
-
-            compareFloatingPoint(input, ScratchDoubleReg,
-                                 Assembler::DoubleUnordered);
-            MOZ_ASSERT(moveCondition == TestForTrue);
-
-            ma_li(ScratchRegister, Imm32(INT32_MIN));
-            as_movt(output, ScratchRegister);
-        }
-
-        MOZ_ASSERT(rejoin->bound());
-        asMasm().jump(rejoin);
-        return;
-    }
+    ADBlock();
+    // We end up here if VXCVI is set during truncation. That occurs if
+    // there is negative or positive overflow (regardless of the converting
+    // instruction, FPR size or the signedness of the result) or NaN.
 
     Label inputIsNaN;
+    bool isSaturating = flags & TRUNC_SATURATING;
 
-    if (fromType == MIRType::Double)
-        asMasm().branchDouble(Assembler::DoubleUnordered, input, input, &inputIsNaN);
-    else if (fromType == MIRType::Float32)
-        asMasm().branchFloat(Assembler::DoubleUnordered, input, input, &inputIsNaN);
+xs_trap();
+    // Test for NaN.
+    compareFloatingPoint(input, input, Assembler::DoubleUnordered);
+    ma_bc(Assembler::DoubleUnordered, &inputIsNaN, ShortJump);
 
-    asMasm().wasmTrap(wasm::Trap::IntegerOverflow, trapOffset);
+    if (isSaturating) {
+        // fctiwz and fctiwuz both saturate to their respective extents, so
+        // we can rejoin; the output value is correct.
+        ma_b(rejoin);
+    } else {
+        // XXX: Negative zero check?
+        // We must have overflowed.
+        asMasm().wasmTrap(wasm::Trap::IntegerOverflow, trapOffset);
+    }
+
     asMasm().bind(&inputIsNaN);
     asMasm().wasmTrap(wasm::Trap::InvalidConversionToInteger, trapOffset);
-#endif
 }
 
 void
