@@ -39,7 +39,9 @@ ABIArgGenerator::next(MIRType type)
     switch (type) {
       case MIRType::Int32:
       case MIRType::Int64:
-      case MIRType::Pointer: {
+      case MIRType::Pointer:
+      case MIRType::RefOrNull:
+      case MIRType::StackResults: {
         if (usedGPRs_ == 8) {
             MOZ_RELEASE_ASSERT(IsCompilingWasm(), "no stack corruption from GPR overflow kthxbye");
             current_ = ABIArg(stackOffset_);

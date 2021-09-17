@@ -1635,6 +1635,7 @@ MacroAssemblerPPC64Compat::storeValue(ValueOperand val, const Address& dest)
     storePtr(val.valueReg(), dest);
 }
 
+static_assert(JSVAL_TAG_SHIFT == 47); // a lot would break if this changed ...
 void
 MacroAssemblerPPC64Compat::storeValue(JSValueType type, Register reg, Address dest)
 {
@@ -1642,12 +1643,18 @@ MacroAssemblerPPC64Compat::storeValue(JSValueType type, Register reg, Address de
 
     if (type == JSVAL_TYPE_INT32 || type == JSVAL_TYPE_BOOLEAN) {
         // This isn't elegant, but saves us some scratch register contention.
-        MOZ_ASSERT(reg != SecondScratchReg);
+        MOZ_ASSERT(reg != ScratchRegister);
+        MOZ_ASSERT(dest.base != ScratchRegister);
+        MOZ_ASSERT(Imm16::IsInSignedRange(dest.offset + 4));
 
         store32(reg, dest);
-        JSValueShiftedTag tag = (JSValueShiftedTag)JSVAL_TYPE_TO_SHIFTED_TAG(type);
+        uint32_t utag = (uint32_t)JSVAL_TYPE_TO_TAG(type) << (JSVAL_TAG_SHIFT - 32);
+        // Hardcode this as ma_li doesn't generate good code here. It will
+        // never fit into a 16-bit immediate.
+        xs_lis(ScratchRegister, (utag >> 16));
+        as_ori(ScratchRegister, ScratchRegister, utag & 0x0000ffff);
         // ENDIAN!!!
-        store32(((Imm64(tag)).secondHalf()), Address(dest.base, dest.offset + 4));
+        store32(ScratchRegister, Address(dest.base, dest.offset + 4));
     } else {
         MOZ_ASSERT(reg != SecondScratchReg);
         MOZ_ASSERT(dest.base != SecondScratchReg);
@@ -2220,6 +2227,7 @@ void
 MacroAssembler::branchValueIsNurseryCell(Condition cond, const Address& address, Register temp,
                                          Label* label)
 {
+    ADBlock();
     MOZ_ASSERT(temp != InvalidReg);
     loadValue(address, ValueOperand(temp));
     branchValueIsNurseryCell(cond, ValueOperand(temp), InvalidReg, label);

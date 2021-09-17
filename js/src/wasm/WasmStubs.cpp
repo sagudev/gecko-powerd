@@ -2681,6 +2681,11 @@ static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(Registers::AllMask &
                        ~(uint32_t(1) << Registers::StackPointer)),
     FloatRegisterSet(FloatRegisters::AllMask));
+#elif defined(JS_CODEGEN_PPC64)
+// Note that this includes no SPRs.
+static const LiveRegisterSet RegsToPreserve(
+    GeneralRegisterSet(Registers::AllMask),
+    FloatRegisterSet(FloatRegisters::AllMask));
 #else
 static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(0), FloatRegisterSet(FloatRegisters::AllDoubleMask));

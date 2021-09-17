@@ -15818,11 +15818,12 @@ bool js::wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
   return (((uintptr_t(insn) & 3) == 0) &&
           (inst[0].extractOpcode() == js::jit::PPC_addi ||  // stack allocate
            inst[0].extractOpcode() == js::jit::PPC_addis || // load immediate
+           inst[0].extractOpcode() == js::jit::PPC_cmpwi || // test after bl
            inst[0].extractOpcode() == js::jit::PPC_lfd ||   // load FPR
            inst[0].extractOpcode() == js::jit::PPC_lfs ||   // load FPR
            inst[0].extractOpcode() == js::jit::PPC_ld ||    // load GPR
            inst[0].extractOpcode() == js::jit::PPC_b ||     // branch
-           inst[0].encode() == js::jit::PPC_nop ||
+           inst[0].encode() == js::jit::PPC_nop ||          // GET BACK TO WORK
            inst[0].encode() == js::jit::PPC_stop));         // designated throw
 #  else
   MOZ_CRASH("IsValidStackMapKey: requires implementation on this platform");
