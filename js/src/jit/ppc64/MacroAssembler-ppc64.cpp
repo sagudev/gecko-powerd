@@ -822,6 +822,7 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmWord imm, Condition
     if (imm.value <= INT16_MAX) {
         ma_cmp_set(rd, rs, Imm16(uint16_t(imm.value)), c);
     } else {
+        MOZ_ASSERT(rs != ScratchRegister);
         ma_li(ScratchRegister, imm);
         ma_cmp_set(rd, rs, ScratchRegister, c);
     }
@@ -3687,11 +3688,7 @@ MacroAssemblerPPC64::ma_lis(FloatRegister dest, float value)
     Imm32 imm(mozilla::BitwiseCast<uint32_t>(value));
 
     ma_li(ScratchRegister, imm);
-    // Unfortunately there is no VSX instruction to load a single-precision
-    // float directly from a GPR, so we have to dump this on the stack.
-    as_stwu(ScratchRegister, StackPointer, -4);
-    as_lfs(dest, StackPointer, 0);
-    as_addi(StackPointer, StackPointer, 4);
+    asMasm().moveToFloat32(ScratchRegister, dest);
 }
 
 void

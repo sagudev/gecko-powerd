@@ -624,8 +624,10 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     template <typename T>
     void unboxObjectOrNull(const T& src, Register dest) {
         unboxNonDouble(src, dest, JSVAL_TYPE_OBJECT);
-        ma_li(ScratchRegister, Imm32(0));
-        ma_dins(dest, ScratchRegister, Imm32(JSVAL_TAG_SHIFT + 3), Imm32(1));
+        // Assuming this assert is true, we've already cleared that bit
+        // by clearing the tag. We could also do what ARM does.
+        static_assert(JS::detail::ValueObjectOrNullBit ==
+                     (uint64_t(0x8) << JSVAL_TAG_SHIFT));
     }
 
     void unboxGCThingForGCBarrier(const Address& src, Register dest) {

@@ -15819,6 +15819,7 @@ bool js::wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
           (inst[0].extractOpcode() == js::jit::PPC_addi ||  // stack allocate
            inst[0].extractOpcode() == js::jit::PPC_addis || // load immediate
            inst[0].extractOpcode() == js::jit::PPC_cmpwi || // test after bl
+           inst[0].extractOpcode() == js::jit::PPC_cmpw ||  // (extsw, same)
            inst[0].extractOpcode() == js::jit::PPC_lfd ||   // load FPR
            inst[0].extractOpcode() == js::jit::PPC_lfs ||   // load FPR
            inst[0].extractOpcode() == js::jit::PPC_ld ||    // load GPR
