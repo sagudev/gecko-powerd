@@ -292,8 +292,9 @@ static constexpr Register RabaldrScratchI32 = CallTempReg2;
 
 #ifdef JS_CODEGEN_PPC64
 #  define RABALDR_SCRATCH_I32
-// Avoid scratch regs commonly used for argregs.
-static constexpr Register RabaldrScratchI32 = r10;
+// We can use all the argregs up, and we don't want the JIT using our own
+// private scratch registers, so this is the best option of what's left.
+static constexpr Register RabaldrScratchI32 = r19;
 #endif
 
 template <MIRType t>
@@ -6046,7 +6047,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     // Jump indirect via table element.
     masm.ma_ldr(DTRAddr(scratch, DtrRegImmShift(switchValue, LSL, 2)), pc,
                 Offset, Assembler::Always);
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     ScratchI32 scratch(*this);
     CodeLabel tableCl;
 
@@ -6297,6 +6298,8 @@ class BaseCompiler final : public BaseCompilerInterface {
 #elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
     defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
     return needI32();
+#elif defined(JS_CODEGEN_PPC64)
+    return RegI32::Invalid(); // We rock.
 #else
     MOZ_CRASH("BaseCompiler platform hook: needPopcnt32Temp");
 #endif
@@ -6308,6 +6311,8 @@ class BaseCompiler final : public BaseCompilerInterface {
 #elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
     defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
     return needI32();
+#elif defined(JS_CODEGEN_PPC64)
+    return RegI32::Invalid();
 #else
     MOZ_CRASH("BaseCompiler platform hook: needPopcnt64Temp");
 #endif
@@ -6827,7 +6832,7 @@ class BaseCompiler final : public BaseCompilerInterface {
         masm.wasmStore(*access, src.any(), HeapReg, ptr, ptr);
       }
     }
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     if (IsUnaligned(*access)) {
       switch (src.tag) {
         case AnyReg::I64:
@@ -7066,6 +7071,8 @@ class BaseCompiler final : public BaseCompilerInterface {
     pop2xI64(r0, r1);
     *temp = needI32();
 #elif defined(JS_CODEGEN_ARM64)
+    pop2xI64(r0, r1);
+#elif defined(JS_CODEGEN_PPC64)
     pop2xI64(r0, r1);
 #else
     MOZ_CRASH("BaseCompiler porting interface: pop2xI64ForMulI64");

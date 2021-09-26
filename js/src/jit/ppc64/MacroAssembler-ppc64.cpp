@@ -3185,6 +3185,8 @@ MacroAssemblerPPC64::ma_subTestOverflow(Register rd, Register rs, Imm32 imm, Lab
 void
 MacroAssemblerPPC64::ma_mul(Register rd, Register rs, Imm32 imm)
 {
+    ADBlock();
+    MOZ_ASSERT(rs != ScratchRegister);
     ma_li(ScratchRegister, imm);
     as_mulld(rd, rs, ScratchRegister);
 }
@@ -3192,6 +3194,10 @@ MacroAssemblerPPC64::ma_mul(Register rd, Register rs, Imm32 imm)
 void
 MacroAssemblerPPC64::ma_mul_branch_overflow(Register rd, Register rs, Register rt, Label* overflow)
 {
+    ADBlock();
+    MOZ_ASSERT(rs != ScratchRegister);
+    MOZ_ASSERT(rt != ScratchRegister);
+
     // This is a 32-bit operation, so we need to whack and test XER[OV32].
     xs_li(ScratchRegister, 0);
     xs_mtxer(ScratchRegister);
@@ -3202,8 +3208,9 @@ MacroAssemblerPPC64::ma_mul_branch_overflow(Register rd, Register rs, Register r
 void
 MacroAssemblerPPC64::ma_mul_branch_overflow(Register rd, Register rs, Imm32 imm, Label* overflow)
 {
-    ma_li(ScratchRegister, imm);
-    ma_mul_branch_overflow(rd, rs, ScratchRegister, overflow);
+    ADBlock();
+    ma_li(SecondScratchReg, imm);
+    ma_mul_branch_overflow(rd, rs, SecondScratchReg, overflow);
 }
 
 // Memory.

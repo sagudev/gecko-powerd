@@ -2128,7 +2128,16 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
 
   // Make the call, test whether it succeeded, and extract the return value.
   AssertStackAlignment(masm, ABIStackAlignment);
+#ifdef JS_CODEGEN_PPC64
+  // Because this is calling an ABI-compliant function, we have to pull down
+  // a dummy linkage area or the values on the stack will be stomped on. The
+  // minimum size is sufficient.
+  masm.as_addi(masm.getStackPointer(), masm.getStackPointer(), -32);
+#endif
   masm.call(SymbolicAddress::CallImport_General);
+#ifdef JS_CODEGEN_PPC64
+  masm.as_addi(masm.getStackPointer(), masm.getStackPointer(), 32);
+#endif
   masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, throwLabel);
 
   ResultType resultType = ResultType::Vector(fi.funcType().results());
