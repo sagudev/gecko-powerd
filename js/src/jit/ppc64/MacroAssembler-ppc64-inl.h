@@ -469,8 +469,17 @@ MacroAssembler::lshift64(Register shift, Register64 dest)
 void
 MacroAssembler::rshiftPtr(Imm32 imm, Register dest)
 {
-    MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    ma_dsrl(dest, dest, imm);
+    // Same deal as rshift32, same twist.
+    if (!(imm.value % 64)) {
+        if (imm.value == 0) {
+            // No-op
+        } else {
+            // 64 bits right-shifted 64 bits is zero.
+            xs_li(dest, 0);
+        }
+    } else {
+        x_srdi(dest, dest, imm.value % 64);
+    }
 }
 
 void
@@ -482,8 +491,7 @@ MacroAssembler::rshiftPtr(Register shift, Register dest)
 void
 MacroAssembler::rshift64(Imm32 imm, Register64 dest)
 {
-    MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    ma_dsrl(dest.reg, dest.reg, imm);
+    rshiftPtr(imm, dest.reg);
 }
 
 void
@@ -1178,6 +1186,7 @@ MacroAssembler::mulDoublePtr(ImmPtr imm, Register temp, FloatRegister dest)
     mulDouble(ScratchDoubleReg, dest);
 }
 
+// XXX: use modsw/moduw on P9
 void
 MacroAssembler::remainder32(Register rhs, Register srcDest, bool isUnsigned)
 {
@@ -1306,7 +1315,21 @@ MacroAssembler::rshift32(Register src, Register dest)
 void
 MacroAssembler::rshift32(Imm32 imm, Register dest)
 {
-    x_srwi(dest, dest, imm.value % 32);
+    // Same deal with a twist:
+    // If imm.value is a multiple of 32, then n = 0, and we assert because
+    // the underlying rlwinm has to encode 32 in a 5-bit field. So, if the
+    // modulo is zero, emit a clrldi or load zero instead (based on what srawi
+    // does on 64-bit systems, minus the sign extension).
+    if (!(imm.value % 32)) {
+        if (imm.value == 0) {
+            as_rldicl(dest, dest, 0, 32); // "clrldi"
+        } else {
+            // Right-shifting a 32-bit quantity 32 bits is zero.
+            xs_li(dest, 0);
+        }
+    } else {
+        x_srwi(dest, dest, imm.value % 32);
+    }
 }
 
 void

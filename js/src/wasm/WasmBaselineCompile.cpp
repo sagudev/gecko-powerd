@@ -6216,6 +6216,12 @@ class BaseCompiler final : public BaseCompilerInterface {
     } else {
       masm.Sdiv(sd, sd, r);
     }
+#  elif defined(JS_CODEGEN_PPC64)
+   if (isUnsigned) {
+     masm.as_divdu(srcDest.reg, srcDest.reg, rhs.reg);
+   } else {
+     masm.as_divd(srcDest.reg, srcDest.reg, rhs.reg);
+   }
 #  else
     MOZ_CRASH("BaseCompiler platform hook: quotientI64");
 #  endif
@@ -6267,6 +6273,16 @@ class BaseCompiler final : public BaseCompilerInterface {
     }
     masm.Mul(t, t, r);
     masm.Sub(sd, sd, t);
+#  elif defined(JS_CODEGEN_PPC64)
+// XXX: use modsd/modud on P9
+    ScratchI32 temp(*this); // lies
+    if (isUnsigned) {
+      masm.as_divdu(temp, srcDest.reg, rhs.reg);
+    } else {
+      masm.as_divd(temp, srcDest.reg, rhs.reg);
+    }
+    masm.as_mulld(temp, temp, rhs.reg);
+    masm.as_subf(srcDest.reg, temp, srcDest.reg); // T = B - A
 #  else
     MOZ_CRASH("BaseCompiler platform hook: remainderI64");
 #  endif

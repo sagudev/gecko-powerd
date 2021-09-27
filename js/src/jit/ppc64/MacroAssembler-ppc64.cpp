@@ -492,11 +492,9 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
     }
 
     // It is entirely possible for the encodedOffset to trigger an
-    // unaligned load. The Baseline Interpreter's byte opcodes may lead a
-    // 32-bit quantity, so the offset is 1 to load that quantity even
-    // though this may mean a trip to a system handler. We should see if
-    // there is potential for optimization there, but the operation is
-    // deliberate, and we must not assert.
+    // unaligned load (for example, this regularly occurs with the Baseline
+    // Interpreter). We should see if there is potential for optimization,
+    // but the operation is deliberate, and we must not assert.
     switch (size) {
       case SizeByte:
         as_lbz(dest, base, encodedOffset);
@@ -530,6 +528,7 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
         if (encodedOffset & 0x03) {
             // Load as two word halves. ENDIAN!
             Register t = (dest == ScratchRegister) ? SecondScratchReg : ScratchRegister;
+            MOZ_ASSERT(base != t);
 
             as_lwz(dest, base, encodedOffset+4); // hi
             as_lwz(t, base, encodedOffset); // lo
@@ -544,6 +543,7 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
     }
 }
 
+// XXX: LoadStoreExtension not used
 void
 MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size,
                                LoadStoreExtension extension)
@@ -577,7 +577,19 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
         as_stw(data, base, encodedOffset);
         break;
       case SizeDouble:
-        as_std(data, base, encodedOffset);
+        // As above.
+        if (encodedOffset & 0x03) {
+            // Store as two word halves. ENDIAN!
+            Register t = (data == ScratchRegister) ? SecondScratchReg : ScratchRegister;
+            MOZ_ASSERT(base != t);
+
+xs_trap();
+            as_stw(data, base, encodedOffset); // lo
+            as_rldicl(t, data, 32, 32); // "srdi"
+            as_stw(t, base, encodedOffset+4); // hi
+        } else {
+            as_std(data, base, encodedOffset);
+        }
         break;
       default:
         MOZ_CRASH("Invalid argument for ma_store");
@@ -2497,10 +2509,7 @@ MacroAssemblerPPC64Compat::wasmLoadI64Impl(const wasm::MemoryAccessDesc& access,
 
     BaseIndex address(memoryBase, ptr, TimesOne);
     if (IsUnaligned(access)) {
-        MOZ_ASSERT(tmp != InvalidReg);
-        asMasm().ma_load_unaligned(access, output.reg, address, tmp,
-                                   static_cast<LoadStoreSize>(8 * byteSize),
-                                   isSigned ? SignExtend : ZeroExtend);
+        asMasm().ma_load(output.reg, address, static_cast<LoadStoreSize>(8 * byteSize), isSigned ? SignExtend : ZeroExtend);
         return;
     }
 
@@ -2542,10 +2551,7 @@ MacroAssemblerPPC64Compat::wasmStoreI64Impl(const wasm::MemoryAccessDesc& access
     BaseIndex address(memoryBase, ptr, TimesOne);
 
     if (IsUnaligned(access)) {
-        MOZ_ASSERT(tmp != InvalidReg);
-        asMasm().ma_store_unaligned(access, value.reg, address, tmp,
-                                    static_cast<LoadStoreSize>(8 * byteSize),
-                                    isSigned ? SignExtend : ZeroExtend);
+        asMasm().ma_store(value.reg, address, static_cast<LoadStoreSize>(8 * byteSize), isSigned ? SignExtend : ZeroExtend);
         return;
     }
 
@@ -3232,6 +3238,7 @@ MacroAssemblerPPC64::ma_load(Register dest, const BaseIndex& src,
     }
 }
 
+// XXX: remove
 void
 MacroAssemblerPPC64::ma_load_unaligned(const wasm::MemoryAccessDesc& access, Register dest, const BaseIndex& src, Register temp,
                                             LoadStoreSize size, LoadStoreExtension extension)
@@ -3322,6 +3329,7 @@ MacroAssemblerPPC64::ma_store(Imm32 imm, const BaseIndex& dest,
     asMasm().ma_store(ScratchRegister, Address(SecondScratchReg, 0), size, extension);
 }
 
+// XXX: remove
 void
 MacroAssemblerPPC64::ma_store_unaligned(Register src, const BaseIndex& dest,
                                         LoadStoreSize size)
@@ -3329,6 +3337,7 @@ MacroAssemblerPPC64::ma_store_unaligned(Register src, const BaseIndex& dest,
     MOZ_CRASH("NYI");
 }
 
+// XXX: remove
 void
 MacroAssemblerPPC64::ma_store_unaligned(const wasm::MemoryAccessDesc& access, Register data,
                                              const BaseIndex& dest, Register temp,
@@ -3991,6 +4000,7 @@ MacroAssembler::farJumpWithPatch()
 {
     ADBlock();
 
+// XXX: use addpcis/lnia on P9
     // Patched with |farJumpWithPatch|. It is guaranteed to be a full stanza.
     // However, we need to do some footwork to get LR since this is
     // PC-relative. Use r12 "as expected" even though this is probably not to
@@ -4420,16 +4430,13 @@ MacroAssemblerPPC64::wasmLoadImpl(const wasm::MemoryAccessDesc& access, Register
 
     BaseIndex address(memoryBase, ptr, TimesOne);
     if (IsUnaligned(access)) {
-        MOZ_ASSERT(tmp != InvalidReg);
         if (isFloat) {
             if (byteSize == 4)
                 asMasm().loadUnalignedFloat32(access, address, tmp, output.fpu());
             else
                 asMasm().loadUnalignedDouble(access, address, tmp, output.fpu());
         } else {
-            asMasm().ma_load_unaligned(access, output.gpr(), address, tmp,
-                                       static_cast<LoadStoreSize>(8 * byteSize),
-                                       isSigned ? SignExtend : ZeroExtend);
+            asMasm().ma_load(output.gpr(), address, static_cast<LoadStoreSize>(8 * byteSize), isSigned ? SignExtend : ZeroExtend);
         }
         return;
     }
@@ -4482,16 +4489,15 @@ MacroAssemblerPPC64::wasmStoreImpl(const wasm::MemoryAccessDesc& access, AnyRegi
 
     BaseIndex address(memoryBase, ptr, TimesOne);
     if (IsUnaligned(access)) {
-        MOZ_ASSERT(tmp != InvalidReg);
         if (isFloat) {
             if (byteSize == 4)
                 asMasm().storeUnalignedFloat32(access, value.fpu(), tmp, address);
             else
                 asMasm().storeUnalignedDouble(access, value.fpu(), tmp, address);
         } else {
-            asMasm().ma_store_unaligned(access, value.gpr(), address, tmp,
-                                        static_cast<LoadStoreSize>(8 * byteSize),
-                                        isSigned ? SignExtend : ZeroExtend);
+            asMasm().ma_store(value.gpr(), address,
+                          static_cast<LoadStoreSize>(8 * byteSize),
+                          isSigned ? SignExtend : ZeroExtend);
         }
         return;
     }
