@@ -48,6 +48,9 @@ ABIArgGenerator::next(MIRType type)
             stackOffset_ += sizeof(uintptr_t);
             break;
         }
+        // Note: we could be passing a full 64-bit quantity as an argument to,
+        // say, uint32_t. We have to compensate for that in other ways when
+        // it makes a difference (see notes in wasm).
         current_ = ABIArg(Register::FromCode((Register::Code)(usedGPRs_ + 3)));
         usedGPRs_++;
         break;

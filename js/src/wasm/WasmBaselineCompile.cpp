@@ -5759,6 +5759,11 @@ class BaseCompiler final : public BaseCompilerInterface {
                                         argLoc.offsetFromArgBase()));
         } else {
           loadI32(arg, RegI32(argLoc.gpr()));
+#if JS_CODEGEN_PPC64
+          // Ensure upper bits are clear: addi can sign-extend, which yields
+          // difficult-to-diagnose bugs when the function expects a uint32_t.
+          masm.as_rldicl(argLoc.gpr(), argLoc.gpr(), 0, 32);
+#endif
         }
         break;
       }
