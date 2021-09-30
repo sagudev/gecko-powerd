@@ -3679,7 +3679,6 @@ MacroAssemblerPPC64::ma_cmp_set_coda(Register rd, Condition c) {
         case GreaterThan:
         case LessThanOrEqual:
             as_rlwinm(rd, rd, 2, 31, 31);
-xs_trap();
             break;
         case LessThan:
         case GreaterThanOrEqual:

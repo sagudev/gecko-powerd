@@ -1179,8 +1179,8 @@ BufferOffset Assembler::as_cmpld(Register ra, Register rb)
 }
 BufferOffset Assembler::as_cmpldi(Register ra, int16_t im)
 {
-    spew("cmpdi\t%3s,%d", ra.name(), im);
-    return writeInst(PPC_cmpdi | ra.code() << 16 | ((uint16_t)im & 0xffff));
+    spew("cmpldi\t%3s,%d", ra.name(), im);
+    return writeInst(PPC_cmpldi | ra.code() << 16 | ((uint16_t)im & 0xffff));
 }
 BufferOffset Assembler::as_cmpw(Register ra, Register rb)
 {
