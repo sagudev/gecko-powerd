@@ -571,7 +571,7 @@ template <typename T1, typename T2>
 void
 MacroAssembler::cmp32Set(Condition cond, T1 lhs, T2 rhs, Register dest)
 {
-    ma_cmp_set(dest, lhs, rhs, cond);
+    ma_cmp_set(dest, lhs, rhs, cond, /* useCmpw */ true);
 }
 
 // ===============================================================

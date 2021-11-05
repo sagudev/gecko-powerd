@@ -1048,7 +1048,7 @@ static uint32_t makeOpMask(uint16_t op)
 
 BufferOffset Assembler::as_bc(int16_t off, uint16_t op, LikelyBit lkb, LinkBit lb)
 {
-    spew("bc%s%s %d,%d", (lb) ? "l" : "", (lkb) ? "+" : "", op, off);
+    spew("bc%s%s BO_BI=0x%04x,%d", (lb) ? "l" : "", (lkb) ? "+" : "", op, off);
     MOZ_ASSERT(!(off & 0x03));
     return writeInst(Instruction(PPC_bc | makeOpMask(op) | lkb << 21 | ((uint16_t)off & 0xfffc) | lb).encode());
 }

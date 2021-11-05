@@ -249,16 +249,17 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_cmp32(Register lhs, Register rhs, Condition c);
     void ma_cmp32(Register lhs, Imm32 rhs, Condition c);
     void ma_cmp32(Register lhs, const Address& rhs, Condition c);
-    void ma_cmp_set(Register dest, Address lhs, Register rhs, Condition c);
-    void ma_cmp_set(Register dst, Register lhs, Register rhs, Condition c);
-    void ma_cmp_set(Register dst, Register lhs, Imm16 imm, Condition c);
-    void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c) {
-        if (imm.value <= INT16_MAX)
-            ma_cmp_set(dst, lhs, Imm16(imm.value), c);
-        else {
+    void ma_cmp_set(Register dest, Address lhs, Register rhs, Condition c, bool useCmpw = false);
+    void ma_cmp_set(Register dst, Register lhs, Register rhs, Condition c, bool useCmpw = false);
+    void ma_cmp_set(Register dst, Register lhs, Imm16 imm, Condition c, bool useCmpw = false);
+    void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c, bool useCmpw = true) {
+        MOZ_ASSERT(useCmpw);
+        if (imm.value <= INT16_MAX && imm.value >= INT16_MIN) {
+            ma_cmp_set(dst, lhs, Imm16(imm.value), c, /* useCmpw */ true);
+        } else {
             MOZ_ASSERT(lhs != ScratchRegister);
             ma_li(ScratchRegister, imm);
-            ma_cmp_set(dst, lhs, ScratchRegister, c);
+            ma_cmp_set(dst, lhs, ScratchRegister, c, /* useCmpw */ true);
         }
     }
     void ma_cmp_set_coda(Register rd, Condition c);
@@ -357,8 +358,8 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_pop(FloatRegister f);
     void ma_push(FloatRegister f);
 
-    void ma_cmp_set(Register dst, Register lhs, ImmWord imm, Condition c);
-    void ma_cmp_set(Register dst, Register lhs, ImmPtr imm, Condition c);
+    void ma_cmp_set(Register dst, Register lhs, ImmWord imm, Condition c, bool useCmpw = false);
+    void ma_cmp_set(Register dst, Register lhs, ImmPtr imm, Condition c, bool useCmpw = false);
 };
 
 class MacroAssembler;

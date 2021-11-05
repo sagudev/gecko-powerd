@@ -239,8 +239,8 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
         xs_li(dest, value); // mscdfr0 asserts
         return;
     }
-    if ((bits & 0xffffffff0000ffff) == 0 ||
-            (bits & 0xffffffff0000ffff) == 0xffffffff00000000) {
+    if ((bits & 0xffffffff8000ffff) == 0 || // sign extension!
+            (bits & 0xffffffff8000ffff) == 0xffffffff80000000) {
         // fits in 16 high bits
         xs_lis(dest, value >> 16); // mscdfr0 asserts
         return;
@@ -258,6 +258,11 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
     } else if (bits & 0x0000ffff00000000) {
         xs_li(dest, (bits >> 32) & 0xffff);
         as_rldicr(dest, dest, 32, 31);
+        loweronly = false;
+    } else if ((bits & 0x80000000) || (bits & 0x00008000)) {
+        // No upper bits were set, so we can't use addi(s) for the lower word
+        // or it will improperly sign-extend.
+        xs_li(dest, 0);
         loweronly = false;
     }
 
@@ -284,7 +289,7 @@ void
 MacroAssemblerPPC64::ma_li(Register dest, ImmWord imm)
 {
     ADBlock();
-    ma_li(dest, (uint64_t)imm.value);
+    ma_li(dest, (int64_t)imm.value);
 }
 
 // This generates immediate loads as well, but always in the
@@ -828,32 +833,35 @@ MacroAssemblerPPC64::ma_bal(Label* label) // The whole world has gone MIPS, I te
 }
 
 void
-MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmWord imm, Condition c)
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmWord imm, Condition c, bool useCmpw)
 {
     ADBlock();
-    if (imm.value <= INT16_MAX) {
-        ma_cmp_set(rd, rs, Imm16(uint16_t(imm.value)), c);
+    if (imm.value <= INT16_MAX) { // unsigned
+        // MIPS alleges that this is always a 32-bit comparison.
+        ma_cmp_set(rd, rs, Imm16(imm.value), c, /* useCmpw */ true);
+    } else if (imm.value <= INT32_MAX) { // unsigned
+        ma_cmp_set(rd, rs, Imm32(imm.value), c, /* useCmpw */ true);
     } else {
         MOZ_ASSERT(rs != ScratchRegister);
         ma_li(ScratchRegister, imm);
-        ma_cmp_set(rd, rs, ScratchRegister, c);
+        ma_cmp_set(rd, rs, ScratchRegister, c, useCmpw);
     }
 }
 
 void
-MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmPtr imm, Condition c)
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmPtr imm, Condition c, bool useCmpw)
 {
-    ma_cmp_set(rd, rs, ImmWord(uintptr_t(imm.value)), c);
+    ma_cmp_set(rd, rs, ImmWord(uintptr_t(imm.value)), c, useCmpw);
 }
 
 void
-MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Register rs, Condition c)
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Register rs, Condition c, bool useCmpw)
 {
     ADBlock();
     MOZ_ASSERT(rs != ScratchRegister);
 
     asMasm().loadPtr(addr, ScratchRegister);
-    ma_cmp_set(rd, ScratchRegister, rs, c);
+    ma_cmp_set(rd, ScratchRegister, rs, c, useCmpw);
 }
 
 // fp instructions
@@ -951,12 +959,15 @@ MacroAssemblerPPC64Compat::buildOOLFakeExitFrame(void* fakeReturnAddr)
 void
 MacroAssemblerPPC64Compat::move32(Imm32 imm, Register dest)
 {
-    ma_li(dest, imm);
+    ADBlock();
+    uint64_t bits = (uint64_t)((int64_t)imm.value & 0x00000000ffffffff);
+    ma_li(dest, bits);
 }
 
 void
 MacroAssemblerPPC64Compat::move32(Register src, Register dest)
 {
+    ADBlock();
     ma_move(dest, src);
 }
 
@@ -1052,12 +1063,14 @@ MacroAssemblerPPC64Compat::load16SignExtend(const BaseIndex& src, Register dest)
 void
 MacroAssemblerPPC64Compat::load32(const Address& address, Register dest)
 {
+    // This must sign-extend for arithmetic to function correctly.
     ma_load(dest, address, SizeWord);
 }
 
 void
 MacroAssemblerPPC64Compat::load32(const BaseIndex& address, Register dest)
 {
+    // This must sign-extend for arithmetic to function correctly.
     ma_load(dest, address, SizeWord);
 }
 
@@ -2351,21 +2364,19 @@ MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output,
 {
     ADBlock();
 
-xs_trap();
     // We only care if the conversion is invalid, not if it's inexact.
+    // Negative zero is treated like positive zero.
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctiwuz(ScratchDoubleReg, input);
     // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(input, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, oolEntry);
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+    ma_bc(Assembler::SOBit, oolEntry);
 
     // OutOfLineTruncateCheckF32/F64ToU32 -> outOfLineWasmTruncateToUInt32Check
-    moveFromDouble(ScratchDoubleReg, output);
+    moveFromDouble(ScratchDoubleReg, ScratchRegister);
     // Don't sign extend.
+    as_rldicl(output, ScratchRegister, 0, 32); // "clrldi"
 }
 
 void
@@ -2415,15 +2426,13 @@ MacroAssembler::wasmTruncateDoubleToInt64(FloatRegister input, Register64 output
     Register output = output_.reg;
 
     // We only care if the conversion is invalid, not if it's inexact.
+    // Negative zero is treated like positive zero.
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctidz(ScratchDoubleReg, input);
     // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(input, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, oolEntry);
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+    ma_bc(Assembler::SOBit, oolEntry);
 
     // OutOfLineTruncateCheckF32OrF64ToI64 -> outOfLineWasmTruncateToInt64Check
     moveFromDouble(ScratchDoubleReg, output);
@@ -2441,17 +2450,14 @@ MacroAssembler::wasmTruncateDoubleToUInt64(FloatRegister input, Register64 outpu
     MOZ_ASSERT(tempDouble.isInvalid());
     Register output = output_.reg;
 
-xs_trap();
     // We only care if the conversion is invalid, not if it's inexact.
+    // Negative zero is treated like positive zero.
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctiduz(ScratchDoubleReg, input);
     // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(input, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, oolEntry);
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+    ma_bc(Assembler::SOBit, oolEntry);
 
     // OutOfLineTruncateCheckF32OrF64ToI64 -> outOfLineWasmTruncateToInt64Check
     moveFromDouble(ScratchDoubleReg, output);
@@ -3623,7 +3629,7 @@ MacroAssemblerPPC64::ma_cmp_set_double(Register dest, FloatRegister lhs, FloatRe
 }
 
 void
-MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c)
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c, bool useCmpw)
 {
     ADBlock();
 
@@ -3632,15 +3638,27 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c
     MOZ_ASSERT(!(c & ConditionOnlyXER));
     if (c & ConditionUnsigned) {
         MOZ_ASSERT(Imm16::IsInUnsignedRange(imm.encode())); // paranoia
-        as_cmpldi(rs, imm.encode());
+        if (useCmpw) {
+            as_cmplwi(rs, imm.encode());
+        } else {
+            as_cmpldi(rs, imm.encode());
+        }
     } else {
         // Just because it's an Imm16 doesn't mean it always fits.
-        if (!Imm16::IsInSignedRange(imm.encode())) {
+        if (!Imm16::IsInSignedRange(imm.decodeSigned())) {
             MOZ_ASSERT(rs != ScratchRegister);
-            ma_li(ScratchRegister, imm.encode());
-            as_cmpd(rs, ScratchRegister);
+            ma_li(ScratchRegister, imm.decodeSigned());
+            if (useCmpw) {
+                as_cmpw(rs, ScratchRegister);
+            } else {
+                as_cmpd(rs, ScratchRegister);
+            }
         } else {
-            as_cmpdi(rs, imm.encode());
+            if (useCmpw) {
+                as_cmpwi(rs, imm.decodeSigned());
+            } else {
+                as_cmpdi(rs, imm.decodeSigned());
+            }
         }
     }
     // Common routine to extract or flip the appropriate CR bit.
@@ -3648,7 +3666,7 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c
 }
 
 void
-MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition c)
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition c, bool useCmpw)
 {
     ADBlock();
 
@@ -3656,9 +3674,18 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Register rt, Condition
     MOZ_ASSERT(!(c & ConditionOnlyXER));
     MOZ_ASSERT(!(c & ConditionZero));
     if (c & ConditionUnsigned) {
-        as_cmpld(rs, rt);
+        // Some compares should only pay attention to the lower word.
+        if (useCmpw) {
+            as_cmplw(rs, rt);
+        } else {
+            as_cmpld(rs, rt);
+        }
     } else {
-        as_cmpd(rs, rt);
+        if (useCmpw) {
+            as_cmpw(rs, rt);
+        } else {
+            as_cmpd(rs, rt);
+        }
     }
     ma_cmp_set_coda(rd, c);
 }
@@ -4227,19 +4254,17 @@ MacroAssembler::wasmTruncateDoubleToInt32(FloatRegister input, Register output, 
     ADBlock();
 
     // We only care if the conversion is invalid, not if it's inexact.
+    // Negative zero is treated like positive zero.
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctiwz(ScratchDoubleReg, input);
     // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(input, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, oolEntry);
+    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+    ma_bc(Assembler::SOBit, oolEntry);
 
     // OutOfLineTruncateCheckF32/F64ToI32 -> outOfLineWasmTruncateToInt32Check
     moveFromDouble(ScratchDoubleReg, output);
-    // clear and sign extend
+    // Clear and sign extend.
     as_srawi(output, output, 0);
 }
 
@@ -4297,7 +4322,6 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt32Check(FloatRegister input, Regi
     Label inputIsNaN;
     bool isSaturating = flags & TRUNC_SATURATING;
 
-xs_trap();
     // Test for NaN.
     compareFloatingPoint(input, input, Assembler::DoubleUnordered);
     ma_bc(Assembler::DoubleUnordered, &inputIsNaN, ShortJump);
@@ -4307,7 +4331,6 @@ xs_trap();
         // we can rejoin; the output value is correct.
         ma_b(rejoin);
     } else {
-        // XXX: Negative zero check?
         // We must have overflowed.
         asMasm().wasmTrap(wasm::Trap::IntegerOverflow, trapOffset);
     }
@@ -4330,7 +4353,6 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt64Check(FloatRegister input, Regi
     Label inputIsNaN;
     bool isSaturating = flags & TRUNC_SATURATING;
 
-xs_trap();
     // Test for NaN.
     compareFloatingPoint(input, input, Assembler::DoubleUnordered);
     ma_bc(Assembler::DoubleUnordered, &inputIsNaN, ShortJump);
@@ -4340,7 +4362,6 @@ xs_trap();
         // we can rejoin; the output value is correct.
         ma_b(rejoin);
     } else {
-        // XXX: Negative zero check?
         // We must have overflowed.
         asMasm().wasmTrap(wasm::Trap::IntegerOverflow, trapOffset);
     }

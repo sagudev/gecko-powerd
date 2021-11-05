@@ -5760,9 +5760,13 @@ class BaseCompiler final : public BaseCompilerInterface {
         } else {
           loadI32(arg, RegI32(argLoc.gpr()));
 #if JS_CODEGEN_PPC64
-          // Ensure upper bits are clear: addi can sign-extend, which yields
-          // difficult-to-diagnose bugs when the function expects a uint32_t.
-          masm.as_rldicl(argLoc.gpr(), argLoc.gpr(), 0, 32);
+          // If this is a call to compiled C++, we must ensure that the
+          // upper 32 bits are clear: addi can sign-extend, which yields
+          // difficult-to-diagnose bugs when the function expects a uint32_t
+          // but the register it gets has a 64-bit value.
+          if (call->usesSystemAbi) {
+            masm.as_rldicl(argLoc.gpr(), argLoc.gpr(), 0, 32);
+          }
 #endif
         }
         break;
@@ -15850,6 +15854,7 @@ bool js::wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
            inst[0].extractOpcode() == js::jit::PPC_cmpw ||  // (extsw, same)
            inst[0].extractOpcode() == js::jit::PPC_lfd ||   // load FPR
            inst[0].extractOpcode() == js::jit::PPC_lfs ||   // load FPR
+           inst[0].extractOpcode() == js::jit::PPC_lwz ||   // load GPR
            inst[0].extractOpcode() == js::jit::PPC_ld ||    // load GPR
            inst[0].extractOpcode() == js::jit::PPC_b ||     // branch
            inst[0].encode() == js::jit::PPC_nop ||          // GET BACK TO WORK
