@@ -136,13 +136,12 @@ MoveEmitterPPC64::emitFloat32Move(const MoveOperand& from, const MoveOperand& to
     MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg() != ScratchFloat32Reg);
     MOZ_ASSERT_IF(to.isFloatReg(), to.floatReg() != ScratchFloat32Reg);
 
-    // Direct FPR-GPR moves are unpossible on Power and it shouldn't happen anyway.
     if (from.isFloatReg()) {
         if (to.isFloatReg()) {
             masm.moveFloat32(from.floatReg(), to.floatReg());
         } else if (to.isGeneralReg()) {
             // Don't bother handling this case.
-            MOZ_CRASH("emitFloat32Move -> GPR not allowed on PowerPC");
+            MOZ_CRASH("emitFloat32Move -> GPR NYI");
         } else {
             MOZ_ASSERT(to.isMemory());
             masm.storeFloat32(from.floatReg(), getAdjustedAddress(to));
@@ -174,7 +173,7 @@ MoveEmitterPPC64::emitDoubleMove(const MoveOperand& from, const MoveOperand& to)
             masm.moveDouble(from.floatReg(), to.floatReg());
         } else if (to.isGeneralReg()) {
             // Maximum bogosity again, dude.
-            MOZ_CRASH("emitDoubleMove FPR -> GPR not allowed on PowerPC");
+            MOZ_CRASH("emitDoubleMove FPR -> GPR NYI");
         } else {
             MOZ_ASSERT(to.isMemory());
             masm.storeDouble(from.floatReg(), getAdjustedAddress(to));
@@ -184,7 +183,7 @@ MoveEmitterPPC64::emitDoubleMove(const MoveOperand& from, const MoveOperand& to)
         masm.loadDouble(getAdjustedAddress(from), to.floatReg());
     } else if (to.isGeneralReg()) {
         // Not handled (yet?)
-        MOZ_CRASH("emitDoubleMove mem -> GPR not allowed on PowerPC");
+        MOZ_CRASH("emitDoubleMove mem -> GPR NYI");
     } else {
         MOZ_ASSERT(from.isMemory());
         MOZ_ASSERT(to.isMemory());

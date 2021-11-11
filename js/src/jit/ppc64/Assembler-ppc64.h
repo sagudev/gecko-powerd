@@ -338,7 +338,9 @@ enum PPCOpcodes {
     PPC_fadds   = 0xEC00002A, // floating add (single precision)
     PPC_fcpsgn  = 0xFC000010, // floating copy sign
     PPC_fcfid   = 0xFC00069C, // floating convert from integer doubleword
-    PPC_fcfidu  = 0xFC00079C, // floating convert from integer doubleword
+    PPC_fcfids  = 0xEC00069C, // floating convert from integer doubleword SP
+    PPC_fcfidu  = 0xFC00079C, // floating convert from integer doubleword US
+    PPC_fcfidus = 0xEC00079C, // floating convert from integer DW (SP+US)
     PPC_fcmpo   = 0xFC000040, // floating compare unordered
     PPC_fcmpu   = 0xFC000000, // floating compare unordered
     PPC_fctid   = 0xFC00065C, // floating convert to integer (to -Inf)
@@ -405,6 +407,7 @@ enum PPCOpcodes {
     PPC_mtfsfi  = 0xFC00010C, // move 4-bit immediate into FPSCR field
     PPC_mtvsrd  = 0x7C000166, // move to VSR doubleword (used for FPR)
     PPC_mtvsrws = 0x7C000326, // move to VSR word and splat (used for FPR)
+    PPC_mtvsrwz = 0x7C0001E6, // move to VSR word and zero (used for FPR)
     PPC_mtspr   = 0x7C0003A6, // move to spr
     PPC_mulhd   = 0x7C000092, // multiply high signed doubleword
     PPC_mulhdu  = 0x7C000012, // multiply high signed doubleword
@@ -485,7 +488,9 @@ enum PPCOpcodes {
     PPC_xori    = 0x68000000, // xor immediate
     PPC_xoris   = 0x6C000000, // xor immediate shifted
     PPC_xscvdpsp= 0xF0000424, // VSX scalar convert double to single (for FPR)
+    PPC_xscvdpspn=0xF000042C, // VSX scalar convert double to single sNaN-pres
     PPC_xscvspdp= 0xF0000524, // VSX scalar convert single to double (for FPR)
+    PPC_xscvspdpn=0xF000052C, // VSX scalar convert single to double sNaN-pres
     PPC_xxbrd   = 0xF017076C, // VSX byte-reverse doubleword
 
     // simplified mnemonics
@@ -1315,7 +1320,9 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
         DEF_FPUDS(fneg)
         DEF_FPUDS(fmr)
         DEF_FPUDS(fcfid)
+        DEF_FPUDS(fcfids)
         DEF_FPUDS(fcfidu)
+        DEF_FPUDS(fcfidus)
         DEF_FPUDS(fctid)
         DEF_FPUDS(fctidz)
         DEF_FPUDS(fctidu)
@@ -1374,10 +1381,13 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
 // Currently supported only for FPRs.
     BufferOffset as_mfvsrd(Register ra, FloatRegister xs);
     BufferOffset as_mtvsrd(FloatRegister xs, Register ra);
+    BufferOffset as_mtvsrwz(FloatRegister xs, Register ra);
     BufferOffset as_mtvsrws(FloatRegister xs, Register ra);
     BufferOffset as_xxbrd(FloatRegister xt, FloatRegister xb);
     BufferOffset as_xscvdpsp(FloatRegister xt, FloatRegister xb);
     BufferOffset as_xscvspdp(FloatRegister xt, FloatRegister xb);
+    BufferOffset as_xscvdpspn(FloatRegister xt, FloatRegister xb);
+    BufferOffset as_xscvspdpn(FloatRegister xt, FloatRegister xb);
 
 	// Conveniences and generally accepted alternate mnemonics.
 // XXX: change these to xs_ and remove ones we don't actually use

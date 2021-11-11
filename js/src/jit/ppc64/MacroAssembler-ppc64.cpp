@@ -72,10 +72,6 @@ MacroAssemblerPPC64Compat::convertBoolToInt32(Register src, Register dest)
 void
 MacroAssemblerPPC64Compat::convertInt32ToDouble(Register src, FloatRegister dest)
 {
-    // Power has no GPR<->FPR moves, and we may not have a linkage area,
-    // so we do this on the stack (see also OPPCC chapter 8 p.156 for the
-    // basic notion, but we have a better choice on POWER9 since we no
-    // longer have to faff around with fake constants like we did in 32-bit).
     ADBlock();
 
     moveToDouble(src, dest);
@@ -190,15 +186,32 @@ MacroAssemblerPPC64Compat::convertFloat32ToInt32(FloatRegister src, Register des
 void
 MacroAssemblerPPC64Compat::convertFloat32ToDouble(FloatRegister src, FloatRegister dest)
 {
-    // Nothing to do.
+    ADBlock();
+    if (IsCompilingWasm()) {
+        // Although the ISA allows us to treat single and double precision FPRs
+        // interchangeably, the Wasm spec requires that NaNs be canonicalized,
+        // essentially making them qNaNs. frsp does this in the other direction
+        // but xscvspdp seems to munge the float going this direction. The most
+        // straightforward workaround is to subtract zero from the float; this
+        // works for all valid values and +/-Infinity, and is sNaN-aware. As a
+        // nice side-effect it will work on any Power chip with an FPU.
+        MOZ_ASSERT(src != ScratchDoubleReg);
+        asMasm().zeroDouble(ScratchDoubleReg); // can't fsub y,x,x with +-Inf
+        as_fsub(dest, src, ScratchDoubleReg); // T = A - B
+    } else {
+        // This isn't necessary elsewhere.
+        if (src != dest) as_fmr(dest, src);
+    }
 }
 
 void
 MacroAssemblerPPC64Compat::convertInt32ToFloat32(Register src, FloatRegister dest)
 {
     ADBlock();
-    convertInt32ToDouble(src, dest);
-    as_frsp(dest, dest); // probably overkill
+    moveToDouble(src, dest);
+    // Enforce rounding mode 0b00 (round-to-nearest ties-to-even).
+    as_mtfsfi(7, 0);
+    as_fcfids(dest, dest);
 }
 
 void
@@ -2722,8 +2735,10 @@ MacroAssembler::convertInt64ToFloat32(Register64 src, FloatRegister dest)
 {
     ADBlock();
 
-    convertInt64ToDouble(src, dest);
-    as_frsp(dest, dest); // probably paranoia
+    moveToDouble(src.reg, dest);
+    // Enforce rounding mode 0b00 (round-to-nearest ties-to-even).
+    as_mtfsfi(7, 0);
+    as_fcfids(dest, dest);
 }
 
 bool
@@ -2748,8 +2763,10 @@ MacroAssembler::convertUInt64ToFloat32(Register64 src, FloatRegister dest, Regis
     ADBlock();
     MOZ_ASSERT(temp == Register::Invalid());
 
-    convertUInt64ToDouble(src, dest, temp);
-    as_frsp(dest, dest);
+    moveToDouble(src.reg, dest);
+    // Enforce rounding mode 0b00 (round-to-nearest ties-to-even).
+    as_mtfsfi(7, 0);
+    as_fcfidus(dest, dest);
 }
 
 void

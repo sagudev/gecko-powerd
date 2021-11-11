@@ -1653,7 +1653,9 @@ DEF_FPUDS(fabs)
 DEF_FPUDS(fneg)
 DEF_FPUDS(fmr)
 DEF_FPUDS(fcfid)
+DEF_FPUDS(fcfids)
 DEF_FPUDS(fcfidu)
+DEF_FPUDS(fcfidus)
 DEF_FPUDS(fctid)
 DEF_FPUDS(fctidz)
 DEF_FPUDS(fctidu)
@@ -1747,6 +1749,10 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
         spew("mtvsrws\t%3s,%3s", xt.name(), ra.name());
         return writeInst(XForm(PPC_mtvsrws, xt, ra, r0, false));
     }
+    BufferOffset Assembler::as_mtvsrwz(FloatRegister xt, Register ra) {
+        spew("mtvsrwz\t%3s,%3s", xt.name(), ra.name());
+        return writeInst(XForm(PPC_mtvsrwz, xt, ra, r0, false));
+    }
     BufferOffset Assembler::as_xxbrd(FloatRegister xt, FloatRegister xb) {
         spew("xxbrd\t%3s,%3s", xt.name(), xb.name());
         return writeInst(XForm(PPC_xxbrd, xt, f0, xb, false));
@@ -1758,6 +1764,14 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
     BufferOffset Assembler::as_xscvspdp(FloatRegister xt, FloatRegister xb) {
         spew("xscvspdp\t%3s,%3s", xt.name(), xb.name());
         return writeInst(XForm(PPC_xscvspdp, xt, f0, xb, false));
+    }
+    BufferOffset Assembler::as_xscvdpspn(FloatRegister xt, FloatRegister xb) {
+        spew("xscvdpspn\t%3s,%3s", xt.name(), xb.name());
+        return writeInst(XForm(PPC_xscvdpspn, xt, f0, xb, false));
+    }
+    BufferOffset Assembler::as_xscvspdpn(FloatRegister xt, FloatRegister xb) {
+        spew("xscvspdpn\t%3s,%3s", xt.name(), xb.name());
+        return writeInst(XForm(PPC_xscvspdpn, xt, f0, xb, false));
     }
 
 // Conveniences and generally accepted alternate mnemonics.

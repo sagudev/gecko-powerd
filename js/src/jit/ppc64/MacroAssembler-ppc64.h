@@ -995,7 +995,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
                               Register temp, const BaseIndex& dest);
 
     void moveDouble(FloatRegister src, FloatRegister dest) {
-        as_fmr(dest, src);
+        if (src != dest) as_fmr(dest, src);
     }
 
     void zeroDouble(FloatRegister reg) {
@@ -1028,8 +1028,10 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void moveFromFloat32(FloatRegister src, Register dest) {
 #ifdef __POWER8_VECTOR__
         MOZ_ASSERT(src != ScratchDoubleReg);
+        // Enforce rounding mode 0b00 (round-to-nearest tie-to-even).
+        as_mtfsfi(7, 0);
         // Downconvert prior to processing and splat it into 32-bit singles.
-        as_xscvdpsp(ScratchDoubleReg, src);
+        as_xscvdpspn(ScratchDoubleReg, src); // preserve sNaN bit, all equal
         as_mfvsrd(dest, ScratchDoubleReg);
         // Take off the top word, leaving the float.
         as_rldicl(dest, dest, 0, 32); // "clrldi"
@@ -1045,8 +1047,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 #ifdef __POWER8_VECTOR__
         // Splat the 32-bit word as singles throughout the VSR, then upconvert
         // to double.
-        as_mtvsrws(dest, src);
-        as_xscvspdp(dest, dest); // resulting two doubles are equal
+        as_mtvsrws(dest, src); // loads into both words of DW 0
+        as_xscvspdpn(dest, dest); // preserve sNaN bit, both doubles are equal
 #else
         // Sigh.
         as_stwu(src, StackPointer, -4);
