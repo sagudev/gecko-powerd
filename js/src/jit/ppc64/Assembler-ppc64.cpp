@@ -42,7 +42,7 @@ ABIArgGenerator::next(MIRType type)
       case MIRType::Pointer:
       case MIRType::RefOrNull:
       case MIRType::StackResults: {
-        if (usedGPRs_ == 8) {
+        if (usedGPRs_ > 7) {
             MOZ_RELEASE_ASSERT(IsCompilingWasm(), "no stack corruption from GPR overflow kthxbye");
             current_ = ABIArg(stackOffset_);
             stackOffset_ += sizeof(uintptr_t);

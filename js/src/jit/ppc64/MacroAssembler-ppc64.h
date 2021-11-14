@@ -161,15 +161,15 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_ctz(Register rd, Register rs);
 
     // load
-    void ma_load(Register dest, const BaseIndex& src, LoadStoreSize size = SizeWord,
+    uint32_t ma_load(Register dest, const BaseIndex& src, LoadStoreSize size = SizeWord,
                  LoadStoreExtension extension = SignExtend);
     void ma_load_unaligned(const wasm::MemoryAccessDesc& access, Register dest, const BaseIndex& src, Register temp,
                            LoadStoreSize size, LoadStoreExtension extension);
 
     // store
-    void ma_store(Register data, const BaseIndex& dest, LoadStoreSize size = SizeWord,
+    uint32_t ma_store(Register data, const BaseIndex& dest, LoadStoreSize size = SizeWord,
                   LoadStoreExtension extension = SignExtend);
-    void ma_store(Imm32 imm, const BaseIndex& dest, LoadStoreSize size = SizeWord,
+    uint32_t ma_store(Imm32 imm, const BaseIndex& dest, LoadStoreSize size = SizeWord,
                   LoadStoreExtension extension = SignExtend);
     void ma_store_unaligned(Register data, const Address& dest,
                             LoadStoreSize size = SizeWord);
@@ -303,11 +303,11 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_dctz(Register rd, Register rs);
 
     // load
-    void ma_load(Register dest, Address address, LoadStoreSize size = SizeWord,
+    uint32_t ma_load(Register dest, Address address, LoadStoreSize size = SizeWord,
                  LoadStoreExtension extension = SignExtend);
 
     // store
-    void ma_store(Register data, Address address, LoadStoreSize size = SizeWord,
+    uint32_t ma_store(Register data, Address address, LoadStoreSize size = SizeWord,
                   LoadStoreExtension extension = SignExtend);
 
     // arithmetic based ops

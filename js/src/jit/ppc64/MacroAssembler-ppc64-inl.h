@@ -443,32 +443,44 @@ MacroAssembler::byteSwap64(Register64 reg)
 void
 MacroAssembler::lshiftPtr(Imm32 imm, Register dest)
 {
-    MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    ma_dsll(dest, dest, imm);
+    MOZ_ASSERT(imm.value >= 0);
+
+    if (imm.value == 0) {
+        // No-op
+    } else {
+        as_rldicr(dest, dest, imm.value % 64, 63 - (imm.value % 64)); // "sldi"
+    }
 }
 
 void
 MacroAssembler::lshiftPtr(Register shift, Register dest)
 {
-    as_sld(dest, dest, shift);
+    // sld will zero out any shift amount greater than 64, but JavaScript
+    // expects this to act like a modulo, so ...
+    MOZ_ASSERT(shift != ScratchRegister);
+    MOZ_ASSERT(dest != ScratchRegister);
+
+    as_andi_rc(ScratchRegister, shift, 63);
+    as_sld(dest, dest, ScratchRegister);
 }
 
 void
 MacroAssembler::lshift64(Imm32 imm, Register64 dest)
 {
-    MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    ma_dsll(dest.reg, dest.reg, imm);
+    lshiftPtr(imm, dest.reg);
 }
 
 void
 MacroAssembler::lshift64(Register shift, Register64 dest)
 {
-    ma_dsll(dest.reg, dest.reg, shift);
+    lshiftPtr(shift, dest.reg);
 }
 
 void
 MacroAssembler::rshiftPtr(Imm32 imm, Register dest)
 {
+    MOZ_ASSERT(imm.value >= 0);
+
     // Same deal as rshift32, same twist.
     if (!(imm.value % 64)) {
         if (imm.value == 0) {
@@ -485,7 +497,10 @@ MacroAssembler::rshiftPtr(Imm32 imm, Register dest)
 void
 MacroAssembler::rshiftPtr(Register shift, Register dest)
 {
-    as_srd(dest, dest, shift);
+    // JavaScript expects the shift to act like a modulo.
+    MOZ_ASSERT(shift != ScratchRegister);
+    as_andi_rc(ScratchRegister, shift, 63);
+    as_srd(dest, dest, ScratchRegister);
 }
 
 void
@@ -497,27 +512,29 @@ MacroAssembler::rshift64(Imm32 imm, Register64 dest)
 void
 MacroAssembler::rshift64(Register shift, Register64 dest)
 {
-    ma_dsrl(dest.reg, dest.reg, shift);
+    rshiftPtr(shift, dest.reg);
 }
 
 void
 MacroAssembler::rshiftPtrArithmetic(Imm32 imm, Register dest)
 {
-    MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    as_sradi(dest, dest, imm.value);
+    MOZ_ASSERT(0 <= imm.value);
+    as_sradi(dest, dest, imm.value % 64);
 }
 
 void
 MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest)
 {
-    MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-    as_sradi(dest.reg, dest.reg, imm.value);
+    rshiftPtrArithmetic(imm, dest.reg);
 }
 
 void
 MacroAssembler::rshift64Arithmetic(Register shift, Register64 dest)
 {
-    as_srad(dest.reg, dest.reg, shift);
+    // JavaScript expects the shift to act like a modulo.
+    MOZ_ASSERT(shift != ScratchRegister);
+    as_andi_rc(ScratchRegister, shift, 63);
+    as_srad(dest.reg, dest.reg, ScratchRegister);
 }
 
 // ===============================================================
@@ -527,32 +544,50 @@ void
 MacroAssembler::rotateLeft64(Imm32 count, Register64 src, Register64 dest, Register temp)
 {
     MOZ_ASSERT(temp == InvalidReg);
+    MOZ_ASSERT(count.value >= 0);
 
-    as_rldicl(dest.reg, src.reg, count.value, 0);
+    if (!(count.value % 64)) {
+        if (src.reg != dest.reg)
+            xs_mr(dest.reg, src.reg);
+    } else {
+        as_rldicl(dest.reg, src.reg, (count.value % 64), 0); // "rotldi"
+    }
 }
 
 void
 MacroAssembler::rotateLeft64(Register count, Register64 src, Register64 dest, Register temp)
 {
     MOZ_ASSERT(temp == InvalidReg);
-    as_rldcl(dest.reg, src.reg, count, 0);
+    as_rldcl(dest.reg, src.reg, count, 0); // "rotld"
 }
 
 void
 MacroAssembler::rotateRight64(Imm32 count, Register64 src, Register64 dest, Register temp)
 {
     MOZ_ASSERT(temp == InvalidReg);
+    MOZ_ASSERT(count.value >= 0);
 
-    as_rldicl(dest.reg, src.reg, 64 - count.value, 0);
+    if (!(count.value % 64)) {
+        if (src.reg != dest.reg)
+            xs_mr(dest.reg, src.reg);
+    } else {
+        as_rldicl(dest.reg, src.reg, 64 - (count.value % 64), 0); // "rotrdi"
+    }
 }
 
 void
 MacroAssembler::rotateRight64(Register count, Register64 src, Register64 dest, Register temp)
 {
     MOZ_ASSERT(temp == InvalidReg);
-    as_addi(ScratchRegister, count, -64);
-    as_andi_rc(ScratchRegister, ScratchRegister, 63);
-    as_rldcl(dest.reg, src.reg, ScratchRegister, 0);
+    MOZ_ASSERT(count != ScratchRegister);
+    MOZ_ASSERT(count != SecondScratchReg);
+    MOZ_ASSERT(src.reg != ScratchRegister);
+    MOZ_ASSERT(src.reg != SecondScratchReg);
+
+    xs_li(ScratchRegister, 64);
+    as_andi_rc(SecondScratchReg, count, 63);
+    as_subf(ScratchRegister, SecondScratchReg, ScratchRegister); // T = B - A
+    as_rldcl(dest.reg, src.reg, ScratchRegister, 0); // "rotrd"
 }
 
 // ===============================================================
@@ -1286,6 +1321,8 @@ MacroAssembler::lshift32(Register src, Register dest)
     // slw will zero out any shift amount greater than 32, but JavaScript
     // expects this to act like a modulo, so ...
     MOZ_ASSERT(src != ScratchRegister);
+    MOZ_ASSERT(dest != ScratchRegister);
+
     as_andi_rc(ScratchRegister, src, 31);
     as_slw(dest, dest, ScratchRegister);
 }
@@ -1308,6 +1345,8 @@ MacroAssembler::rshift32(Register src, Register dest)
 {
     // Same deal.
     MOZ_ASSERT(src != ScratchRegister);
+    MOZ_ASSERT(dest != ScratchRegister);
+
     as_andi_rc(ScratchRegister, src, 31);
     as_srw(dest, dest, ScratchRegister);
 }
@@ -1360,31 +1399,44 @@ MacroAssembler::flexibleRshift32Arithmetic(Register src, Register dest)
 }
 
 // ===============================================================
-// Rotation functions
+// Rotation functions (32-bit unless specified otherwise)
 void
 MacroAssembler::rotateLeft(Imm32 count, Register input, Register dest)
 {
-    as_rldicl(dest, input, count.value % 64, 0);
+    if (count.value) {
+        as_rlwinm(dest, input, count.value % 32, 0, 31); // "rotlwi"
+    } else {
+        if (input != dest)
+            ma_move(dest, input);
+    }
 }
 void
 MacroAssembler::rotateLeft(Register count, Register input, Register dest)
 {
-    as_rldcl(dest, input, count, 0);
+    as_rlwnm(dest, input, count, 0, 31); // "rotlw"
 }
 void
 MacroAssembler::rotateRight(Imm32 count, Register input, Register dest)
 {
-    if (count.value)
-        as_rlwinm(dest, input, 32 - (count.value % 32), 0, 31);
-    else
-        ma_move(dest, input);
+    if (count.value) {
+        as_rlwinm(dest, input, 32 - (count.value % 32), 0, 31); // "rotrwi"
+    } else {
+        if (input != dest)
+            ma_move(dest, input);
+    }
 }
 void
 MacroAssembler::rotateRight(Register count, Register input, Register dest)
 {
-    as_addi(ScratchRegister, count, -32);
-    as_andi_rc(ScratchRegister, ScratchRegister, 31);
-    as_rlwnm(dest, input, ScratchRegister, 0, 31);
+    MOZ_ASSERT(input != ScratchRegister);
+    MOZ_ASSERT(count != ScratchRegister);
+    MOZ_ASSERT(input != SecondScratchReg);
+    MOZ_ASSERT(count != SecondScratchReg);
+
+    xs_li(ScratchRegister, 32);
+    as_andi_rc(SecondScratchReg, count, 31);
+    as_subf(ScratchRegister, SecondScratchReg, ScratchRegister); // T = B - A
+    as_rlwnm(dest, input, ScratchRegister, 0, 31); // "rotrw"
 }
 
 // ===============================================================

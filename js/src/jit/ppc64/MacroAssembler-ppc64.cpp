@@ -6,6 +6,7 @@
 
 #include "jit/ppc64/MacroAssembler-ppc64.h"
 
+#include "mozilla/CheckedInt.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MathAlgorithms.h"
 
@@ -24,6 +25,7 @@ using namespace js;
 using namespace jit;
 
 using mozilla::Abs;
+using mozilla::CheckedInt;
 
 #if DEBUG
 #define spew(...) JitSpew(JitSpew_Codegen, __VA_ARGS__)
@@ -485,12 +487,13 @@ MacroAssemblerPPC64::ma_subTestOverflow(Register rd, Register rs, Register rt, L
 
 // Memory.
 
-void
+uint32_t
 MacroAssemblerPPC64::ma_load(Register dest, Address address,
                               LoadStoreSize size, LoadStoreExtension extension)
 {
     // ADBlock(); // spammy
     int16_t encodedOffset;
+    uint32_t loadInst;
     Register base;
     MOZ_ASSERT(extension == ZeroExtend || extension == SignExtend);
     MOZ_ASSERT(address.base != ScratchRegister);
@@ -516,6 +519,7 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
     switch (size) {
       case SizeByte:
         as_lbz(dest, base, encodedOffset);
+        loadInst = asMasm().size() - 4;
         if (SignExtend == extension)
             as_extsb(dest, dest);
         break;
@@ -524,17 +528,23 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
             as_lha(dest, base, encodedOffset);
         else
             as_lhz(dest, base, encodedOffset);
+        loadInst = asMasm().size() - 4;
         break;
       case SizeWord:
-        if (ZeroExtend == extension)
+        if (ZeroExtend == extension) {
             as_lwz(dest, base, encodedOffset);
-        else {
+            loadInst = asMasm().size() - 4;
+        } else {
             // lwa only valid if word-aligned.
-            if (encodedOffset & 0x03) {
+            // Rule-of-thumb: if we used r12, then it's a computed address,
+            // and we can't assume anything about its alignment.
+            if ((encodedOffset & 0x03) || base == SecondScratchReg) {
                 as_lwz(dest, base, encodedOffset);
+                loadInst = asMasm().size() - 4;
                 as_extsw(dest, dest);
             } else {
                 as_lwa(dest, base, encodedOffset);
+                loadInst = asMasm().size() - 4;
             }
         }
         break;
@@ -542,37 +552,46 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
         // However, unaligned loads really make a difference here, because
         // the ld instruction can only load on word boundaries (the lowest
         // two bits are part of the instruction encoding). We assert on that
-        // in the Assembler.
-        if (encodedOffset & 0x03) {
+        // in the Assembler. (Same rule of thumb as above.)
+        if ((encodedOffset & 0x03) || base == SecondScratchReg) {
             // Load as two word halves. ENDIAN!
-            Register t = (dest == ScratchRegister) ? SecondScratchReg : ScratchRegister;
+            Register t = (dest == ScratchRegister && base == SecondScratchReg) ? ThirdScratchReg : (dest == ScratchRegister) ? SecondScratchReg : ScratchRegister;
             MOZ_ASSERT(base != t);
 
-            as_lwz(dest, base, encodedOffset+4); // hi
-            as_lwz(t, base, encodedOffset); // lo
-            as_rldicr(dest, dest, 32, 31); // shift
+            // There are two loads here, so mark the highest address.
+            as_lwz(t, base, encodedOffset+4); // hi
+            loadInst = asMasm().size() - 4;
+            // Load dest last, in case dest == base (not rare).
+            as_lwz(dest, base, encodedOffset); // lo
+            as_rldicr(t, t, 32, 31); // shift
             as_or(dest, dest, t); // merge
+            loadInst |= 1; // advise two marks required
         } else {
             as_ld(dest, base, encodedOffset);
+            loadInst = asMasm().size() - 4;
         }
         break;
       default:
         MOZ_CRASH("Invalid argument for ma_load");
     }
+
+    return loadInst;
 }
 
 // XXX: LoadStoreExtension not used
-void
+uint32_t
 MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size,
                                LoadStoreExtension extension)
 {
     //ADBlock(); // spammy
     int16_t encodedOffset;
+    uint32_t loadInst = 0;
     Register base;
     MOZ_ASSERT(address.base != ScratchRegister);
 
     // XXX: as above
-    if (!Imm16::IsInSignedRange(address.offset)) {
+    // Use worst-case here in case we have to break a double store apart.
+    if (!Imm16::IsInSignedRange(address.offset + 4)) {
         MOZ_ASSERT(address.base != SecondScratchReg);
         ma_li(SecondScratchReg, Imm32(address.offset));
         as_add(SecondScratchReg, address.base, SecondScratchReg);
@@ -587,31 +606,39 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
     switch (size) {
       case SizeByte:
         as_stb(data, base, encodedOffset);
+        loadInst = asMasm().size() - 4;
         break;
       case SizeHalfWord:
         as_sth(data, base, encodedOffset);
+        loadInst = asMasm().size() - 4;
         break;
       case SizeWord:
         as_stw(data, base, encodedOffset);
+        loadInst = asMasm().size() - 4;
         break;
       case SizeDouble:
         // As above.
-        if (encodedOffset & 0x03) {
+        if (base == SecondScratchReg || (encodedOffset & 0x03)) {
             // Store as two word halves. ENDIAN!
-            Register t = (data == ScratchRegister) ? SecondScratchReg : ScratchRegister;
+            Register t = (data == ScratchRegister && base == SecondScratchReg) ? ThirdScratchReg : (data == ScratchRegister) ? SecondScratchReg : ScratchRegister;
             MOZ_ASSERT(base != t);
+            MOZ_ASSERT(data != t);
 
-xs_trap();
             as_stw(data, base, encodedOffset); // lo
+            loadInst = asMasm().size() - 4;
             as_rldicl(t, data, 32, 32); // "srdi"
             as_stw(t, base, encodedOffset+4); // hi
+            loadInst |= 1; // advise two marks required
         } else {
             as_std(data, base, encodedOffset);
+            loadInst = asMasm().size() - 4;
         }
         break;
       default:
         MOZ_CRASH("Invalid argument for ma_store");
     }
+
+    return loadInst;
 }
 
 void
@@ -850,10 +877,9 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, ImmWord imm, Condition
 {
     ADBlock();
     if (imm.value <= INT16_MAX) { // unsigned
-        // MIPS alleges that this is always a 32-bit comparison.
-        ma_cmp_set(rd, rs, Imm16(imm.value), c, /* useCmpw */ true);
+        ma_cmp_set(rd, rs, Imm16(imm.value), c, useCmpw);
     } else if (imm.value <= INT32_MAX) { // unsigned
-        ma_cmp_set(rd, rs, Imm32(imm.value), c, /* useCmpw */ true);
+        ma_cmp_set(rd, rs, Imm32(imm.value), c, useCmpw);
     } else {
         MOZ_ASSERT(rs != ScratchRegister);
         ma_li(ScratchRegister, imm);
@@ -1138,6 +1164,7 @@ MacroAssemblerPPC64Compat::loadUnalignedDouble(const wasm::MemoryAccessDesc& acc
                                                 const BaseIndex& src, Register temp, FloatRegister dest)
 {
     loadDouble(src, dest);
+    asMasm().append(access, asMasm().size() - 4); // lfd terminates
 }
 
 void
@@ -1145,6 +1172,7 @@ MacroAssemblerPPC64Compat::loadUnalignedFloat32(const wasm::MemoryAccessDesc& ac
                                                  const BaseIndex& src, Register temp, FloatRegister dest)
 {
     loadFloat32(src, dest);
+    asMasm().append(access, asMasm().size() - 4); // lfs terminates
 }
 
 void
@@ -1292,7 +1320,7 @@ MacroAssemblerPPC64Compat::storeUnalignedFloat32(const wasm::MemoryAccessDesc& a
     computeScaledAddress(dest, SecondScratchReg);
 
     as_stfs(src, SecondScratchReg, 0);
-    //append(access, store.getOffset());
+    append(access, asMasm().size() - 4);
 }
 
 void
@@ -1302,7 +1330,7 @@ MacroAssemblerPPC64Compat::storeUnalignedDouble(const wasm::MemoryAccessDesc& ac
     computeScaledAddress(dest, SecondScratchReg);
 
     as_stfd(src, SecondScratchReg, 0);
-    //append(access, store.getOffset());
+    append(access, asMasm().size() - 4);
 }
 
 void
@@ -2359,6 +2387,7 @@ void
 MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
                                   Register boundsCheckLimit, Label* label)
 {
+    ADBlock();
     ma_bc(index, boundsCheckLimit, label, cond);
 }
 
@@ -2366,6 +2395,7 @@ void
 MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
                                   Address boundsCheckLimit, Label* label)
 {
+    ADBlock();
     SecondScratchRegisterScope scratch2(*this);
     load32(boundsCheckLimit, SecondScratchReg);
     ma_bc(index, SecondScratchReg, label, cond);
@@ -2532,10 +2562,18 @@ MacroAssemblerPPC64Compat::wasmLoadI64Impl(const wasm::MemoryAccessDesc& access,
         return;
     }
 
+    // threadsafe
     asMasm().memoryBarrierBefore(access.sync());
-    asMasm().ma_load(output.reg, address, static_cast<LoadStoreSize>(8 * byteSize),
+    uint32_t loadSize = asMasm().ma_load(output.reg, address, static_cast<LoadStoreSize>(8 * byteSize),
                      isSigned ? SignExtend : ZeroExtend);
-    asMasm().append(access, asMasm().size() - 4);
+    if (loadSize & 0x01) {
+        // Split load emitted.
+        asMasm().append(access, loadSize - 1);
+        // The second load immediately follows the first load.
+        asMasm().append(access, loadSize + 3);
+    } else {
+        asMasm().append(access, loadSize);
+    }
     asMasm().memoryBarrierAfter(access.sync());
 }
 
@@ -2574,10 +2612,18 @@ MacroAssemblerPPC64Compat::wasmStoreI64Impl(const wasm::MemoryAccessDesc& access
         return;
     }
 
+    // threadsafe
     asMasm().memoryBarrierBefore(access.sync());
-    asMasm().ma_store(value.reg, address, static_cast<LoadStoreSize>(8 * byteSize),
+    uint32_t loadSize = asMasm().ma_store(value.reg, address, static_cast<LoadStoreSize>(8 * byteSize),
                       isSigned ? SignExtend : ZeroExtend);
-    asMasm().append(access, asMasm().size() - 4);
+    if (loadSize & 0x01) {
+        // Split store emitted.
+        asMasm().append(access, loadSize - 1);
+        // The second store is always the last instruction.
+        asMasm().append(access, asMasm().size() - 4);
+    } else {
+        asMasm().append(access, loadSize);
+    }
     asMasm().memoryBarrierAfter(access.sync());
 }
 
@@ -2586,6 +2632,7 @@ static void
 CompareExchange64(MacroAssembler& masm, const Synchronization& sync, const T& mem,
                   Register64 expect, Register64 replace, Register64 output)
 {
+masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     Label tryAgain;
@@ -3145,14 +3192,12 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, R
                                           Label* overflow)
 {
     ADBlock();
-// Check Code XXX
-__asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     MOZ_ASSERT_IF(rd == rs, rt != rd);
     as_addc(rd, rs, rt);
     as_mcrxrx(cr0); // 32-bit add, so check CA32
-    ma_bc(SecondScratchReg, SecondScratchReg, overflow,
-         cond == Assembler::CarrySet ? Assembler::SOBit : Assembler::NSOBit);
+    ma_bc(cond == Assembler::CarrySet ? Assembler::SOBit : Assembler::NSOBit,
+        overflow);
 }
 
 void
@@ -3160,19 +3205,17 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, I
                                           Label* overflow)
 {
     ADBlock();
-// Check Code XXX
-__asm__("trap\n");
     MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
     if (!Imm16::IsInSignedRange(imm.value)) {
+        MOZ_ASSERT(rs != ScratchRegister);
         ma_li(ScratchRegister, imm);
         ma_addTestCarry(cond, rd, rs, ScratchRegister, overflow);
         return;
     }
-    ma_addTestCarry(cond, rd, rs, ScratchRegister, overflow);
     as_addic(rd, rs, imm.value);
     as_mcrxrx(cr0); // 32-bit add, so check CA32
-    ma_bc(SecondScratchReg, SecondScratchReg, overflow,
-         cond == Assembler::CarrySet ? Assembler::SOBit : Assembler::NSOBit);
+    ma_bc(cond == Assembler::CarrySet ? Assembler::SOBit : Assembler::NSOBit,
+        overflow);
 }
 
 // Subtract.
@@ -3244,7 +3287,7 @@ MacroAssemblerPPC64::ma_mul_branch_overflow(Register rd, Register rs, Imm32 imm,
 
 // Memory.
 
-void
+uint32_t
 MacroAssemblerPPC64::ma_load(Register dest, const BaseIndex& src,
                                   LoadStoreSize size, LoadStoreExtension extension)
 {
@@ -3255,9 +3298,9 @@ MacroAssemblerPPC64::ma_load(Register dest, const BaseIndex& src,
     // again. In that case, hoist the add up since we can freely clobber it.
     if (!Imm16::IsInSignedRange(src.offset)) {
         ma_add(SecondScratchReg, SecondScratchReg, Imm32(src.offset));
-        ma_load(dest, Address(SecondScratchReg, 0), size, extension);
+        return ma_load(dest, Address(SecondScratchReg, 0), size, extension);
     } else {
-        asMasm().ma_load(dest, Address(SecondScratchReg, src.offset), size, extension);
+        return asMasm().ma_load(dest, Address(SecondScratchReg, src.offset), size, extension);
     }
 }
 
@@ -3318,7 +3361,7 @@ MacroAssemblerPPC64::ma_load_unaligned(const wasm::MemoryAccessDesc& access, Reg
 #endif
 }
 
-void
+uint32_t
 MacroAssemblerPPC64::ma_store(Register data, const BaseIndex& dest,
                                    LoadStoreSize size, LoadStoreExtension extension)
 {
@@ -3330,13 +3373,13 @@ MacroAssemblerPPC64::ma_store(Register data, const BaseIndex& dest,
     // again. In that case, hoist the add up since we can freely clobber it.
     if (!Imm16::IsInSignedRange(dest.offset)) {
         ma_add(SecondScratchReg, SecondScratchReg, Imm32(dest.offset));
-        ma_store(data, Address(SecondScratchReg, 0), size, extension);
+        return ma_store(data, Address(SecondScratchReg, 0), size, extension);
     } else {
-        asMasm().ma_store(data, Address(SecondScratchReg, dest.offset), size, extension);
+        return asMasm().ma_store(data, Address(SecondScratchReg, dest.offset), size, extension);
     }
 }
 
-void
+uint32_t
 MacroAssemblerPPC64::ma_store(Imm32 imm, const BaseIndex& dest,
                                    LoadStoreSize size, LoadStoreExtension extension)
 {
@@ -3349,7 +3392,7 @@ MacroAssemblerPPC64::ma_store(Imm32 imm, const BaseIndex& dest,
 
     // with offset=0 ScratchRegister will not be used in ma_store()
     // so we can use it as a parameter here
-    asMasm().ma_store(ScratchRegister, Address(SecondScratchReg, 0), size, extension);
+    return asMasm().ma_store(ScratchRegister, Address(SecondScratchReg, 0), size, extension);
 }
 
 // XXX: remove
@@ -3727,7 +3770,6 @@ MacroAssemblerPPC64::ma_cmp_set_coda(Register rd, Condition c) {
         case LessThan:
         case GreaterThanOrEqual:
             as_rlwinm(rd, rd, 1, 31, 31); // p40
-xs_trap();
             break;
         default:
             MOZ_CRASH("Unhandled condition");
@@ -3753,10 +3795,12 @@ MacroAssemblerPPC64::ma_lis(FloatRegister dest, float value)
 void
 MacroAssemblerPPC64::ma_sd(FloatRegister ft, BaseIndex address)
 {
+/*
     if (Imm16::IsInSignedRange(address.offset) && address.scale == TimesOne) {
         as_stfd(ft, address.base, address.offset);
         return;
     }
+*/
 
     asMasm().computeScaledAddress(address, SecondScratchReg);
     asMasm().ma_sd(ft, Address(SecondScratchReg, address.offset));
@@ -3765,10 +3809,12 @@ MacroAssemblerPPC64::ma_sd(FloatRegister ft, BaseIndex address)
 void
 MacroAssemblerPPC64::ma_ss(FloatRegister ft, BaseIndex address)
 {
+/*
     if (Imm16::IsInSignedRange(address.offset) && address.scale == TimesOne) {
         as_stfs(ft, address.base, address.offset);
         return;
     }
+*/
 
     asMasm().computeScaledAddress(address, SecondScratchReg);
     asMasm().ma_ss(ft, Address(SecondScratchReg, address.offset));
@@ -4391,6 +4437,7 @@ void
 MacroAssembler::wasmLoad(const wasm::MemoryAccessDesc& access, Register memoryBase, Register ptr,
                          Register ptrScratch, AnyRegister output)
 {
+    ADBlock();
     wasmLoadImpl(access, memoryBase, ptr, ptrScratch, output, InvalidReg);
 }
 
@@ -4398,6 +4445,7 @@ void
 MacroAssembler::wasmUnalignedLoad(const wasm::MemoryAccessDesc& access, Register memoryBase,
                                   Register ptr, Register ptrScratch, Register output, Register tmp)
 {
+    ADBlock();
     wasmLoadImpl(access, memoryBase, ptr, ptrScratch, AnyRegister(output), tmp);
 }
 
@@ -4406,6 +4454,7 @@ MacroAssembler::wasmUnalignedLoadFP(const wasm::MemoryAccessDesc& access, Regist
                                     Register ptr, Register ptrScratch, FloatRegister output,
                                     Register tmp1, Register tmp2, Register tmp3)
 {
+    ADBlock();
     MOZ_ASSERT(tmp2 == InvalidReg);
     MOZ_ASSERT(tmp3 == InvalidReg);
     wasmLoadImpl(access, memoryBase, ptr, ptrScratch, AnyRegister(output), tmp1);
@@ -4415,6 +4464,7 @@ void
 MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value,
                           Register memoryBase, Register ptr, Register ptrScratch)
 {
+    ADBlock();
     wasmStoreImpl(access, value, memoryBase, ptr, ptrScratch, InvalidReg);
 }
 
@@ -4423,6 +4473,7 @@ MacroAssembler::wasmUnalignedStore(const wasm::MemoryAccessDesc& access, Registe
                                    Register memoryBase, Register ptr, Register ptrScratch,
                                    Register tmp)
 {
+    ADBlock();
     wasmStoreImpl(access, AnyRegister(value), memoryBase, ptr, ptrScratch, tmp);
 }
 
@@ -4431,6 +4482,7 @@ MacroAssembler::wasmUnalignedStoreFP(const wasm::MemoryAccessDesc& access, Float
                                      Register memoryBase, Register ptr, Register ptrScratch,
                                      Register tmp)
 {
+    ADBlock();
     wasmStoreImpl(access, AnyRegister(floatValue), memoryBase, ptr, ptrScratch, tmp);
 }
 
@@ -4439,7 +4491,9 @@ MacroAssemblerPPC64::wasmLoadImpl(const wasm::MemoryAccessDesc& access, Register
                                        Register ptr, Register ptrScratch, AnyRegister output,
                                        Register tmp)
 {
+    ADBlock();
     uint32_t offset = access.offset();
+    uint32_t loadInst = 0;
     MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
     MOZ_ASSERT_IF(offset, ptrScratch != InvalidReg);
 
@@ -4480,15 +4534,20 @@ MacroAssemblerPPC64::wasmLoadImpl(const wasm::MemoryAccessDesc& access, Register
 
     asMasm().memoryBarrierBefore(access.sync());
     if (isFloat) {
+        // The load will always be at the end, so we tag that access.
         if (byteSize == 4)
             asMasm().ma_ls(output.fpu(), address);
-         else
-            asMasm().ma_ld(output.fpu(), address);
+        else
+           asMasm().ma_ld(output.fpu(), address);
+        asMasm().append(access, asMasm().size() - 4);
     } else {
-        asMasm().ma_load(output.gpr(), address, static_cast<LoadStoreSize>(8 * byteSize),
+        // This function doesn't handle 64-bit ints, so we should never
+        // end up in a situation where we have to break a load apart.
+        MOZ_ASSERT(byteSize < 8);
+        loadInst = asMasm().ma_load(output.gpr(), address, static_cast<LoadStoreSize>(8 * byteSize),
                          isSigned ? SignExtend : ZeroExtend);
+        asMasm().append(access, loadInst);
     }
-    asMasm().append(access, asMasm().size() - 4);
     asMasm().memoryBarrierAfter(access.sync());
 }
 
@@ -4497,6 +4556,7 @@ MacroAssemblerPPC64::wasmStoreImpl(const wasm::MemoryAccessDesc& access, AnyRegi
                                         Register memoryBase, Register ptr, Register ptrScratch,
                                         Register tmp)
 {
+    ADBlock();
     uint32_t offset = access.offset();
     MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
     MOZ_ASSERT_IF(offset, ptrScratch != InvalidReg);
@@ -4541,17 +4601,25 @@ MacroAssemblerPPC64::wasmStoreImpl(const wasm::MemoryAccessDesc& access, AnyRegi
 
     asMasm().memoryBarrierBefore(access.sync());
     if (isFloat) {
+        // The store instruction will always be last.
         if (byteSize == 4)
             asMasm().ma_ss(value.fpu(), address);
         else
             asMasm().ma_sd(value.fpu(), address);
+        asMasm().append(access, asMasm().size() - 4);
     } else {
-        asMasm().ma_store(value.gpr(), address,
+        uint32_t loadSize = asMasm().ma_store(value.gpr(), address,
                       static_cast<LoadStoreSize>(8 * byteSize),
                       isSigned ? SignExtend : ZeroExtend);
+        if (loadSize & 0x01) {
+            // Split store emitted.
+            asMasm().append(access, loadSize - 1);
+            // The second store is always the last instruction.
+            asMasm().append(access, asMasm().size() - 4);
+        } else {
+            asMasm().append(access, loadSize);
+        }
     }
-    // Only the last emitted instruction is a memory access.
-    asMasm().append(access, asMasm().size() - 4);
     asMasm().memoryBarrierAfter(access.sync());
 }
 
@@ -4588,6 +4656,7 @@ CompareExchange(MacroAssembler& masm, Scalar::Type type, const Synchronization& 
 
     Label again, end;
 
+masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
@@ -4705,6 +4774,7 @@ AtomicExchange(MacroAssembler& masm, Scalar::Type type, const Synchronization& s
 
     Label again;
 
+masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
@@ -4817,6 +4887,7 @@ AtomicFetchOp(MacroAssembler& masm, Scalar::Type type, const Synchronization& sy
 
     Label again;
 
+masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
@@ -4968,6 +5039,7 @@ AtomicEffectOp(MacroAssembler& masm, Scalar::Type type, const Synchronization& s
 
     Label again;
 
+masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
