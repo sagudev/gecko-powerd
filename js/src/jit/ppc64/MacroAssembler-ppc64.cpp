@@ -2412,11 +2412,18 @@ MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output,
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctiwuz(ScratchDoubleReg, input);
-    // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
-    ma_bc(Assembler::SOBit, oolEntry);
 
-    // OutOfLineTruncateCheckF32/F64ToU32 -> outOfLineWasmTruncateToUInt32Check
+    if (isSaturating) {
+        // There is no need to call the out-of-line routine: fctiwuz saturates
+        // NaN to 0 and all other values to their extents, so we're done. We
+        // ignore any bits that are set in the FPSCR.
+    } else {
+        // VXCVI is a failure (over/underflow, NaN, etc.)
+        as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+        // OutOfLineTruncateCheckF32/F64ToU32 -> outOfLineWasmTruncateToInt32Check
+        ma_bc(Assembler::SOBit, oolEntry);
+    }
+
     moveFromDouble(ScratchDoubleReg, ScratchRegister);
     // Don't sign extend.
     as_rldicl(output, ScratchRegister, 0, 32); // "clrldi"
@@ -2475,13 +2482,11 @@ MacroAssembler::wasmTruncateDoubleToInt64(FloatRegister input, Register64 output
     as_fctidz(ScratchDoubleReg, input);
     // VXCVI is a failure (over/underflow, NaN, etc.)
     as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+    // OutOfLineTruncateCheckF32OrF64ToI64 -> outOfLineWasmTruncateToInt64Check
     ma_bc(Assembler::SOBit, oolEntry);
 
-    // OutOfLineTruncateCheckF32OrF64ToI64 -> outOfLineWasmTruncateToInt64Check
     moveFromDouble(ScratchDoubleReg, output);
-
-    if (isSaturating)
-        bind(oolRejoin);
+    bind(oolRejoin);
 }
 
 void
@@ -2498,15 +2503,19 @@ MacroAssembler::wasmTruncateDoubleToUInt64(FloatRegister input, Register64 outpu
     // Whack VXCVI.
     as_mtfsb0(23);
     as_fctiduz(ScratchDoubleReg, input);
-    // VXCVI is a failure (over/underflow, NaN, etc.)
-    as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
-    ma_bc(Assembler::SOBit, oolEntry);
+    if (isSaturating) {
+        // There is no need to call the out-of-line routine: fctiduz saturates
+        // NaN to 0 and all other values to their extents, so we're done. We
+        // ignore any bits that are set in the FPSCR.
+    } else {
+        // VXCVI is a failure (over/underflow, NaN, etc.)
+        as_mcrfs(cr0, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR0[...SO]
+        // OutOfLineTruncateCheckF32OrF64ToI64 -> outOfLineWasmTruncateToInt64Check
+        ma_bc(Assembler::SOBit, oolEntry);
+    }
 
-    // OutOfLineTruncateCheckF32OrF64ToI64 -> outOfLineWasmTruncateToInt64Check
     moveFromDouble(ScratchDoubleReg, output);
-
-    if (isSaturating)
-        bind(oolRejoin);
+    bind(oolRejoin);
 }
 
 void
@@ -4378,9 +4387,10 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt32Check(FloatRegister input, Regi
                                                             wasm::BytecodeOffset trapOffset)
 {
     ADBlock();
-    // We end up here if VXCVI is set during truncation. That occurs if
-    // there is negative or positive overflow (regardless of the converting
-    // instruction, FPR size or the signedness of the result) or NaN.
+    // We must be using a signed truncation or a truncation that is not
+    // saturating, and the FPSCR VXCVI bit got set indicating an inexact
+    // conversion or a NaN. Unsigned saturating truncates already "do the
+    // right thing" with their conversion, so they never end up here.
 
     Label inputIsNaN;
     bool isSaturating = flags & TRUNC_SATURATING;
@@ -4391,7 +4401,13 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt32Check(FloatRegister input, Regi
 
     if (isSaturating) {
         // fctiwz and fctiwuz both saturate to their respective extents, so
-        // we can rejoin; the output value is correct.
+        // we can rejoin; the output value is correct. Do the work we would
+        // have done inline if there had been no exception. The scratch
+        // register still contains the result.
+        asMasm().moveFromDouble(ScratchDoubleReg, ScratchRegister);
+        // Don't sign extend.
+        as_rldicl(output, ScratchRegister, 0, 32); // "clrldi"
+        // Rejoin. This follows the truncation stanza.
         ma_b(rejoin);
     } else {
         // We must have overflowed.
@@ -4399,19 +4415,26 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt32Check(FloatRegister input, Regi
     }
 
     asMasm().bind(&inputIsNaN);
-    asMasm().wasmTrap(wasm::Trap::InvalidConversionToInteger, trapOffset);
+    if (isSaturating) {
+        // A saturated NaN is zero. (fctiwuz does this for us.)
+        xs_li(output, 0);
+        ma_b(rejoin);
+    } else {
+        asMasm().wasmTrap(wasm::Trap::InvalidConversionToInteger, trapOffset);
+    }
 }
 
 void
-MacroAssemblerPPC64::outOfLineWasmTruncateToInt64Check(FloatRegister input, Register64 output_,
+MacroAssemblerPPC64::outOfLineWasmTruncateToInt64Check(FloatRegister input, Register64 output,
                                                             MIRType fromType, TruncFlags flags,
                                                             Label* rejoin,
                                                             wasm::BytecodeOffset trapOffset)
 {
     ADBlock();
-    // We end up here if VXCVI is set during truncation. That occurs if
-    // there is negative or positive overflow (regardless of the converting
-    // instruction, FPR size or the signedness of the result) or NaN.
+    // We must be using a signed truncation or a truncation that is not
+    // saturating, and the FPSCR VXCVI bit got set indicating an inexact
+    // conversion or a NaN. Unsigned saturating truncates already "do the
+    // right thing" with their conversion, so they never end up here.
 
     Label inputIsNaN;
     bool isSaturating = flags & TRUNC_SATURATING;
@@ -4422,7 +4445,10 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt64Check(FloatRegister input, Regi
 
     if (isSaturating) {
         // fctidz and fctiduz both saturate to their respective extents, so
-        // we can rejoin; the output value is correct.
+        // we can rejoin; the output value is correct. Do the work we would
+        // have done inline if there had been no exception. The scratch
+        // register still contains the result.
+        asMasm().moveFromDouble(ScratchDoubleReg, output.reg);
         ma_b(rejoin);
     } else {
         // We must have overflowed.
@@ -4430,7 +4456,13 @@ MacroAssemblerPPC64::outOfLineWasmTruncateToInt64Check(FloatRegister input, Regi
     }
 
     asMasm().bind(&inputIsNaN);
-    asMasm().wasmTrap(wasm::Trap::InvalidConversionToInteger, trapOffset);
+    if (isSaturating) {
+        // A saturated NaN is zero. (fctiduz does this for us.)
+        xs_li(output.reg, 0);
+        ma_b(rejoin);
+    } else {
+        asMasm().wasmTrap(wasm::Trap::InvalidConversionToInteger, trapOffset);
+    }
 }
 
 void
