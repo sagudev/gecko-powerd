@@ -500,11 +500,14 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
 
     // XXX: Consider spinning this off into a separate function since the
     // logic gets repeated.
+    // XXX: Consider, for lwa/ld, adding any unaligned constant offset to r12
+    // so we can use lwa/ld and decomplexify this code and wasmLoad/StoreImpl
+    // by not having to return aberrant values to mark a split access.
+    // (See also ma_store below.)
     if (!Imm16::IsInSignedRange(address.offset)) {
         MOZ_ASSERT(address.base != SecondScratchReg);
         ma_li(SecondScratchReg, Imm32(address.offset));
         as_add(SecondScratchReg, address.base, SecondScratchReg);
-// XXX: this generates dumb code: li r12,0, add r12,r0,r12
         base = SecondScratchReg;
         encodedOffset = 0;
     } else {
@@ -535,10 +538,8 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
             as_lwz(dest, base, encodedOffset);
             loadInst = asMasm().size() - 4;
         } else {
-            // lwa only valid if word-aligned.
-            // Rule-of-thumb: if we used r12, then it's a computed address,
-            // and we can't assume anything about its alignment.
-            if ((encodedOffset & 0x03) || base == SecondScratchReg) {
+            // lwa only valid if the offset is word-aligned.
+            if (encodedOffset & 0x03) {
                 as_lwz(dest, base, encodedOffset);
                 loadInst = asMasm().size() - 4;
                 as_extsw(dest, dest);
@@ -549,11 +550,8 @@ MacroAssemblerPPC64::ma_load(Register dest, Address address,
         }
         break;
       case SizeDouble:
-        // However, unaligned loads really make a difference here, because
-        // the ld instruction can only load on word boundaries (the lowest
-        // two bits are part of the instruction encoding). We assert on that
-        // in the Assembler. (Same rule of thumb as above.)
-        if ((encodedOffset & 0x03) || base == SecondScratchReg) {
+        // ld only valid if the offset is word-aligned.
+        if (encodedOffset & 0x03) {
             // Load as two word halves. ENDIAN!
             Register t = (dest == ScratchRegister && base == SecondScratchReg) ? ThirdScratchReg : (dest == ScratchRegister) ? SecondScratchReg : ScratchRegister;
             MOZ_ASSERT(base != t);
@@ -595,7 +593,6 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
         MOZ_ASSERT(address.base != SecondScratchReg);
         ma_li(SecondScratchReg, Imm32(address.offset));
         as_add(SecondScratchReg, address.base, SecondScratchReg);
-// XXX: this generates dumb code: li r12,0, add r12,r0,r12
         base = SecondScratchReg;
         encodedOffset = 0;
     } else {
@@ -617,8 +614,8 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
         loadInst = asMasm().size() - 4;
         break;
       case SizeDouble:
-        // As above.
-        if (base == SecondScratchReg || (encodedOffset & 0x03)) {
+        // std only valid if the offset is word-aligned.
+        if (encodedOffset & 0x03) {
             // Store as two word halves. ENDIAN!
             Register t = (data == ScratchRegister && base == SecondScratchReg) ? ThirdScratchReg : (data == ScratchRegister) ? SecondScratchReg : ScratchRegister;
             MOZ_ASSERT(base != t);
