@@ -271,7 +271,12 @@ MacroAssemblerPPC64::ma_li(Register dest, int64_t value)
         as_rldicr(dest, dest, 32, 31);
         loweronly = false;
     } else if (bits & 0x0000ffff00000000) {
-        xs_li(dest, (bits >> 32) & 0xffff);
+        if (bits & 0x0000800000000000) { // sign extension!
+            xs_li(dest, 0);
+            as_ori(dest, dest, (bits >> 32) & 0xffff);
+        } else {
+            xs_li(dest, (bits >> 32) & 0xffff);
+        }
         as_rldicr(dest, dest, 32, 31);
         loweronly = false;
     } else if ((bits & 0x80000000) || (bits & 0x00008000)) {
@@ -1541,6 +1546,8 @@ MacroAssemblerPPC64Compat::boxNonDouble(JSValueType type, Register src,
 void
 MacroAssemblerPPC64Compat::boolValueToDouble(const ValueOperand& operand, FloatRegister dest)
 {
+    ADBlock();
+xs_trap();
     convertBoolToInt32(operand.valueReg(), ScratchRegister);
     convertInt32ToDouble(ScratchRegister, dest);
 }
@@ -1549,14 +1556,19 @@ void
 MacroAssemblerPPC64Compat::int32ValueToDouble(const ValueOperand& operand,
                                                FloatRegister dest)
 {
-    convertInt32ToDouble(operand.valueReg(), dest);
+    ADBlock();
+    // Use the lower bits of the operand's value register.
+    MOZ_ASSERT(operand.valueReg() != ScratchRegister);
+    as_srawi(ScratchRegister, operand.valueReg(), 0);
+    convertInt32ToDouble(ScratchRegister, dest);
 }
 
 void
 MacroAssemblerPPC64Compat::boolValueToFloat32(const ValueOperand& operand,
                                                FloatRegister dest)
 {
-
+    ADBlock();
+xs_trap();
     convertBoolToInt32(operand.valueReg(), ScratchRegister);
     convertInt32ToFloat32(ScratchRegister, dest);
 }
@@ -1565,7 +1577,11 @@ void
 MacroAssemblerPPC64Compat::int32ValueToFloat32(const ValueOperand& operand,
                                                 FloatRegister dest)
 {
-    convertInt32ToFloat32(operand.valueReg(), dest);
+    ADBlock();
+    // Use the lower bits of the operand's value register.
+    MOZ_ASSERT(operand.valueReg() != ScratchRegister);
+    as_srawi(ScratchRegister, operand.valueReg(), 0);
+    convertInt32ToFloat32(ScratchRegister, dest);
 }
 
 void
@@ -2563,10 +2579,12 @@ MacroAssemblerPPC64Compat::wasmLoadI64Impl(const wasm::MemoryAccessDesc& access,
     }
 
     BaseIndex address(memoryBase, ptr, TimesOne);
+/*
     if (IsUnaligned(access)) {
         asMasm().ma_load(output.reg, address, static_cast<LoadStoreSize>(8 * byteSize), isSigned ? SignExtend : ZeroExtend);
         return;
     }
+*/
 
     // threadsafe
     asMasm().memoryBarrierBefore(access.sync());
@@ -2612,11 +2630,12 @@ MacroAssemblerPPC64Compat::wasmStoreI64Impl(const wasm::MemoryAccessDesc& access
     }
 
     BaseIndex address(memoryBase, ptr, TimesOne);
-
+/*
     if (IsUnaligned(access)) {
         asMasm().ma_store(value.reg, address, static_cast<LoadStoreSize>(8 * byteSize), isSigned ? SignExtend : ZeroExtend);
         return;
     }
+*/
 
     // threadsafe
     asMasm().memoryBarrierBefore(access.sync());
@@ -4549,6 +4568,7 @@ MacroAssemblerPPC64::wasmLoadImpl(const wasm::MemoryAccessDesc& access, Register
     }
 
     BaseIndex address(memoryBase, ptr, TimesOne);
+/*
     if (IsUnaligned(access)) {
         if (isFloat) {
             if (byteSize == 4)
@@ -4560,6 +4580,7 @@ MacroAssemblerPPC64::wasmLoadImpl(const wasm::MemoryAccessDesc& access, Register
         }
         return;
     }
+*/
 
     asMasm().memoryBarrierBefore(access.sync());
     if (isFloat) {
@@ -4614,6 +4635,7 @@ MacroAssemblerPPC64::wasmStoreImpl(const wasm::MemoryAccessDesc& access, AnyRegi
     }
 
     BaseIndex address(memoryBase, ptr, TimesOne);
+/*
     if (IsUnaligned(access)) {
         if (isFloat) {
             if (byteSize == 4)
@@ -4627,6 +4649,7 @@ MacroAssemblerPPC64::wasmStoreImpl(const wasm::MemoryAccessDesc& access, AnyRegi
         }
         return;
     }
+*/
 
     asMasm().memoryBarrierBefore(access.sync());
     if (isFloat) {

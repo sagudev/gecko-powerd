@@ -6304,7 +6304,7 @@ class BaseCompiler final : public BaseCompilerInterface {
     return needI32();
 #elif defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||    \
     defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
     return RegI32::Invalid();
 #else
     MOZ_CRASH("BaseCompiler platform hook: needRotate64Temp");
