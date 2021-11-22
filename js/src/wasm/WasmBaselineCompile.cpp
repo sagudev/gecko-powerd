@@ -15846,7 +15846,7 @@ bool js::wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
 #  elif defined(JS_CODEGEN_PPC64)
   const uint32_t* insn = (const uint32_t*)nextPC;
   js::jit::Instruction* inst = (js::jit::Instruction*)nextPC;
-  fprintf(stderr, "IsValidStackMapKey: 0x%lx 0x%08x\n", (uint64_t)nextPC, insn[0]);
+  //fprintf(stderr, "IsValidStackMapKey: 0x%lx 0x%08x\n", (uint64_t)nextPC, insn[0]);
   return (((uintptr_t(insn) & 3) == 0) &&
           (inst[0].extractOpcode() == js::jit::PPC_addi ||  // stack allocate
            inst[0].extractOpcode() == js::jit::PPC_addis || // load immediate
