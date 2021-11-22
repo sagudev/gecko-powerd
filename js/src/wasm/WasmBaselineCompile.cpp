@@ -6649,7 +6649,7 @@ class BaseCompiler final : public BaseCompilerInterface {
 
 #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||      \
     defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64)
+    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
   BaseIndex prepareAtomicMemoryAccess(MemoryAccessDesc* access,
                                       AccessCheck* check, RegI32 tls,
                                       RegI32 ptr) {

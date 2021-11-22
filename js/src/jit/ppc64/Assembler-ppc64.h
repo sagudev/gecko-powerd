@@ -447,7 +447,7 @@ enum PPCOpcodes {
     PPC_stb     = 0x98000000, // store byte
     PPC_stbx    = 0x7C0001AE, // store byte indexed
     PPC_std     = 0xF8000000, // store doubleword
-    PPC_stdcx   = 0xFC0001AC, // store doubleword conditional indexed
+    PPC_stdcx   = 0x7C0001AD, // store doubleword conditional indexed
     PPC_stdu    = 0xF8000001, // store doubleword with update
     PPC_stdux   = 0x7C00016A, // store doubleword with update indexed
     PPC_stdx    = 0x7C00012A, // store doubleword indexed

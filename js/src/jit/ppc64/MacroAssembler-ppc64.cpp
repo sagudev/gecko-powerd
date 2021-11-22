@@ -1547,7 +1547,6 @@ void
 MacroAssemblerPPC64Compat::boolValueToDouble(const ValueOperand& operand, FloatRegister dest)
 {
     ADBlock();
-xs_trap();
     convertBoolToInt32(operand.valueReg(), ScratchRegister);
     convertInt32ToDouble(ScratchRegister, dest);
 }
@@ -1568,7 +1567,6 @@ MacroAssemblerPPC64Compat::boolValueToFloat32(const ValueOperand& operand,
                                                FloatRegister dest)
 {
     ADBlock();
-xs_trap();
     convertBoolToInt32(operand.valueReg(), ScratchRegister);
     convertInt32ToFloat32(ScratchRegister, dest);
 }
@@ -2654,28 +2652,27 @@ MacroAssemblerPPC64Compat::wasmStoreI64Impl(const wasm::MemoryAccessDesc& access
 
 template <typename T>
 static void
-CompareExchange64(MacroAssembler& masm, const Synchronization& sync, const T& mem,
+CompareExchange64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, const Synchronization& sync, const T& mem,
                   Register64 expect, Register64 replace, Register64 output)
 {
-masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     Label tryAgain;
     Label exit;
 
     masm.memoryBarrierBefore(sync);
-
     masm.bind(&tryAgain);
 
     // 'r0' for 'ra' indicates hard 0, not GPR r0
+    if (access) masm.append(*access, masm.size());
     masm.as_ldarx(output.reg, r0, SecondScratchReg);
     masm.ma_bc(output.reg, expect.reg, &exit, Assembler::NotEqual, ShortJump);
     masm.movePtr(replace.reg, ScratchRegister);
+    if (access) masm.append(*access, masm.size());
     masm.as_stdcx(ScratchRegister, r0, SecondScratchReg);
-    masm.ma_bc(ScratchRegister, ScratchRegister, &tryAgain, Assembler::NotEqual, ShortJump);
+    masm.ma_bc(Assembler::NotEqual, &tryAgain, ShortJump);
 
     masm.memoryBarrierAfter(sync);
-
     masm.bind(&exit);
 }
 
@@ -2683,12 +2680,12 @@ void
 MacroAssembler::compareExchange64(const Synchronization& sync, const Address& mem,
                                   Register64 expect, Register64 replace, Register64 output)
 {
-    CompareExchange64(*this, sync, mem, expect, replace, output);
+    CompareExchange64(*this, nullptr, sync, mem, expect, replace, output);
 }
 
 template <typename T>
 static void
-AtomicExchange64(MacroAssembler& masm, const Synchronization& sync, const T& mem,
+AtomicExchange64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, const Synchronization& sync, const T& mem,
                  Register64 src, Register64 output)
 {
     masm.computeEffectiveAddress(mem, SecondScratchReg);
@@ -2700,7 +2697,9 @@ AtomicExchange64(MacroAssembler& masm, const Synchronization& sync, const T& mem
     masm.bind(&tryAgain);
 
     // 'r0' for 'ra' indicates hard 0, not GPR r0
+    if (access) masm.append(*access, masm.size());
     masm.as_ldarx(output.reg, r0, SecondScratchReg);
+    if (access) masm.append(*access, masm.size());
     masm.as_stdcx(src.reg, r0, SecondScratchReg);
     masm.ma_bc(cr0, Assembler::NotEqual, &tryAgain, ShortJump);
 
@@ -2711,12 +2710,12 @@ void
 MacroAssembler::atomicExchange64(const Synchronization& sync, const Address& mem, Register64 src,
                                  Register64 output)
 {
-    AtomicExchange64(*this, sync, mem, src, output);
+    AtomicExchange64(*this, nullptr, sync, mem, src, output);
 }
 
 template<typename T>
 static void
-AtomicFetchOp64(MacroAssembler& masm, const Synchronization& sync, AtomicOp op, Register64 value,
+AtomicFetchOp64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, const Synchronization& sync, AtomicOp op, Register64 value,
                 const T& mem, Register64 temp, Register64 output)
 {
     masm.computeEffectiveAddress(mem, SecondScratchReg);
@@ -2728,6 +2727,7 @@ AtomicFetchOp64(MacroAssembler& masm, const Synchronization& sync, AtomicOp op, 
     masm.bind(&tryAgain);
 
     // 'r0' for 'ra' indicates hard 0, not GPR r0
+    if (access) masm.append(*access, masm.size());
     masm.as_ldarx(output.reg, r0, SecondScratchReg);
 
     switch(op) {
@@ -2750,8 +2750,9 @@ AtomicFetchOp64(MacroAssembler& masm, const Synchronization& sync, AtomicOp op, 
         MOZ_CRASH();
     }
 
+    if (access) masm.append(*access, masm.size());
     masm.as_stdcx(temp.reg, r0, SecondScratchReg);
-    masm.ma_bc(temp.reg, temp.reg, &tryAgain, Assembler::NotEqual, ShortJump);
+    masm.ma_bc(Assembler::NotEqual, &tryAgain, ShortJump);
 
     masm.memoryBarrierAfter(sync);
 }
@@ -2760,7 +2761,7 @@ void
 MacroAssembler::atomicFetchOp64(const Synchronization& sync, AtomicOp op, Register64 value,
                                 const Address& mem, Register64 temp, Register64 output)
 {
-    AtomicFetchOp64(*this, sync, op, value, mem, temp, output);
+    AtomicFetchOp64(*this, nullptr, sync, op, value, mem, temp, output);
 }
 
 void
@@ -2769,7 +2770,7 @@ MacroAssembler::wasmCompareExchange64(const wasm::MemoryAccessDesc& access,
                                       Register64 expect,
                                       Register64 replace,
                                       Register64 output) {
-    CompareExchange64(*this, access.sync(), mem, expect, replace, output);
+    CompareExchange64(*this, &access, access.sync(), mem, expect, replace, output);
 }
 
 void
@@ -2777,7 +2778,7 @@ MacroAssembler::wasmAtomicExchange64(const wasm::MemoryAccessDesc& access,
                                      const BaseIndex& mem,
                                      Register64 value, Register64 output)
 {
-    AtomicExchange64(*this, access.sync(), mem, value, output);
+    AtomicExchange64(*this, &access, access.sync(), mem, value, output);
 }
 
 void
@@ -2786,7 +2787,7 @@ MacroAssembler::wasmAtomicFetchOp64(const wasm::MemoryAccessDesc& access,
                                     const BaseIndex& mem, Register64 temp,
                                     Register64 output)
 {
-    AtomicFetchOp64(*this, access.sync(), op, value, mem, temp, output);
+    AtomicFetchOp64(*this, &access, access.sync(), op, value, mem, temp, output);
 }
 
 
@@ -4686,7 +4687,8 @@ MacroAssembler::enterFakeExitFrameForWasm(Register cxreg, Register scratch, Exit
 
 template<typename T>
 static void
-CompareExchange(MacroAssembler& masm, Scalar::Type type, const Synchronization& sync, const T& mem,
+CompareExchange(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, 
+Scalar::Type type, const Synchronization& sync, const T& mem,
                 Register oldval, Register newval, Register valueTemp, Register offsetTemp,
                 Register maskTemp, Register output)
 {
@@ -4707,17 +4709,16 @@ CompareExchange(MacroAssembler& masm, Scalar::Type type, const Synchronization& 
     }
 
     Label again, end;
-
-masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
-
         masm.memoryBarrierBefore(sync);
         masm.bind(&again);
 
+        if (access) masm.append(*access, masm.size());
         masm.as_lwarx(output, r0, SecondScratchReg);
         masm.ma_bc(output, oldval, &end, Assembler::NotEqual, ShortJump);
+        if (access) masm.append(*access, masm.size());
         masm.as_stwcx(newval, r0, SecondScratchReg);
         masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
@@ -4729,7 +4730,7 @@ masm.xs_trap();
 
     masm.as_andi_rc(offsetTemp, SecondScratchReg, 3);
     masm.subPtr(offsetTemp, SecondScratchReg);
-#if !MOZ_LITTLE_ENDIAN
+#if !MOZ_LITTLE_ENDIAN()
     masm.as_xori(offsetTemp, offsetTemp, 3);
 #endif
     masm.x_slwi(offsetTemp, offsetTemp, 3);
@@ -4741,27 +4742,26 @@ masm.xs_trap();
 
     masm.bind(&again);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_lwarx(ScratchRegister, r0, SecondScratchReg);
 
     masm.as_srw(output, ScratchRegister, offsetTemp);
 
     switch (nbytes) {
         case 1:
+            masm.as_andi_rc(valueTemp, oldval, 0xff);
+            masm.as_andi_rc(output, output, 0xff);
             if (signExtend) {
                 masm.as_extsb(valueTemp, oldval);
                 masm.as_extsb(output, output);
-            } else {
-                masm.as_andi_rc(valueTemp, oldval, 0xff);
-                masm.as_andi_rc(output, output, 0xff);
             }
             break;
         case 2:
+            masm.as_andi_rc(valueTemp, oldval, 0xffff);
+            masm.as_andi_rc(output, output, 0xffff);
             if (signExtend) {
                 masm.as_extsh(valueTemp, oldval);
                 masm.as_extsh(output, output);
-            } else {
-                masm.as_andi_rc(valueTemp, oldval, 0xffff);
-                masm.as_andi_rc(output, output, 0xffff);
             }
             break;
     }
@@ -4772,14 +4772,12 @@ masm.xs_trap();
     masm.as_and(ScratchRegister, ScratchRegister, maskTemp);
     masm.as_or(ScratchRegister, ScratchRegister, valueTemp);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-
-    masm.ma_bc(ScratchRegister, ScratchRegister, &again, Assembler::Zero, ShortJump);
+    masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
     masm.memoryBarrierAfter(sync);
-
-    masm.bind(&end);
-
+        masm.bind(&end);
 }
 
 
@@ -4788,7 +4786,7 @@ MacroAssembler::compareExchange(Scalar::Type type, const Synchronization& sync, 
                                 Register oldval, Register newval, Register valueTemp,
                                 Register offsetTemp, Register maskTemp, Register output)
 {
-    CompareExchange(*this, type, sync, mem, oldval, newval, valueTemp, offsetTemp, maskTemp,
+    CompareExchange(*this, nullptr, type, sync, mem, oldval, newval, valueTemp, offsetTemp, maskTemp,
                     output);
 }
 
@@ -4797,14 +4795,32 @@ MacroAssembler::compareExchange(Scalar::Type type, const Synchronization& sync, 
                                 Register oldval, Register newval, Register valueTemp,
                                 Register offsetTemp, Register maskTemp, Register output)
 {
-    CompareExchange(*this, type, sync, mem, oldval, newval, valueTemp, offsetTemp, maskTemp,
+    CompareExchange(*this, nullptr, type, sync, mem, oldval, newval, valueTemp, offsetTemp, maskTemp,
+                    output);
+}
+void
+MacroAssembler::wasmCompareExchange(const wasm::MemoryAccessDesc& access, const Address& mem,
+                                Register oldval, Register newval, Register valueTemp,
+                                Register offsetTemp, Register maskTemp, Register output)
+{
+    CompareExchange(*this, &access, access.type(), access.sync(), mem, oldval, newval, valueTemp, offsetTemp, maskTemp,
+                    output);
+}
+
+void
+MacroAssembler::wasmCompareExchange(const wasm::MemoryAccessDesc& access, const BaseIndex& mem,
+                                Register oldval, Register newval, Register valueTemp,
+                                Register offsetTemp, Register maskTemp, Register output)
+{
+    CompareExchange(*this, &access, access.type(), access.sync(), mem, oldval, newval, valueTemp, offsetTemp, maskTemp,
                     output);
 }
 
 
 template<typename T>
 static void
-AtomicExchange(MacroAssembler& masm, Scalar::Type type, const Synchronization& sync, const T& mem,
+AtomicExchange(MacroAssembler& masm, const wasm::MemoryAccessDesc* access,
+Scalar::Type type, const Synchronization& sync, const T& mem,
                Register value, Register valueTemp, Register offsetTemp, Register maskTemp,
                Register output)
 {
@@ -4826,7 +4842,6 @@ AtomicExchange(MacroAssembler& masm, Scalar::Type type, const Synchronization& s
 
     Label again;
 
-masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
@@ -4834,10 +4849,11 @@ masm.xs_trap();
         masm.memoryBarrierBefore(sync);
         masm.bind(&again);
 
+        if (access) masm.append(*access, masm.size());
         masm.as_lwarx(output, r0, SecondScratchReg);
-        masm.ma_move(ScratchRegister, value);
-        masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-        masm.ma_bc(Assembler::Zero, &again, ShortJump);
+        if (access) masm.append(*access, masm.size());
+        masm.as_stwcx(value, r0, SecondScratchReg);
+        masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
         masm.memoryBarrierAfter(sync);
 
@@ -4846,7 +4862,7 @@ masm.xs_trap();
 
     masm.as_andi_rc(offsetTemp, SecondScratchReg, 3);
     masm.subPtr(offsetTemp, SecondScratchReg);
-#if !MOZ_LITTLE_ENDIAN
+#if !MOZ_LITTLE_ENDIAN()
     masm.as_xori(offsetTemp, offsetTemp, 3);
 #endif
     masm.x_sldi(offsetTemp, offsetTemp, 3);
@@ -4862,34 +4878,31 @@ masm.xs_trap();
             break;
     }
     masm.as_sld(valueTemp, valueTemp, offsetTemp);
-
     masm.memoryBarrierBefore(sync);
-
     masm.bind(&again);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_lwarx(output, r0, SecondScratchReg);
     masm.as_and(ScratchRegister, output, maskTemp);
     masm.as_or(ScratchRegister, ScratchRegister, valueTemp);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-
-    masm.ma_bc(ScratchRegister, ScratchRegister, &again, Assembler::Zero, ShortJump);
+    masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
     masm.as_srd(output, output, offsetTemp);
 
     switch (nbytes) {
         case 1:
+            masm.as_andi_rc(output, output, 0xff);
             if (signExtend) {
                 masm.as_extsb(output, output);
-            } else {
-                masm.as_andi_rc(output, output, 0xff);
             }
             break;
         case 2:
+            masm.as_andi_rc(output, output, 0xffff);
             if (signExtend) {
                 masm.as_extsh(output, output);
-            } else {
-                masm.as_andi_rc(output, output, 0xffff);
             }
             break;
     }
@@ -4903,7 +4916,7 @@ MacroAssembler::atomicExchange(Scalar::Type type, const Synchronization& sync, c
                                Register value, Register valueTemp, Register offsetTemp,
                                Register maskTemp, Register output)
 {
-    AtomicExchange(*this, type, sync, mem, value, valueTemp, offsetTemp, maskTemp, output);
+    AtomicExchange(*this, nullptr, type, sync, mem, value, valueTemp, offsetTemp, maskTemp, output);
 }
 
 void
@@ -4911,13 +4924,30 @@ MacroAssembler::atomicExchange(Scalar::Type type, const Synchronization& sync, c
                                Register value, Register valueTemp, Register offsetTemp,
                                Register maskTemp, Register output)
 {
-    AtomicExchange(*this, type, sync, mem, value, valueTemp, offsetTemp, maskTemp, output);
+    AtomicExchange(*this, nullptr, type, sync, mem, value, valueTemp, offsetTemp, maskTemp, output);
+}
+
+void
+MacroAssembler::wasmAtomicExchange(const wasm::MemoryAccessDesc& access, const Address& mem,
+                               Register value, Register valueTemp, Register offsetTemp,
+                               Register maskTemp, Register output)
+{
+    AtomicExchange(*this, &access, access.type(), access.sync(), mem, value, valueTemp, offsetTemp, maskTemp, output);
+}
+
+void
+MacroAssembler::wasmAtomicExchange(const wasm::MemoryAccessDesc& access, const BaseIndex& mem,
+                               Register value, Register valueTemp, Register offsetTemp,
+                               Register maskTemp, Register output)
+{
+    AtomicExchange(*this, &access, access.type(), access.sync(), mem, value, valueTemp, offsetTemp, maskTemp, output);
 }
 
 
 template<typename T>
 static void
-AtomicFetchOp(MacroAssembler& masm, Scalar::Type type, const Synchronization& sync,
+AtomicFetchOp(MacroAssembler& masm, const wasm::MemoryAccessDesc* access,
+Scalar::Type type, const Synchronization& sync,
               AtomicOp op, const T& mem, Register value, Register valueTemp,
               Register offsetTemp, Register maskTemp, Register output)
 {
@@ -4939,7 +4969,6 @@ AtomicFetchOp(MacroAssembler& masm, Scalar::Type type, const Synchronization& sy
 
     Label again;
 
-masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
@@ -4947,6 +4976,7 @@ masm.xs_trap();
         masm.memoryBarrierBefore(sync);
         masm.bind(&again);
 
+        if (access) masm.append(*access, masm.size());
         masm.as_lwarx(output, r0, SecondScratchReg);
 
         switch (op) {
@@ -4969,8 +4999,9 @@ masm.xs_trap();
             MOZ_CRASH();
         }
 
+        if (access) masm.append(*access, masm.size());
         masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-        masm.ma_bc(ScratchRegister, ScratchRegister, &again, Assembler::Zero, ShortJump);
+        masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
         masm.memoryBarrierAfter(sync);
 
@@ -4980,7 +5011,7 @@ masm.xs_trap();
 
     masm.as_andi_rc(offsetTemp, SecondScratchReg, 3);
     masm.subPtr(offsetTemp, SecondScratchReg);
-#if !MOZ_LITTLE_ENDIAN
+#if !MOZ_LITTLE_ENDIAN()
     masm.as_xori(offsetTemp, offsetTemp, 3);
 #endif
     masm.x_sldi(offsetTemp, offsetTemp, 3);
@@ -4992,6 +5023,7 @@ masm.xs_trap();
 
     masm.bind(&again);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_lwarx(ScratchRegister, r0, SecondScratchReg);
     masm.as_srd(output, ScratchRegister, offsetTemp);
 
@@ -5029,25 +5061,25 @@ masm.xs_trap();
     masm.as_and(ScratchRegister, ScratchRegister, maskTemp);
     masm.as_or(ScratchRegister, ScratchRegister, valueTemp);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-
-    masm.ma_bc(ScratchRegister, ScratchRegister, &again, Assembler::Zero, ShortJump);
+    masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
     switch (nbytes) {
         case 1:
+            masm.as_andi_rc(output, output, 0xff);
             if (signExtend) {
                 masm.as_extsb(output, output);
-            } else {
-                masm.as_andi_rc(output, output, 0xff);
             }
             break;
         case 2:
+            masm.as_andi_rc(output, output, 0xffff);
             if (signExtend) {
                 masm.as_extsh(output, output);
-            } else {
-                masm.as_andi_rc(output, output, 0xffff);
             }
             break;
+        default:
+            MOZ_CRASH();
     }
 
     masm.memoryBarrierAfter(sync);
@@ -5058,7 +5090,7 @@ MacroAssembler::atomicFetchOp(Scalar::Type type, const Synchronization& sync, At
                               Register value, const Address& mem, Register valueTemp,
                               Register offsetTemp, Register maskTemp, Register output)
 {
-    AtomicFetchOp(*this, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp, output);
+    AtomicFetchOp(*this, nullptr, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp, output);
 }
 
 void
@@ -5066,12 +5098,28 @@ MacroAssembler::atomicFetchOp(Scalar::Type type, const Synchronization& sync, At
                               Register value, const BaseIndex& mem, Register valueTemp,
                               Register offsetTemp, Register maskTemp, Register output)
 {
-    AtomicFetchOp(*this, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp, output);
+    AtomicFetchOp(*this, nullptr, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp, output);
+}
+
+void
+MacroAssembler::wasmAtomicFetchOp(const wasm::MemoryAccessDesc& access, AtomicOp op,
+                              Register value, const Address& mem, Register valueTemp,
+                              Register offsetTemp, Register maskTemp, Register output)
+{
+    AtomicFetchOp(*this, &access, access.type(), access.sync(), op, mem, value, valueTemp, offsetTemp, maskTemp, output);
+}
+
+void
+MacroAssembler::wasmAtomicFetchOp(const wasm::MemoryAccessDesc& access, AtomicOp op,
+                              Register value, const BaseIndex& mem, Register valueTemp,
+                              Register offsetTemp, Register maskTemp, Register output)
+{
+    AtomicFetchOp(*this, &access, access.type(), access.sync(), op, mem, value, valueTemp, offsetTemp, maskTemp, output);
 }
 
 template<typename T>
 static void
-AtomicEffectOp(MacroAssembler& masm, Scalar::Type type, const Synchronization& sync, AtomicOp op,
+AtomicEffectOp(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, Scalar::Type type, const Synchronization& sync, AtomicOp op,
         const T& mem, Register value, Register valueTemp, Register offsetTemp, Register maskTemp)
 {
     unsigned nbytes = Scalar::byteSize(type);
@@ -5091,7 +5139,6 @@ AtomicEffectOp(MacroAssembler& masm, Scalar::Type type, const Synchronization& s
 
     Label again;
 
-masm.xs_trap();
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     if (nbytes == 4) {
@@ -5099,6 +5146,7 @@ masm.xs_trap();
         masm.memoryBarrierBefore(sync);
         masm.bind(&again);
 
+        if (access) masm.append(*access, masm.size());
         masm.as_lwarx(ScratchRegister, r0, SecondScratchReg);
 
         switch (op) {
@@ -5121,8 +5169,9 @@ masm.xs_trap();
             MOZ_CRASH();
         }
 
+        if (access) masm.append(*access, masm.size());
         masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-        masm.ma_bc(ScratchRegister, ScratchRegister, &again, Assembler::Zero, ShortJump);
+        masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
         masm.memoryBarrierAfter(sync);
 
@@ -5131,7 +5180,7 @@ masm.xs_trap();
 
     masm.as_andi_rc(offsetTemp, SecondScratchReg, 3);
     masm.subPtr(offsetTemp, SecondScratchReg);
-#if !MOZ_LITTLE_ENDIAN
+#if !MOZ_LITTLE_ENDIAN()
     masm.as_xori(offsetTemp, offsetTemp, 3);
 #endif
     masm.x_sldi(offsetTemp, offsetTemp, 3);
@@ -5143,6 +5192,7 @@ masm.xs_trap();
 
     masm.bind(&again);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_lwarx(ScratchRegister, r0, SecondScratchReg);
     masm.as_srd(valueTemp, ScratchRegister, offsetTemp);
 
@@ -5173,6 +5223,8 @@ masm.xs_trap();
         case 2:
             masm.as_andi_rc(valueTemp, valueTemp, 0xffff);
             break;
+        default:
+            MOZ_CRASH();
     }
 
     masm.as_sld(valueTemp, valueTemp, offsetTemp);
@@ -5180,9 +5232,9 @@ masm.xs_trap();
     masm.as_and(ScratchRegister, ScratchRegister, maskTemp);
     masm.as_or(ScratchRegister, ScratchRegister, valueTemp);
 
+    if (access) masm.append(*access, masm.size());
     masm.as_stwcx(ScratchRegister, r0, SecondScratchReg);
-
-    masm.ma_bc(ScratchRegister, ScratchRegister, &again, Assembler::Zero, ShortJump);
+    masm.ma_bc(Assembler::NotEqual, &again, ShortJump);
 
     masm.memoryBarrierAfter(sync);
 }
@@ -5193,7 +5245,7 @@ MacroAssembler::atomicEffectOpJS(Scalar::Type type, const Synchronization& sync,
                                  Register value, const Address& mem, Register valueTemp,
                                  Register offsetTemp, Register maskTemp)
 {
-    AtomicEffectOp(*this, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp);
+    AtomicEffectOp(*this, nullptr, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp);
 }
 
 void
@@ -5201,7 +5253,7 @@ MacroAssembler::atomicEffectOpJS(Scalar::Type type, const Synchronization& sync,
                                  Register value, const BaseIndex& mem, Register valueTemp,
                                  Register offsetTemp, Register maskTemp)
 {
-    AtomicEffectOp(*this, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp);
+    AtomicEffectOp(*this, nullptr, type, sync, op, mem, value, valueTemp, offsetTemp, maskTemp);
 }
 
 // ========================================================================
