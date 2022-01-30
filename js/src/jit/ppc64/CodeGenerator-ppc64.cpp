@@ -56,6 +56,7 @@ class AutoDeBlock
             JitSpew(JitSpew_Codegen, "   CGPPC64: %s ]]", blockname);
         }
 };
+#undef ADBlock
 #define ADBlock()  AutoDeBlock _adbx(__PRETTY_FUNCTION__)
             
 #else
@@ -249,7 +250,7 @@ void CodeGenerator::visitWasmExtendU32Index(LWasmExtendU32Index* lir) {
   // canonical form.
   Register output = ToRegister(lir->output());
   MOZ_ASSERT(ToRegister(lir->input()) == output);
-  masm.assertCanonicalInt32(output);
+  masm.debugAssertCanonicalInt32(output);
 }
 
 void CodeGenerator::visitWasmWrapU32Index(LWasmWrapU32Index* lir) {
@@ -257,7 +258,7 @@ void CodeGenerator::visitWasmWrapU32Index(LWasmWrapU32Index* lir) {
   // canonical form.
   Register output = ToRegister(lir->output());
   MOZ_ASSERT(ToRegister(lir->input()) == output);
-  masm.assertCanonicalInt32(output);
+  masm.debugAssertCanonicalInt32(output);
 }
 
 void
@@ -393,7 +394,7 @@ void CodeGeneratorPPC64::emitBigIntDiv(LBigIntDiv* ins, Register dividend,
     masm.as_divd(/* result= */ dividend, dividend, divisor);
 
     // Create and return the result.
-    masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+    masm.newGCBigInt(output, divisor, initialBigIntHeap(), fail);
     masm.initializeBigInt(output, dividend);
 }
 
@@ -403,6 +404,7 @@ void CodeGeneratorPPC64::emitBigIntMod(LBigIntMod* ins, Register dividend,
 {
     // Callers handle division by zero and integer overflow.
 
+// XXX: use modsd, etc. on POWER9
     // Signed division.
     masm.as_divd(output, dividend, divisor);
 
@@ -411,7 +413,7 @@ void CodeGeneratorPPC64::emitBigIntMod(LBigIntMod* ins, Register dividend,
     masm.as_subf(dividend, output, dividend);
 
     // Create and return the result.
-    masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+    masm.newGCBigInt(output, divisor, initialBigIntHeap(), fail);
     masm.initializeBigInt(output, dividend);
 }
 
@@ -615,6 +617,7 @@ CodeGenerator::visitCtzI64(LCtzI64* lir)
     // we had to count our trailing zeroes on my G5 walking
     // uphill in the snow BOTH WAYS. We even have that fancy
     // population count instruction now. You kids have it so good.
+// XXX: POWER9
     masm.as_cnttzd(output.reg, input.reg);
 }
 
@@ -625,7 +628,17 @@ CodeGenerator::visitNotI64(LNotI64* lir)
     Register64 input = ToRegister64(lir->getInt64Operand(0));
     Register output = ToRegister(lir->output());
 
-    masm.cmp64Set(Assembler::Equal, input.reg, Imm16(0), output);
+// XXX: isel would be better
+    masm.ma_cmp_set(output, input.reg, Imm64(0), Assembler::Equal);
+}
+
+void CodeGenerator::visitBitNotI64(LBitNotI64* ins) {
+  ADBlock();
+  const LAllocation* input = ins->getOperand(0);
+  MOZ_ASSERT(!input->isConstant());
+  Register inputReg = ToRegister(input);
+  MOZ_ASSERT(inputReg == ToRegister(ins->output())); // MIPS. Do we truly care?
+  masm.ma_not(inputReg, inputReg);
 }
 
 void
@@ -1985,7 +1998,7 @@ CodeGenerator::visitDouble(LDouble* ins)
     ADBlock();
     const LDefinition* out = ins->getDef(0);
 
-    masm.loadConstantDouble(ins->getDouble(), ToFloatRegister(out));
+    masm.loadConstantDouble(ins->value(), ToFloatRegister(out));
 }
 
 void
@@ -1993,7 +2006,7 @@ CodeGenerator::visitFloat32(LFloat32* ins)
 {
     ADBlock();
     const LDefinition* out = ins->getDef(0);
-    masm.loadConstantFloat32(ins->getFloat(), ToFloatRegister(out));
+    masm.loadConstantFloat32(ins->value(), ToFloatRegister(out));
 }
 
 void
@@ -2289,8 +2302,7 @@ CodeGeneratorPPC64::emitWasmLoad(T* lir)
     if (IsUnaligned(mir->access())) {
         if (IsFloatingPointType(mir->type())) {
             masm.wasmUnalignedLoadFP(mir->access(), HeapReg, ToRegister(lir->ptr()), ptrScratch,
-                                     ToFloatRegister(lir->output()), ToRegister(lir->getTemp(1)),
-                                     InvalidReg, InvalidReg);
+                                     ToFloatRegister(lir->output()), ToRegister(lir->getTemp(1)));
         } else {
             masm.wasmUnalignedLoad(mir->access(), HeapReg, ToRegister(lir->ptr()),
                                    ptrScratch, ToRegister(lir->output()), ToRegister(lir->getTemp(1)));
@@ -2661,8 +2673,30 @@ CodeGenerator::visitWasmSelect(LWasmSelect* ins)
     masm.bind(&done);
 }
 
+// We expect to handle only the case where compare is {U,}Int32 and select is
+// {U,}Int32, and the "true" input is reused for the output.
 void CodeGenerator::visitWasmCompareAndSelect(LWasmCompareAndSelect* ins) {
-  emitWasmCompareAndSelect(ins);
+  bool cmpIs32bit = ins->compareType() == MCompare::Compare_Int32 ||
+                    ins->compareType() == MCompare::Compare_UInt32;
+  bool selIs32bit = ins->mir()->type() == MIRType::Int32;
+
+  MOZ_RELEASE_ASSERT(
+      cmpIs32bit && selIs32bit,
+      "CodeGenerator::visitWasmCompareAndSelect: unexpected types");
+
+  Register trueExprAndDest = ToRegister(ins->output());
+  MOZ_ASSERT(ToRegister(ins->ifTrueExpr()) == trueExprAndDest,
+             "true expr input is reused for output");
+
+  Assembler::Condition cond = Assembler::InvertCondition(
+      JSOpToCondition(ins->compareType(), ins->jsop()));
+  const LAllocation* rhs = ins->rightExpr();
+  const LAllocation* falseExpr = ins->ifFalseExpr();
+  Register lhs = ToRegister(ins->leftExpr());
+
+  // This turns into an isel.
+  masm.cmp32Move32(cond, lhs, ToRegister(rhs), ToRegister(falseExpr),
+                   trueExprAndDest);
 }
 
 void
@@ -2676,6 +2710,7 @@ CodeGenerator::visitWasmReinterpret(LWasmReinterpret* lir)
     DebugOnly<MIRType> from = ins->input()->type();
 
     switch (to) {
+// XXX: use VSX float move instructions (moveToDouble, etc)
       // We don't have much choice other than to spill to memory for these.
       case MIRType::Int32:
         MOZ_ASSERT(from == MIRType::Float32);
@@ -2820,9 +2855,24 @@ CodeGenerator::visitWasmAddOffset(LWasmAddOffset* lir)
     Register out = ToRegister(lir->output());
 
     Label ok;
-    masm.ma_addTestCarry(Assembler::CarryClear, out, base, Imm32(mir->offset()), &ok);
+// XXX: add short parameter since usually short
+    masm.ma_addTestCarry(Assembler::CarryClear, out, base, Imm32(mir->offset()), &ok, /* is32 */ true);
     masm.wasmTrap(wasm::Trap::OutOfBounds, mir->bytecodeOffset());
     masm.bind(&ok);
+}
+
+void CodeGenerator::visitWasmAddOffset64(LWasmAddOffset64* lir) {
+  ADBlock();
+  MWasmAddOffset* mir = lir->mir();
+  Register64 base = ToRegister64(lir->base());
+  Register64 out = ToOutRegister64(lir);
+
+  Label ok;
+// XXX: add short parameter since usually short
+  masm.ma_addTestCarry(Assembler::CarryClear, out.reg, base.reg,
+                       ImmWord(mir->offset()), &ok, /* is32 */ false);
+  masm.wasmTrap(wasm::Trap::OutOfBounds, mir->bytecodeOffset());
+  masm.bind(&ok);
 }
 
 void CodeGenerator::visitNearbyInt(LNearbyInt* lir) {
@@ -2856,11 +2906,6 @@ void
 CodeGenerator::visitWasmHeapBase(LWasmHeapBase *lir)
 {
     MOZ_CRASH("NYI");
-}
-
-void
-CodeGenerator::visitWasmRegisterResult(LWasmRegisterResult* lir)
-{
 }
 
 void
@@ -3176,7 +3221,7 @@ CodeGenerator::visitWasmAtomicBinopI64(LWasmAtomicBinopI64* lir)
 
 void CodeGenerator::visitSimd128(LSimd128* ins) { MOZ_CRASH("No SIMD"); }
 
-void CodeGenerator::visitWasmBitselectSimd128(LWasmBitselectSimd128* ins) {
+void CodeGenerator::visitWasmTernarySimd128(LWasmTernarySimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 

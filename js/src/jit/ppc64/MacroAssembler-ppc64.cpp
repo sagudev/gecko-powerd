@@ -51,6 +51,7 @@ class MASMAutoDeBlock
             JitSpew(JitSpew_Codegen, "   CGPPC: %s ]]", blockname);
         }
 };
+#undef ADBlock
 #define ADBlock()  MASMAutoDeBlock _adbx(__PRETTY_FUNCTION__, __LINE__)
 #else
 
@@ -406,6 +407,13 @@ MacroAssemblerPPC64::ma_li(Register dest, ImmWord imm)
     ma_li(dest, (int64_t)imm.value);
 }
 
+void
+MacroAssemblerPPC64::ma_li(Register dest, Imm64 imm)
+{
+    ADBlock();
+    ma_li(dest, (int64_t)imm.value);
+}
+
 // This generates immediate loads as well, but always in the
 // long form so that they can be patched.
 void
@@ -540,6 +548,18 @@ MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, Imm32 imm, Lab
 }
 
 void
+MacroAssemblerPPC64::ma_addTestOverflow(Register rd, Register rs, ImmWord imm, Label* overflow, bool is32)
+{
+    ADBlock();
+    MOZ_ASSERT(rs != SecondScratchReg);
+    // This can only come in from a 64-bit routine, so assert that.
+    MOZ_ASSERT(!is32);
+
+    ma_li(SecondScratchReg, imm);
+    ma_addTestOverflow(rd, rs, SecondScratchReg, overflow, is32);
+}
+
+void
 MacroAssemblerPPC64::ma_negTestOverflow(Register rd, Label* overflow)
 {
     ADBlock();
@@ -549,6 +569,13 @@ MacroAssemblerPPC64::ma_negTestOverflow(Register rd, Label* overflow)
     xs_mtxer(ScratchRegister);
     as_nego(rd, rd);
     ma_bc(Assembler::Overflow, overflow);
+}
+
+void
+MacroAssemblerPPC64::ma_not(Register rd, Register ra)
+{
+    ADBlock();
+    as_nor(rd, ra, ra); // OPPCC p.540
 }
 
 // Subtract.
@@ -1033,6 +1060,20 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Imm32 imm, Condition 
     ADBlock();
     MOZ_ASSERT(rd != ScratchRegister);
     MOZ_ASSERT(rd != SecondScratchReg);
+
+xs_trap();
+    asMasm().loadPtr(addr, ScratchRegister);
+    ma_li(SecondScratchReg, imm);
+    ma_cmp_set(rd, ScratchRegister, SecondScratchReg, c, useCmpw);
+}
+
+void
+MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Imm64 imm, Condition c, bool useCmpw)
+{
+    ADBlock();
+    MOZ_ASSERT(rd != ScratchRegister);
+    MOZ_ASSERT(rd != SecondScratchReg);
+    MOZ_ASSERT(!useCmpw);
 
 xs_trap();
     asMasm().loadPtr(addr, ScratchRegister);
@@ -1973,7 +2014,7 @@ MacroAssemblerPPC64Compat::pushValue(ValueOperand val)
 void
 MacroAssemblerPPC64Compat::pushValue(const Address& addr)
 {
-    // Load value before allocate stack, addr.base may be is sp.
+    // Load value before allocating stack: addr.base may be SP.
     loadPtr(Address(addr.base, addr.offset), ScratchRegister);
     ma_dsubu(StackPointer, StackPointer, Imm32(sizeof(Value)));
     storePtr(ScratchRegister, Address(StackPointer, 0));
@@ -2603,6 +2644,12 @@ void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
     wasmBoundsCheck64(cond, index, limit, label);
 }
 
+void MacroAssembler::widenInt32(Register r) {
+    ADBlock();
+
+    move32To64SignExtend(r, Register64(r));
+}
+
 void
 MacroAssembler::wasmTruncateDoubleToUInt32(FloatRegister input, Register output, bool isSaturating,
                                            Label* oolEntry)
@@ -2744,7 +2791,7 @@ MacroAssemblerPPC64Compat::wasmLoadI64Impl(const wasm::MemoryAccessDesc& access,
                                             Register64 output, Register tmp)
 {
     uint32_t offset = access.offset();
-    MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
+    MOZ_ASSERT(offset < asMasm().wasmMaxOffsetGuardLimit());
     MOZ_ASSERT_IF(offset, ptrScratch != InvalidReg);
 
     // Maybe add the offset.
@@ -2796,7 +2843,7 @@ MacroAssemblerPPC64Compat::wasmStoreI64Impl(const wasm::MemoryAccessDesc& access
                                              Register tmp)
 {
     uint32_t offset = access.offset();
-    MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
+    MOZ_ASSERT(offset < asMasm().wasmMaxOffsetGuardLimit());
     MOZ_ASSERT_IF(offset, ptrScratch != InvalidReg);
 
     // Maybe add the offset.
@@ -3465,6 +3512,7 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, R
     }
 }
 
+// XXX: add short option
 void
 MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, Imm32 imm,
                                           Label* overflow, bool is32)
@@ -3486,6 +3534,27 @@ MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, I
         // regular CA
         ma_bc(cond == Assembler::CarrySet ? Assembler::Equal : Assembler::NotEqual, overflow);
     }
+}
+
+// XXX: add short option
+void
+MacroAssemblerPPC64::ma_addTestCarry(Condition cond, Register rd, Register rs, ImmWord imm,
+                                          Label* overflow, bool is32)
+{
+    ADBlock();
+    MOZ_ASSERT(cond == Assembler::CarrySet || cond == Assembler::CarryClear);
+    // This can only enter through a 64-bit path.
+    MOZ_ASSERT(!is32);
+;
+    if (!Imm16::IsInSignedRange(imm.value)) {
+        MOZ_ASSERT(rs != ScratchRegister);
+        ma_li(ScratchRegister, imm);
+        ma_addTestCarry(cond, rd, rs, ScratchRegister, overflow, is32);
+        return;
+    }
+    as_addic(rd, rs, imm.value);
+    as_mcrxrx(cr0);
+    ma_bc(cond == Assembler::CarrySet ? Assembler::Equal : Assembler::NotEqual, overflow);
 }
 
 // Subtract.
@@ -3935,6 +4004,36 @@ MacroAssemblerPPC64::ma_cmp32(Register lhs, Imm32 rhs, Condition c)
 }
 
 void
+MacroAssemblerPPC64::ma_cmp64(Register lhs, Imm64 rhs, Condition c)
+{
+    ADBlock();
+    MOZ_ASSERT(!(c & ConditionOnlyXER));
+    MOZ_ASSERT_IF((c & ConditionZero), (rhs.value == 0));
+
+    if (c & ConditionZero) {
+        as_cmpdi(lhs, 0);
+    } else {
+        if (c & ConditionUnsigned) {
+            if (Imm16::IsInUnsignedRange(rhs.value)) {
+                as_cmpldi(lhs, rhs.value);
+            } else {
+                MOZ_ASSERT(lhs != ScratchRegister);
+                ma_li(ScratchRegister, rhs);
+                as_cmpld(lhs, ScratchRegister);
+            }
+        } else {
+            if (Imm16::IsInSignedRange(rhs.value)) {
+                as_cmpdi(lhs, rhs.value);
+            } else {
+                MOZ_ASSERT(lhs != ScratchRegister);
+                ma_li(ScratchRegister, rhs);
+                as_cmpd(lhs, ScratchRegister);
+            }
+        }
+    }
+}
+
+void
 MacroAssemblerPPC64::ma_cmp32(Register lhs, const Address& rhs, Condition c)
 {
     MOZ_ASSERT(lhs != ScratchRegister);
@@ -3972,6 +4071,7 @@ void
 MacroAssemblerPPC64::ma_cmp_set(Register rd, Register rs, Imm16 imm, Condition c, bool useCmpw)
 {
     ADBlock();
+// XXX: remove duplicate code, just call ma_cmp32 or ma_cmp64 as appropriate
 
     // Handle any synthetic codes.
     MOZ_ASSERT_IF((c & ConditionZero), (imm.encode() == 0));
@@ -4778,11 +4878,9 @@ MacroAssembler::wasmUnalignedLoad(const wasm::MemoryAccessDesc& access, Register
 void
 MacroAssembler::wasmUnalignedLoadFP(const wasm::MemoryAccessDesc& access, Register memoryBase,
                                     Register ptr, Register ptrScratch, FloatRegister output,
-                                    Register tmp1, Register tmp2, Register tmp3)
+                                    Register tmp1)
 {
     ADBlock();
-    MOZ_ASSERT(tmp2 == InvalidReg);
-    MOZ_ASSERT(tmp3 == InvalidReg);
     wasmLoadImpl(access, memoryBase, ptr, ptrScratch, AnyRegister(output), tmp1);
 }
 
@@ -4820,7 +4918,7 @@ MacroAssemblerPPC64::wasmLoadImpl(const wasm::MemoryAccessDesc& access, Register
     ADBlock();
     uint32_t offset = access.offset();
     uint32_t loadInst = 0;
-    MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
+    MOZ_ASSERT(offset < asMasm().wasmMaxOffsetGuardLimit());
     MOZ_ASSERT_IF(offset, ptrScratch != InvalidReg);
 
     // Maybe add the offset.
@@ -4886,7 +4984,7 @@ MacroAssemblerPPC64::wasmStoreImpl(const wasm::MemoryAccessDesc& access, AnyRegi
 {
     ADBlock();
     uint32_t offset = access.offset();
-    MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
+    MOZ_ASSERT(offset < asMasm().wasmMaxOffsetGuardLimit());
     MOZ_ASSERT_IF(offset, ptrScratch != InvalidReg);
 
     // Maybe add the offset.

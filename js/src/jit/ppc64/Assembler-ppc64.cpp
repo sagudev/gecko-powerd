@@ -1474,7 +1474,7 @@ BufferOffset Assembler::as_addis(Register rd, Register ra, int16_t im, bool actu
 
 DEF_ALUI(addic)
 // NB: mulli is usually strength-reduced, since it can take up to five
-// cycles in the worst case.
+// cycles in the worst case. See xs_sr_mulli.
 DEF_ALUI(mulli)
 DEF_ALUI(subfic)
 #undef DEF_ALUI
@@ -1911,6 +1911,33 @@ BufferOffset Assembler::xs_lis(Register rd, int16_t im)
 BufferOffset Assembler::x_not(Register rd, Register ra)
 {
     return as_nor(rd, ra, ra);
+}
+
+BufferOffset Assembler::xs_sr_mulli(Register rd, Register ra, int16_t im)
+{
+    // XXX: expand this
+    if (im == -1) {
+        return as_neg(rd, ra);
+    }
+    if (im == 0) {
+        return xs_li(rd, 0);
+    }
+    if (im == 1) {
+        if (ra != rd) {
+            return xs_mr(rd, ra);
+        }
+        return;
+    }
+    if (im == 2) {
+        return as_add(rd, ra, ra);
+    }
+    if (im == 3 && rd != ra) {
+        as_add(rd, ra, ra);
+        return as_add(rd, rd, ra);
+    }
+    // XXX: convert 2^x to bit shift
+
+    return as_mulli(rd, ra, im);
 }
 
 // Traps

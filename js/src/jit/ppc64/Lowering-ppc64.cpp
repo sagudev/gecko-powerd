@@ -60,14 +60,21 @@ LIRGeneratorPPC64::lowerForALU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mi
     define(ins, mir, LDefinition(LDefinition::TypeFrom(mir->type()), LDefinition::REGISTER));
 }
 
-void
-LIRGeneratorPPC64::lowerForALUInt64(LInstructionHelper<INT64_PIECES, 2 * INT64_PIECES, 0>* ins,
-                                         MDefinition* mir, MDefinition* lhs, MDefinition* rhs)
-{
-    ins->setInt64Operand(0, useInt64RegisterAtStart(lhs));
-    ins->setInt64Operand(INT64_PIECES,
-                         lhs != rhs ? useInt64OrConstant(rhs) : useInt64OrConstantAtStart(rhs));
-    defineInt64ReuseInput(ins, mir, 0);
+void LIRGeneratorPPC64::lowerForALUInt64(
+    LInstructionHelper<INT64_PIECES, INT64_PIECES, 0>* ins, MDefinition* mir,
+    MDefinition* input) {
+  ins->setInt64Operand(0, useInt64RegisterAtStart(input));
+  defineInt64ReuseInput(ins, mir, 0);
+}
+
+void LIRGeneratorPPC64::lowerForALUInt64(
+    LInstructionHelper<INT64_PIECES, 2 * INT64_PIECES, 0>* ins,
+    MDefinition* mir, MDefinition* lhs, MDefinition* rhs) {
+  ins->setInt64Operand(0, useInt64RegisterAtStart(lhs));
+  ins->setInt64Operand(INT64_PIECES, willHaveDifferentLIRNodes(lhs, rhs)
+                                         ? useInt64OrConstant(rhs)
+                                         : useInt64OrConstantAtStart(rhs));
+  defineInt64ReuseInput(ins, mir, 0);
 }
 
 void
@@ -453,7 +460,7 @@ LIRGenerator::visitAsmJSLoadHeap(MAsmJSLoadHeap* ins)
         }
     }
 
-    define(new(alloc()) LAsmJSLoadHeap(baseAlloc, limitAlloc), ins);
+    define(new(alloc()) LAsmJSLoadHeap(baseAlloc, limitAlloc, LAllocation()), ins);
 }
 
 void
@@ -477,7 +484,7 @@ LIRGenerator::visitAsmJSStoreHeap(MAsmJSStoreHeap* ins)
         }
     }
 
-    add(new(alloc()) LAsmJSStoreHeap(baseAlloc, useRegisterAtStart(ins->value()), limitAlloc), ins);
+    add(new(alloc()) LAsmJSStoreHeap(baseAlloc, useRegisterAtStart(ins->value()), limitAlloc, LAllocation()), ins);
 }
 
 void
@@ -750,9 +757,11 @@ LIRGenerator::visitSignExtendInt64(MSignExtendInt64* ins)
     defineInt64(new(alloc()) LSignExtendInt64(useInt64RegisterAtStart(ins->input())), ins);
 }
 
+#if(0)
 void LIRGenerator::visitWasmBitselectSimd128(MWasmBitselectSimd128* ins) {
   MOZ_CRASH("bitselect NYI");
 }
+#endif
 
 void LIRGenerator::visitWasmBinarySimd128(MWasmBinarySimd128* ins) {
   MOZ_CRASH("binary SIMD NYI");
@@ -988,7 +997,7 @@ void LIRGeneratorPPC64::lowerPowOfTwoI(MPow* mir) {
   int32_t base = mir->input()->toConstant()->toInt32();
   MDefinition* power = mir->power();
 
-  auto* lir = new (alloc()) LPowOfTwoI(base, useRegister(power));
+  auto* lir = new (alloc()) LPowOfTwoI(useRegister(power), base);
   assignSnapshot(lir, mir->bailoutKind());
   define(lir, mir);
 }
@@ -1120,6 +1129,27 @@ LIRGenerator::visitSimdGeneralShuffle(MSimdGeneralShuffle*)
     MOZ_CRASH("NYI");
 }
 #endif
+
+bool LIRGeneratorShared::canSpecializeWasmCompareAndSelect(
+    MCompare::CompareType compTy, MIRType insTy) {
+        // XXX: for now
+        // Should be able to implement this for (u)int32 compare/select
+        // with isel, and probably floats/doubles with fsel.
+        return false;
+}
+
+void LIRGeneratorShared::lowerWasmCompareAndSelect(MWasmSelect* ins,
+                                                   MDefinition* lhs,
+                                                   MDefinition* rhs,
+                                                   MCompare::CompareType compTy,
+                                                   JSOp jsop) {
+  MOZ_ASSERT(canSpecializeWasmCompareAndSelect(compTy, ins->type()));
+  MOZ_CRASH("that was unexpected");
+}
+
+void LIRGenerator::visitWasmTernarySimd128(MWasmTernarySimd128* ins) {
+  MOZ_CRASH("ternary SIMD NYI");
+}
 
 void LIRGenerator::visitWasmBinarySimd128WithConstant(
     MWasmBinarySimd128WithConstant* ins) {

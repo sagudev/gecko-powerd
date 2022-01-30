@@ -580,7 +580,10 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
                  calleeTokenReg);
     masm.mov(calleeTokenReg, numArgsReg);
     masm.andPtr(Imm32(uint32_t(CalleeTokenMask)), numArgsReg);
-    masm.load16ZeroExtend(Address(numArgsReg, JSFunction::offsetOfNargs()), numArgsReg);
+    //masm.load16ZeroExtend(Address(numArgsReg, JSFunction::offsetOfNargs()), numArgsReg);
+    masm.load32(Address(numArgsReg, JSFunction::offsetOfFlagsAndArgCount()),
+              numArgsReg);
+    masm.rshift32(Imm32(JSFunction::ArgCountShift), numArgsReg);
 
     // Stash another copy since we're going to clobber numArgsReg.
     masm.as_or(tempNumArgsReg, numArgsReg, numArgsReg);
@@ -919,7 +922,7 @@ JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
 
     // Test for failure.
     switch (f.failType()) {
-      case Type_Object:
+      case Type_Cell:
         masm.branchTestPtr(Assembler::Zero, r3, r3, masm.failureLabel());
         break;
       case Type_Bool:

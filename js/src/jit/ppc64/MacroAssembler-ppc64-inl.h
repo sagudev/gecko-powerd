@@ -606,7 +606,7 @@ template <typename T1, typename T2>
 void
 MacroAssembler::cmpPtrSet(Condition cond, T1 lhs, T2 rhs, Register dest)
 {
-    ma_cmp_set(dest, lhs, rhs, cond);
+    ma_cmp_set(dest, lhs, rhs, cond, /* useCmpw */ false);
 }
 
 // Also see below for specializations of cmpPtrSet.
@@ -617,6 +617,60 @@ MacroAssembler::cmp32Set(Condition cond, T1 lhs, T2 rhs, Register dest)
 {
     ma_cmp_set(dest, lhs, rhs, cond, /* useCmpw */ true);
 }
+
+void
+MacroAssembler::cmp64Set(Condition cond, Address lhs, Imm64 rhs, Register dest)
+{
+    ma_cmp_set(dest, lhs, rhs, cond, /* useCmpw */ false);
+}
+
+template <typename T>
+void
+MacroAssembler::testStringSet(Condition cond, const T& value, Register dest)
+{
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+    splitTag(value, SecondScratchReg);
+    ma_cmp_set(dest, SecondScratchReg, ImmTag(JSVAL_TAG_STRING), cond);
+}
+
+template <typename T>
+void
+MacroAssembler::testBooleanSet(Condition cond, const T& value, Register dest)
+{
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+    splitTag(value, SecondScratchReg);
+    ma_cmp_set(dest, SecondScratchReg, ImmTag(JSVAL_TAG_BOOLEAN), cond);
+}
+
+template <typename T>
+void
+MacroAssembler::testSymbolSet(Condition cond, const T& value, Register dest)
+{
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+    splitTag(value, SecondScratchReg);
+    ma_cmp_set(dest, SecondScratchReg, ImmTag(JSVAL_TAG_SYMBOL), cond);
+}
+
+template <typename T>
+void
+MacroAssembler::testBigIntSet(Condition cond, const T& value, Register dest)
+{
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+    splitTag(value, SecondScratchReg);
+    ma_cmp_set(dest, SecondScratchReg, ImmTag(JSVAL_TAG_BIGINT), cond);
+}
+
+template <typename T>
+void
+MacroAssembler::testNumberSet(Condition cond, const T& value, Register dest)
+{
+    MOZ_ASSERT(cond == Equal || cond == NotEqual);
+    splitTag(value, SecondScratchReg);
+    ma_cmp_set(dest, SecondScratchReg,
+             ImmTag(JS::detail::ValueUpperInclNumberTag),
+             cond == Equal ? BelowOrEqual : Above);
+}
+
 
 // ===============================================================
 // Bit counting functions
@@ -630,16 +684,20 @@ MacroAssembler::clz64(Register64 src, Register dest)
 void
 MacroAssembler::ctz64(Register64 src, Register dest)
 {
-// TODO: This is POWER9-specific!  cnttz{d,w} added in ISA 3.0
-    as_cnttzd(dest, src.reg);
+    if (HasPPCISA3()) {
+        as_cnttzd(dest, src.reg);
+    } else {
+        MOZ_CRASH("NYI for pre-POWER9");
+    }
 }
 
 void
 MacroAssembler::popcnt64(Register64 input, Register64 output, Register tmp)
 {
-#if !0
+#if (1)
     as_popcntd(output.reg, input.reg);
 #else
+    // Prior to ISA 2.06. Not tested.
     ma_move(output.reg, input.reg);
     as_sradi(tmp, input.reg, Imm32(1));
     ma_li(ScratchRegister, ImmWord(0x5555555555555555UL));
@@ -704,6 +762,16 @@ MacroAssembler::branch64(Condition cond, const Address& lhs, Imm64 val, Label* l
                "other condition codes not supported");
 
     branchPtr(cond, lhs, ImmWord(val.value), label);
+}
+
+void
+MacroAssembler::branch64(Condition cond, const Address& lhs, Register64 reg, Label* label)
+{
+    MOZ_ASSERT(reg.reg != SecondScratchReg);
+    MOZ_ASSERT(reg.reg != ScratchRegister);
+
+    loadPtr(lhs, ScratchRegister);
+    branchPtr(cond, ScratchRegister, reg.reg, label);
 }
 
 void
@@ -1205,6 +1273,20 @@ MacroAssembler::subFloat32(FloatRegister src, FloatRegister dest)
 }
 
 void
+MacroAssembler::mul32(Imm32 rhs, Register srcDest)
+{
+    if (Imm16::IsInSignedRange(rhs.value)) {
+        // See also ::mulBy3
+        xs_sr_mulli(srcDest, srcDest, (int16_t)rhs.value);
+    } else {
+        // Wouldn't be any of our strength-reduced shortcuts anyway.
+        MOZ_ASSERT(srcDest != ScratchRegister);
+        ma_li(ScratchRegister, rhs);
+        as_mullw(srcDest, srcDest, ScratchRegister);
+    }
+}
+
+void
 MacroAssembler::mul32(Register rhs, Register srcDest)
 {
     as_mullw(srcDest, srcDest, rhs);
@@ -1492,7 +1574,125 @@ MacroAssembler::popcnt32(Register input,  Register output, Register tmp)
 }
 
 // ===============================================================
+// Condition functions
+
+void MacroAssembler::cmp8Set(Condition cond, Address lhs, Imm32 rhs,
+                             Register dest) {
+  MOZ_ASSERT(lhs.base != SecondScratchReg);
+
+  // Automatically generates a 32-bit compare.
+  switch (cond) {
+    case Assembler::Equal:
+    case Assembler::NotEqual:
+    case Assembler::Above:
+    case Assembler::AboveOrEqual:
+    case Assembler::Below:
+    case Assembler::BelowOrEqual:
+      load8ZeroExtend(lhs, SecondScratchReg);
+      ma_cmp_set(dest, SecondScratchReg, Imm32(uint8_t(rhs.value)), cond);
+      break;
+
+    case Assembler::GreaterThan:
+    case Assembler::GreaterThanOrEqual:
+    case Assembler::LessThan:
+    case Assembler::LessThanOrEqual:
+      load8SignExtend(lhs, SecondScratchReg);
+      ma_cmp_set(dest, SecondScratchReg, Imm32(int8_t(rhs.value)), cond);
+      break;
+
+    default:
+      MOZ_CRASH("unexpected condition");
+  }
+}
+
+void MacroAssembler::cmp16Set(Condition cond, Address lhs, Imm32 rhs,
+                              Register dest) {
+  MOZ_ASSERT(lhs.base != SecondScratchReg);
+
+  // Automatically generates a 32-bit compare.
+  switch (cond) {
+    case Assembler::Equal:
+    case Assembler::NotEqual:
+    case Assembler::Above:
+    case Assembler::AboveOrEqual:
+    case Assembler::Below:
+    case Assembler::BelowOrEqual:
+      load16ZeroExtend(lhs, SecondScratchReg);
+      ma_cmp_set(dest, SecondScratchReg, Imm32(uint16_t(rhs.value)), cond);
+      break;
+
+    case Assembler::GreaterThan:
+    case Assembler::GreaterThanOrEqual:
+    case Assembler::LessThan:
+    case Assembler::LessThanOrEqual:
+      load16SignExtend(lhs, SecondScratchReg);
+      ma_cmp_set(dest, SecondScratchReg, Imm32(int16_t(rhs.value)), cond);
+      break;
+
+    default:
+      MOZ_CRASH("unexpected condition");
+  }
+}
+
+
+// ===============================================================
 // Branch functions
+
+void MacroAssembler::branch8(Condition cond, const Address& lhs, Imm32 rhs,
+                             Label* label) {
+  MOZ_ASSERT(lhs.base != SecondScratchReg);
+
+  switch (cond) {
+    case Assembler::Equal:
+    case Assembler::NotEqual: 
+    case Assembler::Above:
+    case Assembler::AboveOrEqual:
+    case Assembler::Below:
+    case Assembler::BelowOrEqual:
+      load8ZeroExtend(lhs, SecondScratchReg);
+      branch32(cond, SecondScratchReg, Imm32(uint8_t(rhs.value)), label);
+      break;
+  
+    case Assembler::GreaterThan:
+    case Assembler::GreaterThanOrEqual:
+    case Assembler::LessThan:
+    case Assembler::LessThanOrEqual:
+      load8SignExtend(lhs, SecondScratchReg);
+      branch32(cond, SecondScratchReg, Imm32(int8_t(rhs.value)), label);
+      break;
+
+    default:
+      MOZ_CRASH("unexpected condition"); 
+  }
+} 
+
+void MacroAssembler::branch16(Condition cond, const Address& lhs, Imm32 rhs,
+                              Label* label) {
+  MOZ_ASSERT(lhs.base != SecondScratchReg);
+
+  switch (cond) {
+    case Assembler::Equal:
+    case Assembler::NotEqual: 
+    case Assembler::Above:
+    case Assembler::AboveOrEqual:
+    case Assembler::Below:
+    case Assembler::BelowOrEqual:
+      load16ZeroExtend(lhs, SecondScratchReg);
+      branch32(cond, SecondScratchReg, Imm32(uint16_t(rhs.value)), label);
+      break;
+  
+    case Assembler::GreaterThan:
+    case Assembler::GreaterThanOrEqual:
+    case Assembler::LessThan:
+    case Assembler::LessThanOrEqual:
+      load16SignExtend(lhs, SecondScratchReg);
+      branch32(cond, SecondScratchReg, Imm32(int16_t(rhs.value)), label);
+      break;
+
+    default:
+      MOZ_CRASH("unexpected condition"); 
+  }
+} 
 
 template <class L>
 void
@@ -1689,6 +1889,7 @@ MacroAssembler::branchMulPtr(Condition cond, Register src, Register dest, Label 
     ma_bc(cond, overflow);
 }
 
+// The src type will autodetermine 32-bit mode.
 template <typename T>
 void
 MacroAssembler::branchAdd32(Condition cond, T src, Register dest, Label* overflow)
@@ -2119,6 +2320,8 @@ MacroAssembler::branchTestMagic(Condition cond, const BaseIndex& address, Label*
 void
 MacroAssembler::branchToComputedAddress(const BaseIndex& addr)
 {
+    // Ass-U-Me that this never calls ABI compliant code (or else we'd need
+    // r12 to match CTR).
     loadPtr(addr, ScratchRegister);
     branch(ScratchRegister);
 }
@@ -2128,7 +2331,7 @@ MacroAssembler::cmp32Move32(Condition cond, Register lhs, Register rhs, Register
                             Register dest)
 {
     ma_cmp32(lhs, rhs, cond);
-    // Assume that ma_cmp32 selected the correct compare, and mask off any
+    // Ass-U-Me that ma_cmp32 selected the correct compare, and mask off any
     // synthetic bits. isel will assert on any conditions it can't encode.
     as_isel(dest, src, dest, (cond & 0xff));
 }
@@ -2198,7 +2401,7 @@ MacroAssembler::cmp32LoadPtr(Condition cond, const Address& lhs, Imm32 rhs,
                              const Address& src, Register dest)
 {
     Label skip;
-    // XXX: short jump, yo
+    // XXX: turn into a load and isel
     branch32(Assembler::InvertCondition(cond), lhs, rhs, &skip);
     loadPtr(src, dest);
     bind(&skip);

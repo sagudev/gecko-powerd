@@ -19,6 +19,8 @@ namespace jit {
 
 // Not used on PPC.
 static const uint32_t ShadowStackSpace = 0;
+// The return address is in LR, not in memory/stack.
+static const uint32_t SizeOfReturnAddressAfterCall = 0u;
 
 // Size of each bailout table entry.
 // For PowerPC this is a single bl.

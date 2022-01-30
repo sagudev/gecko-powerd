@@ -108,6 +108,7 @@ class MacroAssemblerPPC64 : public Assembler
 
     void ma_li(Register dest, ImmGCPtr ptr);
     void ma_li(Register dest, Imm32 imm);
+    void ma_li(Register dest, Imm64 imm);
     void ma_liPatchable(Register dest, Imm32 imm);
 
     void ma_li(Register dest, CodeLabel* label);
@@ -184,6 +185,7 @@ class MacroAssemblerPPC64 : public Assembler
     void ma_add(Register rd, Register rs);
     void ma_add(Register rd, Imm32 imm);
     void ma_addTestCarry(Condition cond, Register rd, Register rs, Register rt, Label* overflow, bool is32 = true);
+    void ma_addTestCarry(Condition cond, Register rd, Register rs, ImmWord imm, Label* overflow, bool is32 = false);
     void ma_addTestCarry(Condition cond, Register rd, Register rs, Imm32 imm, Label* overflow, bool is32 = true);
 
     // subtract
@@ -250,22 +252,24 @@ class MacroAssemblerPPC64 : public Assembler
 
     void ma_jump(ImmPtr dest);
 
-    void ma_cmp32(Register lhs, Register rhs, Condition c);
+    void ma_cmp64(Register lhs, Imm64 rhs, Condition c);
     void ma_cmp32(Register lhs, Imm32 rhs, Condition c);
+    void ma_cmp32(Register lhs, Register rhs, Condition c);
     void ma_cmp32(Register lhs, const Address& rhs, Condition c);
     void ma_cmp_set(Register dest, Address lhs, Register rhs, Condition c, bool useCmpw = false);
     void ma_cmp_set(Register dest, Address lhs, Imm32 rhs, Condition c, bool useCmpw = false);
+    void ma_cmp_set(Register dest, Address lhs, Imm64 rhs, Condition c, bool useCmpw = true);
     void ma_cmp_set(Register dst, Register lhs, Register rhs, Condition c, bool useCmpw = false);
     void ma_cmp_set(Register dst, Register lhs, Imm16 imm, Condition c, bool useCmpw = false);
     void ma_cmp_set(Register dst, Register lhs, Imm32 imm, Condition c, bool useCmpw = true) {
         MOZ_ASSERT(useCmpw);
-        if (imm.value <= INT16_MAX && imm.value >= INT16_MIN) {
-            ma_cmp_set(dst, lhs, Imm16(imm.value), c, /* useCmpw */ true);
-        } else {
-            MOZ_ASSERT(lhs != ScratchRegister);
-            ma_li(ScratchRegister, imm);
-            ma_cmp_set(dst, lhs, ScratchRegister, c, /* useCmpw */ true);
-        }
+        ma_cmp32(lhs, imm, c);
+        ma_cmp_set_coda(dst, c);
+    }
+    void ma_cmp_set(Register dst, Register lhs, Imm64 imm, Condition c, bool useCmpw = false) {
+        MOZ_ASSERT(!useCmpw);
+        ma_cmp64(lhs, imm, c);
+        ma_cmp_set_coda(dst, c);
     }
     void ma_cmp_set_coda(Register rd, Condition c);
     void ma_cmp_set_double(Register dst, FloatRegister lhs, FloatRegister rhs, DoubleCondition c);
@@ -318,6 +322,7 @@ class MacroAssemblerPPC64 : public Assembler
     // arithmetic based ops
     // add
     void ma_addTestOverflow(Register rd, Register rs, Register rt, Label* overflow, bool is32 = true);
+    void ma_addTestOverflow(Register rd, Register rs, ImmWord imm, Label* overflow, bool is32 = false);
     void ma_addTestOverflow(Register rd, Register rs, Imm32 imm, Label* overflow, bool is32 = true);
 
     // neg
@@ -726,9 +731,12 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void loadConstantFloat32(float f, FloatRegister dest);
 
     void testNullSet(Condition cond, const ValueOperand& value, Register dest);
-
     void testObjectSet(Condition cond, const ValueOperand& value, Register dest);
-
+    void testBigIntSet(Condition cond, const ValueOperand& value, Register dest);
+    void testNumberSet(Condition cond, const ValueOperand& value, Register dest);
+    void testStringSet(Condition cond, const ValueOperand& value, Register dest);
+    void testSymbolSet(Condition cond, const ValueOperand& value, Register dest);
+    void testBooleanSet(Condition cond, const ValueOperand& value, Register dest);
     void testUndefinedSet(Condition cond, const ValueOperand& value, Register dest);
 
     // higher level tag testing code
@@ -794,6 +802,12 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void storeValue(const Address& src, const Address& dest, Register temp) {
         loadPtr(src, temp);
         storePtr(temp, dest);
+    }
+    void storePrivateValue(Register src, const Address& dest) {
+        storePtr(src, dest);
+    }
+    void storePrivateValue(ImmGCPtr imm, const Address& dest) {
+        storePtr(imm, dest);
     }
 
     void loadValue(Address src, ValueOperand val);
@@ -1082,11 +1096,6 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
     void cmpPtrSet(Assembler::Condition cond, Register lhs, Address rhs, Register dest);
 
     void cmp32Set(Assembler::Condition cond, Register lhs, Address rhs, Register dest);
-
-    void cmp64Set(Assembler::Condition cond, Register lhs, Imm16 rhs, Register dest)
-    {
-        ma_cmp_set(dest, lhs, rhs, cond);
-    }
 
   protected:
     bool buildOOLFakeExitFrame(void* fakeReturnAddr);

@@ -23,6 +23,7 @@
 namespace js {
 namespace jit {
 
+// Don't bother checking if the JIT is statically enabled (ISA 3.0+ on LE).
 #if !defined(__POWER9_VECTOR__) || !defined(__LITTLE_ENDIAN__)
 bool
 HasPPCISA3() {
@@ -63,6 +64,9 @@ FlushICache(void* code, size_t size, bool codeIsThreadLocal) {
     __builtin___clear_cache(reinterpret_cast<char*>(code),
                             reinterpret_cast<char*>(end));
 }
+
+// We do it on demand because we're service-oriented. Flags as a Service.
+bool CPUFlagsHaveBeenComputed() { return true; }
 
 Registers::Code
 Registers::FromName(const char *name)

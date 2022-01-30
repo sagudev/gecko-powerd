@@ -1213,7 +1213,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
                      BufferOffset as_##op##_rc(Register rd, Register ra, int16_t im);
         DEF_ALUI(addic)
         // NB: mulli is usually strength-reduced, since it can take up to five
-        // cycles in the worst case. See x_sr_mulli.
+        // cycles in the worst case. See xs_sr_mulli.
         DEF_ALUI(mulli)
         DEF_ALUI(subfic)
 #undef DEF_ALUI
@@ -1430,7 +1430,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
 	BufferOffset x_srwi(Register rd, Register rs, int n);
 	BufferOffset x_srdi(Register rd, Register rs, int n);
 	BufferOffset x_subi(Register rd, Register ra, int16_t im);
-	BufferOffset x_sr_mulli(Register rd, Register ra, int16_t im);
+	BufferOffset xs_sr_mulli(Register rd, Register ra, int16_t im);
 
 	BufferOffset x_not(Register rd, Register ra);
 
@@ -1501,7 +1501,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
 #if(0)
         // Manually: unless you turn the JIT off, it's on. If you're writing
         // support for a presently unsupported Power ISA CPU or big-endian
-        // mode, then change if(0) to if(1) and hold onto your ankles.
+        // mode, then change if(0) to if(1) and grab onto your ankles.
         return true;
 #elif defined(__POWER9_VECTOR__) && defined(__LITTLE_ENDIAN__)
         // Statically at compile time: if gcc is given --mcpu=power9, and it
@@ -1515,14 +1515,24 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
         // additional CPU support is added, adjust the check here.
         return HasPPCISA3();
 #else
-        // Otherwise, statically disable on all unsupported big-endian hosts.
+        // Otherwise, statically disable on all unsupported or big-endian CPUs.
         return false;
 #endif
     }
-    static bool SupportsSimd() { return false; }
+    static bool SupportsSimd() { return false; } /* XXX */
+
+    // Technically unaligned integer loads are supported in hardware, but
+    // there is a non-zero penalty (though small on many implementations),
+    // and certain unlikely edge cases can potentially fault to the operating
+    // system.
     static bool SupportsUnalignedAccesses() { return true; }
     static bool SupportsFastUnalignedAccesses() { return false; }
 
+    // However, 64-bit FP loads invariably fault to the operating system
+    // when unaligned, so we really want to avoid that.
+    static bool SupportsFastUnalignedFPAccesses() { return false; }
+
+    // XXX: We DO have special rounding instructions! We should support this!
     static bool HasRoundInstruction(RoundingMode mode) { return false; }
 
   protected:
