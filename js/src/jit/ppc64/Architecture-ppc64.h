@@ -158,9 +158,9 @@ class Registers
         // r13 is the pointer for TLS in ELF v2.
         (1 << Registers::r13) |
         // Non-volatile work registers.
-        (1 << Registers::r16) |
+        (1 << Registers::r16);
         // r17 is the InterpreterPCReg and must be allocatable.
-        (1 << Registers::r18);
+        // r18 is the WasmTlsReg and must be allocatable.
         // Despite its use as a rectifier, r19 must be allocatable (see
         // ICCallScriptedCompiler::generateStubCode).
 
@@ -188,6 +188,7 @@ class Registers
         (1 << Registers::r14) |
         (1 << Registers::r15) |
         (1 << Registers::r17) |
+        (1 << Registers::r18) |
         (1 << Registers::r19) |
         (1 << Registers::r20) |
         (1 << Registers::r21) |

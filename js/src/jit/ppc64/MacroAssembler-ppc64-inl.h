@@ -1284,12 +1284,17 @@ MacroAssembler::mul32(Imm32 rhs, Register srcDest)
         ma_li(ScratchRegister, rhs);
         as_mullw(srcDest, srcDest, ScratchRegister);
     }
+    // Clear the upper 32 bits. We wouldn't use this for an intermediate
+    // multiply anyway. Do not sign extend.
+    as_rldicl(srcDest, srcDest, 0, 32); // "clrldi"
 }
 
 void
 MacroAssembler::mul32(Register rhs, Register srcDest)
 {
     as_mullw(srcDest, srcDest, rhs);
+    // Clear the upper 32 bits. Do not sign extend.
+    as_rldicl(srcDest, srcDest, 0, 32); // "clrldi"
 }
 
 void
