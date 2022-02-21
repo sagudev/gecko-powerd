@@ -202,11 +202,6 @@ static constexpr Register WasmTableCallScratchReg1 = ABINonArgReg1;
 static constexpr Register WasmTableCallSigReg = ABINonArgReg2;
 static constexpr Register WasmTableCallIndexReg = ABINonArgReg3;
 
-// Register used to store a reference to an exception thrown by Wasm to an
-// exception handling block. Should not overlap with WasmTlsReg. This
-// can apparently overlap the TableCall registers, though, so ...
-static constexpr Register WasmExceptionReg = ABINonArgReg2;
-
 // Register used as a scratch along the return path in the fast js -> wasm stub
 // code. This must not overlap ReturnReg, JSReturnOperand, or WasmTlsReg. It
 // must be a volatile register.

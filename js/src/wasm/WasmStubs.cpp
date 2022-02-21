@@ -2586,6 +2586,11 @@ static void PushFrame(MacroAssembler& masm) {
   masm.subFromStackPtr(Imm32(sizeof(Frame)));
   masm.storePtr(ra, Address(StackPointer, Frame::returnAddressOffset()));
   masm.storePtr(FramePointer, Address(StackPointer, Frame::callerFPOffset()));
+#elif defined(JS_CODEGEN_PPC64)
+  masm.xs_mflr(ScratchRegister);
+  masm.as_addi(StackPointer, StackPointer, -sizeof(Frame));
+  masm.as_std(ScratchRegister, StackPointer, Frame::returnAddressOffset());
+  masm.as_std(FramePointer, StackPointer, Frame::callerFPOffset());
 #elif defined(JS_CODEGEN_ARM64)
   {
     AutoForbidPoolsAndNops afp(&masm,
@@ -2615,6 +2620,11 @@ static void PopFrame(MacroAssembler& masm) {
   masm.loadPtr(Address(StackPointer, Frame::callerFPOffset()), FramePointer);
   masm.loadPtr(Address(StackPointer, Frame::returnAddressOffset()), ra);
   masm.addToStackPtr(Imm32(sizeof(Frame)));
+#elif defined(JS_CODEGEN_PPC64)
+  masm.as_ld(ScratchRegister, StackPointer, Frame::returnAddressOffset());
+  masm.xs_mtlr(ScratchRegister);
+  masm.as_ld(FramePointer, StackPointer, Frame::callerFPOffset());
+  masm.as_addi(StackPointer, StackPointer, sizeof(Frame));
 #elif defined(JS_CODEGEN_ARM64)
   {
     AutoForbidPoolsAndNops afp(&masm,
@@ -2698,7 +2708,7 @@ bool wasm::GenerateIndirectStub(MacroAssembler& masm,
   // it during stack walking.
   PushFrame(masm);
   masm.moveStackPtrTo(FramePointer);
-  masm.addPtr(Imm32(wasm::TrampolineFpTag), Address(FramePointer, 0));
+  masm.addPtr(Imm32(wasm::TrampolineFpTag), Address(FramePointer, Frame::callerFPOffset()));
 
   Label prepareFrameOnCalleeBehalfAndJumpCallee;
 
@@ -2714,7 +2724,7 @@ bool wasm::GenerateIndirectStub(MacroAssembler& masm,
   masm.loadWasmPinnedRegsFromTls();
   masm.switchToWasmTlsRealm(WasmTableCallIndexReg, WasmTableCallScratchReg1);
 
-#if defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
   masm.abiret();
 #elif defined(JS_CODEGEN_ARM64)
   // See comment in |GenerateCallablePrologue|.

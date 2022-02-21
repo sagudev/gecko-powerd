@@ -1926,7 +1926,7 @@ BufferOffset Assembler::xs_sr_mulli(Register rd, Register ra, int16_t im)
         if (ra != rd) {
             return xs_mr(rd, ra);
         }
-        return;
+        return BufferOffset(currentOffset());
     }
     if (im == 2) {
         return as_add(rd, ra, ra);
