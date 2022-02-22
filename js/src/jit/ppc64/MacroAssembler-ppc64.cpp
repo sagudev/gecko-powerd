@@ -4680,13 +4680,29 @@ MacroAssembler::branchPtrInNurseryChunk(Condition cond, Register ptr, Register t
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
     MOZ_ASSERT(ptr != temp);
     MOZ_ASSERT(ptr != SecondScratchReg);
-    MOZ_ASSERT(temp != InvalidReg);
 
-    movePtr(ptr, temp);
-    orPtr(Imm32(gc::ChunkMask), temp);
-    branchPtr(InvertCondition(cond),
-              Address(temp, gc::ChunkStoreBufferOffsetFromLastByte),
-              ImmWord(0), label);
+    if (temp != InvalidReg) {
+        movePtr(ptr, temp);
+        orPtr(Imm32(gc::ChunkMask), temp);
+        branchPtr(InvertCondition(cond),
+                  Address(temp, gc::ChunkStoreBufferOffsetFromLastByte),
+                  ImmWord(0), label);
+    } else {
+        // Why, those cheapskates. We have to provide our own temp too?
+        // Did the bean counters cut our temp register budget this year?
+        // (Ion hits this.)
+        MOZ_ASSERT(ptr != ScratchRegister);
+
+        // Both offsets are too big to be immediate displacements.
+xs_trap();
+        ma_li(ScratchRegister, gc::ChunkMask);
+        as_or(SecondScratchReg, ptr, ScratchRegister);
+        ma_li(ScratchRegister, gc::ChunkStoreBufferOffsetFromLastByte);
+        as_add(SecondScratchReg, SecondScratchReg, ScratchRegister);
+        as_ld(ScratchRegister, SecondScratchReg, 0);
+        as_cmpdi(ScratchRegister, 0);
+        ma_bc(InvertCondition(cond), label);
+    }
 }
 
 void

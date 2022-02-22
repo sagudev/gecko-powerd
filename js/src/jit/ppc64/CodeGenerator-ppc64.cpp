@@ -340,6 +340,7 @@ CodeGenerator::visitDivOrModI64(LDivOrModI64* lir)
 
     masm.bind(&noOverflow);
     if (lir->mir()->isMod()) {
+// XXX: convert to modsd/modud
         // Recover the remainder.
         // We don't need to check overflow; we know it can't.
         masm.as_mulld(ScratchRegister, output, rhs);
@@ -376,6 +377,7 @@ CodeGenerator::visitUDivOrModI64(LUDivOrModI64* lir)
 
     masm.bind(&noOverflow);
     if (lir->mir()->isMod()) {
+// XXX: convert to modsd/modud
         // Recover the remainder.
         // We don't need to check overflow; we know it can't.
         masm.as_mulld(ScratchRegister, output, rhs);
@@ -514,14 +516,14 @@ CodeGenerator::visitWasmReinterpretFromI64(LWasmReinterpretFromI64* lir)
     MOZ_ASSERT(lir->mir()->type() == MIRType::Double);
     MOZ_ASSERT(lir->mir()->input()->type() == MIRType::Int64);
 
-#ifdef __POWER8_VECTOR__
-    masm.as_mtvsrd(ToFloatRegister(lir->output()), ToRegister(lir->input()));
-#else
-    // Alternative, if we're not assuming POWER8.
-    masm.as_stdu(ToRegister(lir->input()), StackPointer, -2); // extend to -8
-    masm.as_lfd(ToFloatRegister(lir->output()), StackPointer, 0);
-    masm.as_addi(StackPointer, StackPointer, 8);
-#endif
+    if (HasPPCISA3()) {
+        masm.as_mtvsrd(ToFloatRegister(lir->output()), ToRegister(lir->input()));
+    } else {
+        // Alternative, if we're not assuming POWER8.
+        masm.as_stdu(ToRegister(lir->input()), StackPointer, -8);
+        masm.as_lfd(ToFloatRegister(lir->output()), StackPointer, 0);
+        masm.as_addi(StackPointer, StackPointer, 8);
+    }
 }
 
 void
@@ -531,14 +533,13 @@ CodeGenerator::visitWasmReinterpretToI64(LWasmReinterpretToI64* lir)
     MOZ_ASSERT(lir->mir()->type() == MIRType::Int64);
     MOZ_ASSERT(lir->mir()->input()->type() == MIRType::Double);
 
-#ifdef __POWER8_VECTOR__
-    masm.as_mfvsrd(ToRegister(lir->output()), ToFloatRegister(lir->input()));
-#else
-    // Sigh.
-    masm.as_stfdu(ToFloatRegister(lir->input()), StackPointer, -8);
-    masm.as_ld(ToRegister(lir->output()), StackPointer, 0);
-    masm.as_addi(StackPointer, StackPointer, 8);
-#endif
+    if (HasPPCISA3()) {
+        masm.as_mfvsrd(ToRegister(lir->output()), ToFloatRegister(lir->input()));
+    } else { // Sigh.
+        masm.as_stfdu(ToFloatRegister(lir->input()), StackPointer, -8);
+        masm.as_ld(ToRegister(lir->output()), StackPointer, 0);
+        masm.as_addi(StackPointer, StackPointer, 8);
+    }
 }
 
 void
@@ -740,6 +741,7 @@ CodeGeneratorPPC64::ToOperandOrRegister64(const LInt64Allocation input)
     return ToOperand(input.value());
 }
 #else
+#error does this actually get compiled?
 Register64
 CodeGeneratorPPC64::ToOperandOrRegister64(const LInt64Allocation input)
 {
@@ -1287,6 +1289,7 @@ CodeGenerator::visitDivI(LDivI* ins)
 
         // Recover the remainder to see if we need to bailout.
         // We don't need to check overflow; we know it can't.
+// XXX: use modsd/modud
         masm.as_mullw(ScratchRegister, dest, rhs);
         masm.as_subf(SecondScratchReg, ScratchRegister, lhs); // T = B - A
         bailoutCmp32(Assembler::NotEqual, SecondScratchReg, Imm32(0), ins->snapshot());
@@ -1345,6 +1348,7 @@ void
 CodeGenerator::visitModI(LModI* ins)
 {
     ADBlock();
+// XXX: convert to modsd/modud
 
     // Extract the registers from this instruction
     Register lhs = ToRegister(ins->lhs());
@@ -1359,6 +1363,7 @@ CodeGenerator::visitModI(LModI* ins)
     // If computing 0/x where x < 0, divwo won't raise an exception but
     // we have to return -0.0 (which requires a bailout). Since we have to
     // probe the y/0 case necessarily, let's just check for all of them.
+// XXX: check if ftdiv can help
     if (mir->canBeDivideByZero()) {
         if (mir->isTruncated()) {
             if (mir->trapOnError()) {
@@ -1502,6 +1507,7 @@ CodeGenerator::visitModMaskI(LModMaskI* ins)
         masm.as_moduw(dest, src, tmp0);
     }
 #endif
+    MOZ_CRASH("visitModMaskI");
 }
 
 void
@@ -1738,6 +1744,7 @@ CodeGenerator::visitUrshD(LUrshD* ins)
     masm.convertUInt32ToDouble(temp, out);
 }
 
+// XXX: mark for appropriate ISA
 void
 CodeGenerator::visitClzI(LClzI* ins)
 {
@@ -1958,6 +1965,7 @@ CodeGenerator::visitCopySignF(LCopySignF* ins)
     FloatRegister output = ToFloatRegister(ins->getDef(0));
 
 // XXX: this probably could be better written
+// use fcpsgn?
     Register lhsi = ToRegister(ins->getTemp(0));
     Register rhsi = ToRegister(ins->getTemp(1));
 
@@ -2153,12 +2161,12 @@ void
 CodeGenerator::visitNotD(LNotD* ins)
 {
     ADBlock();
-    // Since this operation is not, we want to set a bit if
+    // Since this operation is |not|, we want to set a bit if
     // the double is falsey, which means 0.0, -0.0 or NaN.
     FloatRegister in = ToFloatRegister(ins->input());
     Register dest = ToRegister(ins->output());
 
-    masm.loadConstantDouble(0.0, ScratchDoubleReg);
+    masm.zeroDouble(ScratchDoubleReg);
     masm.ma_cmp_set_double(dest, in, ScratchDoubleReg, Assembler::DoubleEqualOrUnordered);
 }
 
@@ -2166,12 +2174,12 @@ void
 CodeGenerator::visitNotF(LNotF* ins)
 {
     ADBlock();
-    // Since this operation is not, we want to set a bit if
+    // Since this operation is |not|, we want to set a bit if
     // the float32 is falsey, which means 0.0, -0.0 or NaN.
     FloatRegister in = ToFloatRegister(ins->input());
     Register dest = ToRegister(ins->output());
 
-    masm.loadConstantFloat32(0.0f, ScratchFloat32Reg);
+    masm.zeroDouble(ScratchFloat32Reg);
     masm.ma_cmp_set_double(dest, in, ScratchFloat32Reg, Assembler::DoubleEqualOrUnordered);
 }
 
@@ -2752,6 +2760,7 @@ CodeGenerator::visitUDivOrMod(LUDivOrMod* ins)
     // Although divwuo can flag overflow for divide by zero, we end up
     // checking anyway to deal with the Infinity|0 situation, so we just don't
     // bother and use regular (cheaper) divwu.
+// XXX: see if ftdiv can help
     if (ins->canBeDivideByZero()) {
         if (ins->mir()->isTruncated()) {
             if (ins->trapOnError()) {

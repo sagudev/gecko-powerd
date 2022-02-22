@@ -1021,6 +1021,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         if (src != dest) as_fmr(dest, src);
     }
 
+// XXX: use xxlxor
     void zeroDouble(FloatRegister reg) {
         xs_li(ScratchRegister, 0);
         moveToDouble(ScratchRegister, reg);
