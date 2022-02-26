@@ -460,9 +460,9 @@ class MOZ_STACK_CLASS BaselineStackBuilder {
     return virtualPointerAtStackOffset(priorOffset);
 #elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) ||   \
     defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_X64)
-    // On X64, ARM, ARM64, and MIPS, the frame pointer save location depends on
-    // the caller of the rectifier frame.
+    defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_PPC64)
+    // On X64, ARM, ARM64, PPC64 and MIPS, the frame pointer save location
+    // depends on the caller of the rectifier frame.
     BufferPointer<RectifierFrameLayout> priorFrame =
         pointerAtStackOffset<RectifierFrameLayout>(priorOffset);
     FrameType priorType = priorFrame->prevType();
@@ -485,11 +485,6 @@ class MOZ_STACK_CLASS BaselineStackBuilder {
         RectifierFrameLayout::Size() + priorFrame->prevFrameLocalSize() +
         BaselineStubFrameLayout::reverseOffsetOfSavedFramePtr();
     return virtualPointerAtStackOffset(priorOffset + extraOffset);
-#elif defined(JS_CODEGEN_PPC64)
-    (void)priorOffset;
-// XXX. The above code might work though
-#warning "TODO! BaselineStackBuilder::calculatePrevFramePtr()"
-    MOZ_CRASH();
 #elif defined(JS_CODEGEN_NONE)
     (void)priorOffset;
     MOZ_CRASH();

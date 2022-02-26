@@ -1348,22 +1348,18 @@ void
 CodeGenerator::visitModI(LModI* ins)
 {
     ADBlock();
-// XXX: convert to modsd/modud
 
-    // Extract the registers from this instruction
+    // Extract the registers from this instruction (callTemp not currently
+    // used for POWER9, but may be a useful temp register for POWER8-).
     Register lhs = ToRegister(ins->lhs());
     Register rhs = ToRegister(ins->rhs());
     Register dest = ToRegister(ins->output());
-    Register callTemp = ToRegister(ins->callTemp());
     MMod* mir = ins->mir();
     Label done, prevent;
 
-    masm.move32(lhs, callTemp);
-
-    // If computing 0/x where x < 0, divwo won't raise an exception but
+    // If computing 0/x where x < 0, modsw won't raise an exception but
     // we have to return -0.0 (which requires a bailout). Since we have to
     // probe the y/0 case necessarily, let's just check for all of them.
-// XXX: check if ftdiv can help
     if (mir->canBeDivideByZero()) {
         if (mir->isTruncated()) {
             if (mir->trapOnError()) {
@@ -1385,8 +1381,9 @@ CodeGenerator::visitModI(LModI* ins)
     }
 
     if (mir->canBeNegativeDividend()) {
-        Label notNegative;
-        masm.ma_bc(rhs, Imm32(0), &notNegative, Assembler::GreaterThan, ShortJump);
+        Label dividendOk;
+        masm.ma_bc(rhs, Imm32(0), &dividendOk, Assembler::GreaterThan, ShortJump);
+
         if (mir->isTruncated()) {
             // NaN|0 == 0 and (0 % -X)|0 == 0
             Label skip;
@@ -1398,18 +1395,14 @@ CodeGenerator::visitModI(LModI* ins)
             MOZ_ASSERT(mir->fallible());
             bailoutCmp32(Assembler::Equal, lhs, Imm32(0), ins->snapshot());
         }
-        masm.bind(&notNegative);
-    }
 
-    // Do the division. Since the divide-by-zero case is covered, if divwo
-    // flags overflow, then it must be INT_MIN % -1.
-    if (mir->canBeNegativeDividend()) {
-        Label noOverflow;
-
+        // Now we need to do a test division. If divwo. flags overflow,
+        // then we must be trying to do INT_MIN % -1. modsw can't detect
+        // this either.
         masm.ma_li(dest, 0L);
         masm.xs_mtxer(dest); // whack XER[SO]
         masm.as_divwo_rc(dest, lhs, rhs);
-        masm.ma_bc(Assembler::NSOBit, &noOverflow, ShortJump);
+        masm.ma_bc(Assembler::NSOBit, &dividendOk, ShortJump);
 
         // Overflowed.
         if (mir->isTruncated()) {
@@ -1423,12 +1416,21 @@ CodeGenerator::visitModI(LModI* ins)
             MOZ_ASSERT(mir->fallible());
             bailoutCmp32(Assembler::Equal, rhs, Imm32(-1), ins->snapshot());
         }
-        masm.bind(&noOverflow);
+
+        // Dividend wasn't negative, or not INT_MIN % -1.
+        masm.bind(&dividendOk);
+    }
+
+    // Test division functioned (or statically known not to fail), so now
+    // we can safely compute the modulo. The definition is consistent with
+    // modsw on POWER9.
+    if (HasPPCISA3()) {
+        masm.as_modsw(dest, lhs, rhs);
     } else {
-        // We already checked for divide by zero, so no need to
-        // expend cycles checking for overflow even if a snapshot
-        // is present because the other case cannot happen.
-        masm.as_divw(dest, lhs, rhs);
+        // Compute remainder manually. We can use the already computed
+        // quotient in |dest| if we know we computed it, or do a divw here
+        // since we have already tested for all the needed failure cases.
+        MOZ_CRASH("implement for POWER8 and earlier");
     }
 
     // If X%Y == 0 and X < 0, then we *actually* wanted to return -0.0
@@ -1439,7 +1441,7 @@ CodeGenerator::visitModI(LModI* ins)
             MOZ_ASSERT(mir->fallible());
             // See if X < 0
             masm.ma_bc(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
-            bailoutCmp32(Assembler::Signed, callTemp, Imm32(0), ins->snapshot());
+            bailoutCmp32(Assembler::Signed, lhs, Imm32(0), ins->snapshot());
         }
     }
     masm.bind(&done);

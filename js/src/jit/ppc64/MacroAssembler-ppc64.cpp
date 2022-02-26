@@ -1934,10 +1934,17 @@ MacroAssemblerPPC64Compat::storeValue(JSValueType type, Register reg, Address de
         store32(ScratchRegister, Address(dest.base, dest.offset + 4));
     } else {
         MOZ_ASSERT(reg != SecondScratchReg);
-        MOZ_ASSERT(dest.base != SecondScratchReg);
+        if (dest.base == SecondScratchReg) {
+            MOZ_ASSERT(reg != ScratchRegister);
 
-        boxValue(type, reg, SecondScratchReg);
-        storePtr(SecondScratchReg, dest);
+            // The destination register for boxValue can't be r0, so we need
+            // the third scratch register.
+            boxValue(type, reg, ThirdScratchReg);
+            storePtr(ThirdScratchReg, dest);
+        } else {
+            boxValue(type, reg, SecondScratchReg);
+            storePtr(SecondScratchReg, dest);
+        }
     }
 }
 
@@ -2504,16 +2511,30 @@ MacroAssembler::branchValueIsNurseryCell(Condition cond, ValueOperand value, Reg
 {
     ADBlock();
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
-    MOZ_ASSERT(temp != InvalidReg);
     Label done;
     branchTestGCThing(Assembler::NotEqual, value,
                       cond == Assembler::Equal ? &done : label);
 
-    unboxGCThingForGCBarrier(value, temp);
-    orPtr(Imm32(gc::ChunkMask), temp);
-    loadPtr(Address(temp, gc::ChunkStoreBufferOffsetFromLastByte), temp);
-    branchPtr(InvertCondition(cond), temp, ImmWord(0), label);
-
+    if (temp != InvalidReg) {
+        unboxGCThingForGCBarrier(value, temp);
+        orPtr(Imm32(gc::ChunkMask), temp);
+        loadPtr(Address(temp, gc::ChunkStoreBufferOffsetFromLastByte), temp);
+        branchPtr(InvertCondition(cond), temp, ImmWord(0), label);
+    } else {
+        // Honey, Ion stole the temp register again. Get out the baseball
+        // bat, would you?
+        //
+        // Both constants are too large to be immediates.
+xs_trap();
+        unboxGCThingForGCBarrier(value, ScratchRegister);
+        ma_li(SecondScratchReg, gc::ChunkMask);
+        as_or(SecondScratchReg, ScratchRegister, SecondScratchReg);
+        ma_li(ScratchRegister, gc::ChunkStoreBufferOffsetFromLastByte);
+        as_add(SecondScratchReg, SecondScratchReg, ScratchRegister);
+        as_ld(ScratchRegister, SecondScratchReg, 0);
+        as_cmpdi(ScratchRegister, 0);
+        ma_bc(InvertCondition(cond), label);
+    }
     bind(&done);
 }
 
@@ -4457,7 +4478,7 @@ MacroAssembler::patchCall(uint32_t callerOffset, uint32_t calleeOffset)
     // Get a handle to the instruction.
     Instruction* inst = editSrc(BufferOffset(callerOffset - 4));
     MOZ_ASSERT(inst->extractOpcode() == PPC_b);
-    MOZ_ASSERT(inst[0].encode() & LinkB); // don't patch calls!
+    MOZ_ASSERT(inst[0].encode() & LinkB); // only patch calls!
     MOZ_ASSERT(JOffImm26::IsInRange(offset)); // damn well better be
 
     inst->setData(PPC_b | JOffImm26(offset).encode() | LinkB);
@@ -4694,7 +4715,6 @@ MacroAssembler::branchPtrInNurseryChunk(Condition cond, Register ptr, Register t
         MOZ_ASSERT(ptr != ScratchRegister);
 
         // Both offsets are too big to be immediate displacements.
-xs_trap();
         ma_li(ScratchRegister, gc::ChunkMask);
         as_or(SecondScratchReg, ptr, ScratchRegister);
         ma_li(ScratchRegister, gc::ChunkStoreBufferOffsetFromLastByte);
