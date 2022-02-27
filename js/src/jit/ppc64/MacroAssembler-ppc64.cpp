@@ -95,6 +95,8 @@ void
 MacroAssemblerPPC64Compat::convertInt32ToDouble(const Address& src, FloatRegister dest)
 {
     ADBlock();
+    MOZ_ASSERT(src.base != SecondScratchReg);
+
     load32(src, SecondScratchReg);
     convertInt32ToDouble(SecondScratchReg, dest);
 }
@@ -103,8 +105,11 @@ void
 MacroAssemblerPPC64Compat::convertInt32ToDouble(const BaseIndex& src, FloatRegister dest)
 {
     ADBlock();
-    computeScaledAddress(src, ScratchRegister);
-    convertInt32ToDouble(Address(ScratchRegister, src.offset), dest);
+    MOZ_ASSERT(src.base != SecondScratchReg);
+
+    computeScaledAddress(src, SecondScratchReg);
+    load32(Address(SecondScratchReg, src.offset), ScratchRegister);
+    convertInt32ToDouble(ScratchRegister, dest);
 }
 
 void
@@ -1638,8 +1643,11 @@ MacroAssemblerPPC64Compat::unboxDouble(const Address& src, FloatRegister dest)
 void
 MacroAssemblerPPC64Compat::unboxDouble(const BaseIndex& src, FloatRegister dest)
 {
-    computeScaledAddress(src, ScratchRegister);
-    ma_ld(dest, Address(ScratchRegister, src.offset));
+    ADBlock();
+    MOZ_ASSERT(src.base != SecondScratchReg);
+
+    computeScaledAddress(src, SecondScratchReg);
+    ma_ld(dest, Address(SecondScratchReg, src.offset));
 }
 
 void
@@ -2525,7 +2533,6 @@ MacroAssembler::branchValueIsNurseryCell(Condition cond, ValueOperand value, Reg
         // bat, would you?
         //
         // Both constants are too large to be immediates.
-xs_trap();
         unboxGCThingForGCBarrier(value, ScratchRegister);
         ma_li(SecondScratchReg, gc::ChunkMask);
         as_or(SecondScratchReg, ScratchRegister, SecondScratchReg);

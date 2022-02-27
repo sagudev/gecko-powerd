@@ -2361,6 +2361,11 @@ MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs,
                             Register src,
                             Register dest)
 {
+    if (cond == Below) {
+        ma_cmp32(lhs, rhs, cond);
+        as_isel(dest, src, dest, LessThan);
+        return;
+    }
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     ma_cmp32(lhs, rhs, cond);
     if (cond == Equal) {
@@ -2372,6 +2377,11 @@ MacroAssembler::cmp32Move32(Condition cond, Register lhs, const Address& rhs,
 
 void MacroAssembler::cmpPtrMovePtr(Condition cond, Register lhs, Register rhs,
                                    Register src, Register dest) {
+    if (cond == Below) {
+        as_cmpld(lhs, rhs);
+        as_isel(dest, src, dest, LessThan);
+        return;
+    }
     MOZ_ASSERT(cond == Equal || cond == NotEqual);
     as_cmpd(lhs, rhs);
     if (cond == Equal) {

@@ -359,7 +359,7 @@ CodeGenerator::visitUDivOrModI64(LUDivOrModI64* lir)
     Register rhs = ToRegister(lir->rhs());
     Register output = ToRegister(lir->output());
     LSnapshot* snap = lir->snapshot();
-    Label noOverflow, done;
+    Label noOverflow;
 
     if (snap) {
         masm.ma_li(output, 0L);
@@ -371,20 +371,28 @@ CodeGenerator::visitUDivOrModI64(LUDivOrModI64* lir)
         // Yes. Only one way that can happen here.
         MOZ_ASSERT(lir->canBeDivideByZero());
         masm.wasmTrap(wasm::Trap::IntegerDivideByZero, lir->bytecodeOffset());
-    } else {
-        masm.as_divdu(output, lhs, rhs);
     }
-
     masm.bind(&noOverflow);
-    if (lir->mir()->isMod()) {
-// XXX: convert to modsd/modud
-        // Recover the remainder.
-        // We don't need to check overflow; we know it can't.
-        masm.as_mulld(ScratchRegister, output, rhs);
-        masm.as_subf(output, ScratchRegister, lhs); // T = B - A
-    }
 
-    masm.bind(&done);
+    if (lir->mir()->isMod()) {
+        if (HasPPCISA3()) {
+            masm.as_modud(output, lhs, rhs);
+        } else {
+            // Recover the remainder manually.
+            // We don't need to check overflow; we know it can't.
+            // Reuse the overflow check result if available.
+            if (!snap) {
+                masm.as_divdu(output, lhs, rhs);
+            }
+            masm.as_mulld(ScratchRegister, output, rhs);
+            masm.as_subf(output, ScratchRegister, lhs); // T = B - A
+        }
+    } else {
+        // Reuse the overflow check result if available.
+        if (!snap) {
+            masm.as_divdu(output, lhs, rhs);
+        }
+    }
 }
 
 void CodeGeneratorPPC64::emitBigIntDiv(LBigIntDiv* ins, Register dividend,
@@ -1212,7 +1220,7 @@ CodeGenerator::visitDivI(LDivI* ins)
     // However, it does not trigger an exception for a negative zero result,
     // so we must check that first.
 
-    // Extract the registers from this instruction.
+    // Extract the registers from this instruction. We don't use a temp.
     Register lhs = ToRegister(ins->lhs());
     Register rhs = ToRegister(ins->rhs());
     Register dest = ToRegister(ins->output());
@@ -1223,17 +1231,21 @@ CodeGenerator::visitDivI(LDivI* ins)
     // Handle negative 0. (0/-Y)
     if (!mir->canTruncateNegativeZero() && mir->canBeNegativeZero()) {
         Label nonzero;
+
+        MOZ_ASSERT(ins->snapshot());
         masm.ma_bc(lhs, lhs, &nonzero, Assembler::NonZero, ShortJump);
         bailoutCmp32(Assembler::LessThan, rhs, Imm32(0), ins->snapshot());
         masm.bind(&nonzero);
     }
 
     // Not negative zero. So: DIVIDE! AND! CONQUER!
-    if (ins->snapshot()) {
+    if (mir->canBeNegativeOverflow() || mir->canBeDivideByZero()) {
         // If Overflow is set, we must bail out. But only do this if
         // there is a snapshot, because if there isn't, Ion already knows
         // this operation is infallible (and we can avoid checking
-        // for overflow, which is slightly faster).
+        // for overflow and emit a lot fewer instructions).
+        MOZ_ASSERT(ins->snapshot());
+
         masm.ma_li(dest, 0L);
         masm.xs_mtxer(dest); // whack XER[SO]
         masm.as_divwo_rc(dest, lhs, rhs); // T = A / B
@@ -1241,14 +1253,14 @@ CodeGenerator::visitDivI(LDivI* ins)
         // Did we trap?
         masm.ma_bc(Assembler::NSOBit, &noOverflow, ShortJump);
         // Yes. Determine how.
-        MOZ_ASSERT(mir->canBeNegativeOverflow() || mir->canBeDivideByZero());
         if (mir->canBeNegativeOverflow()) {
             Label notNegOne;
 
             if (mir->canBeDivideByZero()) {
                 // If rhs is -1, then we overflowed by dividing INT32_MIN;
                 // otherwise, it must be divide by zero.
-                masm.branchPtr(Assembler::NotEqual, rhs, ImmWord(-1), &notNegOne);
+                masm.as_cmpdi(rhs, -1);
+                masm.ma_bc(Assembler::NotEqual, &notNegOne, ShortJump);
             }
 
             if (mir->trapOnError()) {
@@ -1281,17 +1293,20 @@ CodeGenerator::visitDivI(LDivI* ins)
     } else {
         masm.as_divw(dest, lhs, rhs);
     }
-
     masm.bind(&noOverflow);
 
     if (!mir->canTruncateRemainder()) {
         MOZ_ASSERT(mir->fallible());
 
         // Recover the remainder to see if we need to bailout.
-        // We don't need to check overflow; we know it can't.
-// XXX: use modsd/modud
-        masm.as_mullw(ScratchRegister, dest, rhs);
-        masm.as_subf(SecondScratchReg, ScratchRegister, lhs); // T = B - A
+        if (HasPPCISA3()) {
+            masm.as_modsw(SecondScratchReg, lhs, rhs);
+        } else {
+            // Do it the old way.
+            // We don't need to check overflow with mullw; we know it can't.
+            masm.as_mullw(ScratchRegister, dest, rhs);
+            masm.as_subf(SecondScratchReg, ScratchRegister, lhs); // T = B - A
+        }
         bailoutCmp32(Assembler::NotEqual, SecondScratchReg, Imm32(0), ins->snapshot());
     }
 
@@ -1485,31 +1500,27 @@ CodeGenerator::visitModPowTwoI(LModPowTwoI* ins)
     masm.bind(&done);
 }
 
+// This isn't used on ISA 3.0+ because we have hardware modulo, but it's
+// here for future expansion on older chips.
 void
 CodeGenerator::visitModMaskI(LModMaskI* ins)
 {
-#if 0 // TODO: CodeGenerator::visitModMaskI
     ADBlock();
+    MOZ_ASSERT(!HasPPCISA3());
+    // We wish to compute x % (1<<y) - 1 for a known constant, y.
 
-    Register src = ToRegister(ins->getOperand(0));
-    Register dest = ToRegister(ins->getDef(0));
-    Register tmp0 = ToRegister(ins->getTemp(0));
-    Register tmp1 = ToRegister(ins->getTemp(1));
+    //Register src = ToRegister(ins->getOperand(0));
+    //Register dest = ToRegister(ins->getDef(0));
+    //Register tmp0 = ToRegister(ins->getTemp(0));
+    //Register tmp1 = ToRegister(ins->getTemp(1));
     MMod* mir = ins->mir();
 
     if (!mir->isTruncated() && mir->canBeNegativeDividend()) {
-        MOZ_ASSERT(mir->fallible());
-
-        Label bail;
-        masm.ma_li(tmp0, (1 << ins->shift()) - 1);
-        masm.as_modsw(dest, src, tmp0);
-        bailoutFrom(&bail, ins->snapshot());
+        // Sorry, POWER8, you'll need to do like MIPS.
+        MOZ_CRASH("implement visitModMaskI for POWER8-");
     } else {
-        masm.ma_li(tmp0, (1 << ins->shift()) - 1);
-        masm.as_moduw(dest, src, tmp0);
+        MOZ_CRASH("implement visitModMaskI for POWER8-");
     }
-#endif
-    MOZ_CRASH("visitModMaskI");
 }
 
 void
@@ -1746,7 +1757,6 @@ CodeGenerator::visitUrshD(LUrshD* ins)
     masm.convertUInt32ToDouble(temp, out);
 }
 
-// XXX: mark for appropriate ISA
 void
 CodeGenerator::visitClzI(LClzI* ins)
 {
@@ -1764,7 +1774,11 @@ CodeGenerator::visitCtzI(LCtzI* ins)
     Register input = ToRegister(ins->input());
     Register output = ToRegister(ins->output());
 
-    masm.as_cnttzw(output, input);
+    if (HasPPCISA3()) {
+        masm.as_cnttzw(output, input);
+    } else {
+        MOZ_CRASH("cnttzw");
+    }
 }
 
 void
@@ -1966,18 +1980,8 @@ CodeGenerator::visitCopySignF(LCopySignF* ins)
     FloatRegister rhs = ToFloatRegister(ins->getOperand(1));
     FloatRegister output = ToFloatRegister(ins->getDef(0));
 
-// XXX: this probably could be better written
-// use fcpsgn?
-    Register lhsi = ToRegister(ins->getTemp(0));
-    Register rhsi = ToRegister(ins->getTemp(1));
-
-    masm.moveFromFloat32(lhs, lhsi);
-    masm.moveFromFloat32(rhs, rhsi);
-
-    // Combine.
-    masm.ma_ins(rhsi, lhsi, 0, 31);
-
-    masm.moveToFloat32(rhsi, output);
+    // ISA 2.05+
+    masm.as_fcpsgn(output, lhs, rhs);
 }
 
 void
@@ -1988,9 +1992,8 @@ CodeGenerator::visitCopySignD(LCopySignD* ins)
     FloatRegister rhs = ToFloatRegister(ins->getOperand(1));
     FloatRegister output = ToFloatRegister(ins->getDef(0));
 
-    // TODO: This is ISA 2.05+ only currently.
+    // ISA 2.05+
     masm.as_fcpsgn(output, lhs, rhs);
-
 }
 
 void

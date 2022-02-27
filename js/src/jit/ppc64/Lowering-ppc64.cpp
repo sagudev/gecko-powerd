@@ -206,8 +206,6 @@ LIRGeneratorPPC64::lowerDivI(MDiv* div)
 void
 LIRGeneratorPPC64::lowerMulI(MMul* mul, MDefinition* lhs, MDefinition* rhs)
 {
-    // XXX: Consider strength-reduction here, since some Power implementations
-    // may take several cycles versus simple one-cycle adds.
     LMulI* lir = new(alloc()) LMulI;
     if (mul->fallible())
         assignSnapshot(lir, mul->bailoutKind());
@@ -223,7 +221,8 @@ LIRGeneratorPPC64::lowerModI(MMod* mod)
         return;
     }
 
-    if (mod->rhs()->isConstant()) {
+    // POWER9 has hardware modulo, so we don't need to lower it there.
+    if (!HasPPCISA3() && mod->rhs()->isConstant()) {
         int32_t rhs = mod->rhs()->toConstant()->toInt32();
         int32_t shift = FloorLog2(rhs);
         if (rhs > 0 && 1 << shift == rhs) {
