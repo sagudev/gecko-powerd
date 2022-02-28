@@ -509,20 +509,33 @@ Assembler::PatchWrite_NearCallSize()
 void
 Assembler::PatchWrite_NearCall(CodeLocationLabel start, CodeLocationLabel toCall)
 {
-    __asm__("trap\n");
+    // Overwrite whatever instruction used to be here with a call.
+    MOZ_ASSERT(PatchWrite_NearCallSize() == 7 * sizeof(uint32_t));
     Instruction* inst = (Instruction*) start.raw();
     uint8_t* dest = toCall.raw();
 
-    // Overwrite whatever instruction used to be here with a call.
-    // Always use long jump for two reasons:
-    // - Jump has to be the same size because of PatchWrite_NearCallSize.
-    // - Return address has to be at the end of replaced block.
-    // Short jump wouldn't be more efficient.
-    Assembler::WriteLoad64Instructions(inst, ScratchRegister, (uint64_t)dest);
-    // XXX: This is wrong!
-    //inst[4] = InstReg(PPC_b | LinkB, ScratchRegister, r0, lr, ff_jalr);
-    inst[5] = Instruction(PPC_nop);
-    inst[6] = Instruction(PPC_nop);
+    // We use a long stanza, but if we can, put nops/bl instead of a full
+    // lis/ori/rldicr/lis/ori/mtctr/bctr because we can speculate better.
+    // If we short it, the short branch is at the END of the stanza because
+    // the return address must follow it.
+    int64_t offset = ((uint64_t)dest - (uint64_t)inst) - 24;
+
+    if (JOffImm26::IsInRange(offset)) {
+        // "$5 says he shorts it."
+        // Since this is a near call, we expect we won't need to repatch this.
+        inst[0] = Instruction(PPC_nop);
+        inst[1] = Instruction(PPC_nop);
+        inst[2] = Instruction(PPC_nop);
+        inst[3] = Instruction(PPC_nop);
+        inst[4] = Instruction(PPC_nop);
+        inst[5] = Instruction(PPC_nop);
+        inst[6].setData(PPC_b | JOffImm26(offset).encode() | LinkB);
+    } else {
+        // Long jump required ...
+        Assembler::WriteLoad64Instructions(inst, ScratchRegister, (uint64_t)dest);
+        inst[5].makeOp_mtctr(ScratchRegister);
+        inst[6].makeOp_bctr(LinkB);
+    }
 
     // Ensure everyone sees the code that was just written into memory.
     FlushICache(inst, PatchWrite_NearCallSize());

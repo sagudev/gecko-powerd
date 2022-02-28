@@ -514,14 +514,14 @@ JitRuntime::generateInvalidator(MacroAssembler& masm, Label* bailoutTail)
     // Pass pointer to BailoutInfo
     masm.movePtr(StackPointer, r5);
 
-    using Fn = bool (*)(BaselineFrame * frame, InterpreterFrame * interpFrame,
-                        uint32_t numStackValues);
+    using Fn = bool (*)(InvalidationBailoutStack * sp, size_t * frameSizeOut,
+                        BaselineBailoutInfo * *info);
     masm.setupAlignedABICall();
     masm.passABIArg(r3);
     masm.passABIArg(r4);
     masm.passABIArg(r5);
-    masm.callWithABI<Fn, jit::InitBaselineFrameForOsr>(
-        MoveOp::GENERAL, CheckUnsafeCallWithABI::DontCheckHasExitFrame);
+    masm.callWithABI<Fn, InvalidationBailout>(
+        MoveOp::GENERAL, CheckUnsafeCallWithABI::DontCheckOther);
 
     masm.loadPtr(Address(StackPointer, 0), r5);
     masm.loadPtr(Address(StackPointer, sizeof(uintptr_t)), r4);
