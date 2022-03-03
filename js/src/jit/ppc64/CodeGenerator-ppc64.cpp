@@ -111,16 +111,38 @@ CodeGenerator::visitUnbox(LUnbox* unbox)
 {
     ADBlock();
     MUnbox* mir = unbox->mir();
+    Register result = ToRegister(unbox->output());
 
-    if (mir->fallible()) {
-        const ValueOperand value = ToValue(unbox, LUnbox::Input);
-        masm.splitTag(value, SecondScratchReg);
-        bailoutCmp32(Assembler::NotEqual, SecondScratchReg, Imm32(MIRTypeToTag(mir->type())),
-                     unbox->snapshot());
+  if (mir->fallible()) {
+    const ValueOperand value = ToValue(unbox, LUnbox::Input);
+    Label bail;
+    switch (mir->type()) {
+      case MIRType::Int32:
+        masm.fallibleUnboxInt32(value, result, &bail);
+        break;
+      case MIRType::Boolean:
+        masm.fallibleUnboxBoolean(value, result, &bail);
+        break;
+      case MIRType::Object:
+        masm.fallibleUnboxObject(value, result, &bail);
+        break;
+      case MIRType::String:
+        masm.fallibleUnboxString(value, result, &bail);
+        break;
+      case MIRType::Symbol:
+        masm.fallibleUnboxSymbol(value, result, &bail);
+        break;
+      case MIRType::BigInt:
+        masm.fallibleUnboxBigInt(value, result, &bail);
+        break;
+      default:
+        MOZ_CRASH("Given MIRType cannot be unboxed.");
     }
+    bailoutFrom(&bail, unbox->snapshot());
+    return;
+  }
 
     LAllocation* input = unbox->getOperand(LUnbox::Input);
-    Register result = ToRegister(unbox->output());
     if (input->isRegister()) {
         Register inputReg = ToRegister(input);
         switch (mir->type()) {
@@ -138,6 +160,9 @@ CodeGenerator::visitUnbox(LUnbox* unbox)
             break;
           case MIRType::Symbol:
             masm.unboxSymbol(inputReg, result);
+            break;
+          case MIRType::BigInt:
+            masm.unboxBigInt(inputReg, result);
             break;
           default:
             MOZ_CRASH("Given MIRType cannot be unboxed.");
@@ -161,6 +186,9 @@ CodeGenerator::visitUnbox(LUnbox* unbox)
         break;
       case MIRType::Symbol:
         masm.unboxSymbol(inputAddr, result);
+        break;
+      case MIRType::BigInt:
+        masm.unboxBigInt(inputAddr, result);
         break;
       default:
         MOZ_CRASH("Given MIRType cannot be unboxed.");

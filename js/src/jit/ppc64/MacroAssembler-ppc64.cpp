@@ -1737,6 +1737,10 @@ void MacroAssemblerPPC64Compat::unboxBigInt(const ValueOperand& operand,
   unboxNonDouble(operand, dest, JSVAL_TYPE_BIGINT);
 }
 
+void MacroAssemblerPPC64Compat::unboxBigInt(Register src, Register dest) {
+  unboxNonDouble(src, dest, JSVAL_TYPE_BIGINT);
+}
+
 void MacroAssemblerPPC64Compat::unboxBigInt(const Address& src,
                                             Register dest) {
   unboxNonDouble(src, dest, JSVAL_TYPE_BIGINT);

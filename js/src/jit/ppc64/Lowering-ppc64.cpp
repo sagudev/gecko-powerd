@@ -499,79 +499,106 @@ LIRGenerator::visitSubstr(MSubstr* ins)
     assignSafepoint(lir, ins);
 }
 
-void
-LIRGenerator::visitCompareExchangeTypedArrayElement(MCompareExchangeTypedArrayElement* ins)
-{
-    MOZ_ASSERT(ins->arrayType() != Scalar::Float32);
-    MOZ_ASSERT(ins->arrayType() != Scalar::Float64);
+void LIRGenerator::visitCompareExchangeTypedArrayElement(
+    MCompareExchangeTypedArrayElement* ins) {
+  MOZ_ASSERT(ins->arrayType() != Scalar::Float32);
+  MOZ_ASSERT(ins->arrayType() != Scalar::Float64);
 
-    MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
-    MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
+  MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
 
-    const LUse elements = useRegister(ins->elements());
-    const LAllocation index = useRegisterOrConstant(ins->index());
+  const LUse elements = useRegister(ins->elements());
+  const LAllocation index =
+      useRegisterOrIndexConstant(ins->index(), ins->arrayType());
 
-    // If the target is a floating register then we need a temp at the
-    // CodeGenerator level for creating the result.
-    const LAllocation newval = useRegister(ins->newval());
-    const LAllocation oldval = useRegister(ins->oldval());
+  const LAllocation newval = useRegister(ins->newval());
+  const LAllocation oldval = useRegister(ins->oldval());
 
-    LDefinition outTemp = LDefinition::BogusTemp();
-    LDefinition valueTemp = LDefinition::BogusTemp();
-    LDefinition offsetTemp = LDefinition::BogusTemp();
-    LDefinition maskTemp = LDefinition::BogusTemp();
+  if (Scalar::isBigIntType(ins->arrayType())) {
+    LInt64Definition temp1 = tempInt64();
+    LInt64Definition temp2 = tempInt64();
 
-    if (ins->arrayType() == Scalar::Uint32 && IsFloatingPointType(ins->type()))
-        outTemp = temp();
-
-    if (Scalar::byteSize(ins->arrayType()) < 4) {
-        valueTemp = temp();
-        offsetTemp = temp();
-        maskTemp = temp();
-    }
-
-    LCompareExchangeTypedArrayElement* lir =
-        new(alloc()) LCompareExchangeTypedArrayElement(elements, index, oldval, newval, outTemp,
-                                                      valueTemp, offsetTemp, maskTemp);
-
+    auto* lir = new (alloc()) LCompareExchangeTypedArrayElement64(
+        elements, index, oldval, newval, temp1, temp2);
     define(lir, ins);
+    assignSafepoint(lir, ins);
+    return;
+  }
+
+  // If the target is a floating register then we need a temp at the
+  // CodeGenerator level for creating the result.
+
+  LDefinition outTemp = LDefinition::BogusTemp();
+  LDefinition valueTemp = LDefinition::BogusTemp();
+  LDefinition offsetTemp = LDefinition::BogusTemp();
+  LDefinition maskTemp = LDefinition::BogusTemp();
+
+  if (ins->arrayType() == Scalar::Uint32 && IsFloatingPointType(ins->type())) {
+    outTemp = temp();
+  }
+
+  if (Scalar::byteSize(ins->arrayType()) < 4) {
+    valueTemp = temp();
+    offsetTemp = temp();
+    maskTemp = temp();
+  }
+
+  LCompareExchangeTypedArrayElement* lir = new (alloc())
+      LCompareExchangeTypedArrayElement(elements, index, oldval, newval,
+                                        outTemp, valueTemp, offsetTemp,
+                                        maskTemp);
+
+  define(lir, ins);
 }
 
-void
-LIRGenerator::visitAtomicExchangeTypedArrayElement(MAtomicExchangeTypedArrayElement* ins)
-{
-    MOZ_ASSERT(ins->arrayType() <= Scalar::Uint32);
+void LIRGenerator::visitAtomicExchangeTypedArrayElement(
+    MAtomicExchangeTypedArrayElement* ins) {
+  MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
+  MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
 
-    MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
-    MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+  const LUse elements = useRegister(ins->elements());
+  const LAllocation index =
+      useRegisterOrIndexConstant(ins->index(), ins->arrayType());
 
-    const LUse elements = useRegister(ins->elements());
-    const LAllocation index = useRegisterOrConstant(ins->index());
+  const LAllocation value = useRegister(ins->value());
 
-    // If the target is a floating register then we need a temp at the
-    // CodeGenerator level for creating the result.
-    const LAllocation value = useRegister(ins->value());
-    LDefinition outTemp = LDefinition::BogusTemp();
-    LDefinition valueTemp = LDefinition::BogusTemp();
-    LDefinition offsetTemp = LDefinition::BogusTemp();
-    LDefinition maskTemp = LDefinition::BogusTemp();
+  if (Scalar::isBigIntType(ins->arrayType())) {
+    LInt64Definition temp1 = tempInt64();
+    LDefinition temp2 = temp();
 
-    if (ins->arrayType() == Scalar::Uint32) {
-        MOZ_ASSERT(ins->type() == MIRType::Double);
-        outTemp = temp();
-    }
-
-    if (Scalar::byteSize(ins->arrayType()) < 4) {
-        valueTemp = temp();
-        offsetTemp = temp();
-        maskTemp = temp();
-    }
-
-    LAtomicExchangeTypedArrayElement* lir =
-        new(alloc()) LAtomicExchangeTypedArrayElement(elements, index, value, outTemp,
-                                                      valueTemp, offsetTemp, maskTemp);
-
+    auto* lir = new (alloc()) LAtomicExchangeTypedArrayElement64(
+        elements, index, value, temp1, temp2);
     define(lir, ins);
+    assignSafepoint(lir, ins);
+    return;
+  }
+
+  // If the target is a floating register then we need a temp at the
+  // CodeGenerator level for creating the result.
+
+  MOZ_ASSERT(ins->arrayType() <= Scalar::Uint32);
+
+  LDefinition outTemp = LDefinition::BogusTemp();
+  LDefinition valueTemp = LDefinition::BogusTemp();
+  LDefinition offsetTemp = LDefinition::BogusTemp();
+  LDefinition maskTemp = LDefinition::BogusTemp();
+
+  if (ins->arrayType() == Scalar::Uint32) {
+    MOZ_ASSERT(ins->type() == MIRType::Double);
+    outTemp = temp();
+  }
+
+  if (Scalar::byteSize(ins->arrayType()) < 4) {
+    valueTemp = temp();
+    offsetTemp = temp();
+    maskTemp = temp();
+  }
+
+  LAtomicExchangeTypedArrayElement* lir =
+      new (alloc()) LAtomicExchangeTypedArrayElement(
+          elements, index, value, outTemp, valueTemp, offsetTemp, maskTemp);
+
+  define(lir, ins);
 }
 
 void
@@ -675,49 +702,75 @@ LIRGenerator::visitWasmAtomicBinopHeap(MWasmAtomicBinopHeap* ins)
     define(lir, ins);
 }
 
-void
-LIRGenerator::visitAtomicTypedArrayElementBinop(MAtomicTypedArrayElementBinop* ins)
-{
-    MOZ_ASSERT(ins->arrayType() != Scalar::Uint8Clamped);
-    MOZ_ASSERT(ins->arrayType() != Scalar::Float32);
-    MOZ_ASSERT(ins->arrayType() != Scalar::Float64);
+void LIRGenerator::visitAtomicTypedArrayElementBinop(
+    MAtomicTypedArrayElementBinop* ins) {
+  MOZ_ASSERT(ins->arrayType() != Scalar::Uint8Clamped);
+  MOZ_ASSERT(ins->arrayType() != Scalar::Float32);
+  MOZ_ASSERT(ins->arrayType() != Scalar::Float64);
 
-    MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
-    MOZ_ASSERT(ins->index()->type() == MIRType::Int32);
+  MOZ_ASSERT(ins->elements()->type() == MIRType::Elements);
+  MOZ_ASSERT(ins->index()->type() == MIRType::IntPtr);
 
-    const LUse elements = useRegister(ins->elements());
-    const LAllocation index = useRegisterOrConstant(ins->index());
-    const LAllocation value = useRegister(ins->value());
+  const LUse elements = useRegister(ins->elements());
+  const LAllocation index =
+      useRegisterOrIndexConstant(ins->index(), ins->arrayType());
+  const LAllocation value = useRegister(ins->value());
 
-    LDefinition valueTemp = LDefinition::BogusTemp();
-    LDefinition offsetTemp = LDefinition::BogusTemp();
-    LDefinition maskTemp = LDefinition::BogusTemp();
+  if (Scalar::isBigIntType(ins->arrayType())) {
+    LInt64Definition temp1 = tempInt64();
+    LInt64Definition temp2 = tempInt64();
 
-    if (Scalar::byteSize(ins->arrayType()) < 4) {
-        valueTemp = temp();
-        offsetTemp = temp();
-        maskTemp = temp();
+    // Case 1: the result of the operation is not used.
+    //
+    // We can omit allocating the result BigInt.
+
+    if (ins->isForEffect()) {
+      auto* lir = new (alloc()) LAtomicTypedArrayElementBinopForEffect64(
+          elements, index, value, temp1, temp2);
+      add(lir, ins);
+      return;
     }
 
-    if (!ins->hasUses()) {
-        LAtomicTypedArrayElementBinopForEffect* lir =
-            new(alloc()) LAtomicTypedArrayElementBinopForEffect(elements, index, value,
-                                                                valueTemp, offsetTemp, maskTemp);
-        add(lir, ins);
-        return;
-    }
+    // Case 2: the result of the operation is used.
 
-    // For a Uint32Array with a known double result we need a temp for
-    // the intermediate output.
-    LDefinition outTemp = LDefinition::BogusTemp();
-
-    if (ins->arrayType() == Scalar::Uint32 && IsFloatingPointType(ins->type()))
-        outTemp = temp();
-
-    LAtomicTypedArrayElementBinop* lir =
-        new(alloc()) LAtomicTypedArrayElementBinop(elements, index, value, outTemp,
-                                                   valueTemp, offsetTemp, maskTemp);
+    auto* lir = new (alloc())
+        LAtomicTypedArrayElementBinop64(elements, index, value, temp1, temp2);
     define(lir, ins);
+    assignSafepoint(lir, ins);
+    return;
+  }
+
+  LDefinition valueTemp = LDefinition::BogusTemp();
+  LDefinition offsetTemp = LDefinition::BogusTemp();
+  LDefinition maskTemp = LDefinition::BogusTemp();
+
+  if (Scalar::byteSize(ins->arrayType()) < 4) {
+    valueTemp = temp();
+    offsetTemp = temp();
+    maskTemp = temp();
+  }
+
+  if (ins->isForEffect()) {
+    LAtomicTypedArrayElementBinopForEffect* lir =
+        new (alloc()) LAtomicTypedArrayElementBinopForEffect(
+            elements, index, value, valueTemp, offsetTemp, maskTemp);
+    add(lir, ins);
+    return;
+  }
+
+  // For a Uint32Array with a known double result we need a temp for
+  // the intermediate output.
+
+  LDefinition outTemp = LDefinition::BogusTemp();
+
+  if (ins->arrayType() == Scalar::Uint32 && IsFloatingPointType(ins->type())) {
+    outTemp = temp();
+  }
+
+  LAtomicTypedArrayElementBinop* lir =
+      new (alloc()) LAtomicTypedArrayElementBinop(
+          elements, index, value, outTemp, valueTemp, offsetTemp, maskTemp);
+  define(lir, ins);
 }
 
 void
