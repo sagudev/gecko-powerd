@@ -1637,18 +1637,17 @@ CodeGenerator::visitShiftI(LShiftI* ins)
 
     if (rhs->isConstant()) {
         int32_t shift = ToInt32(rhs) & 0x1F;
-        MOZ_ASSERT(shift > 0);
         switch (ins->bitop()) {
           case JSOp::Lsh:
             if (shift)
                 masm.x_slwi(dest, lhs, shift);
-            else
+            else if (dest != lhs)
                 masm.move32(lhs, dest);
             break;
           case JSOp::Rsh:
             if (shift)
                 masm.as_srawi(dest, lhs, shift);
-            else
+            else if (dest != lhs)
                 masm.move32(lhs, dest);
             break;
           case JSOp::Ursh:
@@ -1658,7 +1657,8 @@ CodeGenerator::visitShiftI(LShiftI* ins)
                 // x >>> 0 can overflow.
                 if (ins->mir()->toUrsh()->fallible())
                     bailoutCmp32(Assembler::LessThan, lhs, Imm32(0), ins->snapshot());
-                masm.move32(lhs, dest);
+                if (dest != lhs)
+                    masm.move32(lhs, dest);
             }
             break;
           default:
