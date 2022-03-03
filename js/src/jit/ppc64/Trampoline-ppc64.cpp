@@ -558,7 +558,7 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
             break;
     }
     masm.pushReturnAddress();
-    // Do not erase the frame pointer in this function.
+
     // Caller:
     // [arg2] [arg1] [this] [[argc] [callee] [descr] [raddr]] <- sp
 
@@ -580,7 +580,6 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
                  calleeTokenReg);
     masm.mov(calleeTokenReg, numArgsReg);
     masm.andPtr(Imm32(uint32_t(CalleeTokenMask)), numArgsReg);
-    //masm.load16ZeroExtend(Address(numArgsReg, JSFunction::offsetOfNargs()), numArgsReg);
     masm.load32(Address(numArgsReg, JSFunction::offsetOfFlagsAndArgCount()),
               numArgsReg);
     masm.rshift32(Imm32(JSFunction::ArgCountShift), numArgsReg);
@@ -629,6 +628,7 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
 
     // Push undefined (including the padding).
     {
+#if(0)
         Label undefLoopTop;
 
         masm.bind(&undefLoopTop);
@@ -637,12 +637,17 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
         masm.storeValue(ValueOperand(tempValue), Address(StackPointer, 0));
 
         masm.ma_bc(numToPush, numToPush, &undefLoopTop, Assembler::NonZero, ShortJump);
+#else
+        masm.xs_mtctr(numToPush);
+        masm.as_stdu(tempValue, StackPointer, -sizeof(Value)); // -4
+        masm.xs_bdnz(-4);
+#endif
     }
 
     // Get the topmost argument.
     static_assert(sizeof(Value) == 8, "TimesEight is used to skip arguments");
 
-    // | - sizeof(Value)| is used to put rcx such that we can read the last
+    // | - sizeof(Value)| is used such that we can read the last
     // argument, and not the value which is after.
     MOZ_ASSERT(tempValue == r7); // can clobber
     MOZ_ASSERT(numToPush == r8);
@@ -653,6 +658,7 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
 
     // Copy and push arguments |nargs| + 1 times (to include |this|).
     {
+#if(0)
         Label copyLoopTop;
 
         masm.bind(&copyLoopTop);
@@ -663,6 +669,13 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
         masm.subPtr(Imm32(sizeof(Value)), numToPush);
 
         masm.ma_bc(nvRectReg, nvRectReg, &copyLoopTop, Assembler::NonZero, ShortJump);
+#else
+        masm.xs_mtctr(nvRectReg);
+        masm.as_ld(tempValue, numToPush, 0); // -12
+        masm.as_addi(numToPush, numToPush, -8);
+        masm.as_stdu(tempValue, StackPointer, -8);
+        masm.xs_bdnz(-12);
+#endif
     }
 
     // If constructing, copy newTarget also.
@@ -711,8 +724,24 @@ JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
 
     // Call the target function.
     masm.andPtr(Imm32(uint32_t(CalleeTokenMask)), calleeTokenReg);
-    masm.loadJitCodeRaw(calleeTokenReg, r8);
-    argumentsRectifierReturnOffset_ = masm.callJitNoProfiler(r8);
+    switch (kind) {
+      case ArgumentsRectifierKind::Normal:
+        masm.loadJitCodeRaw(calleeTokenReg, r8);
+        argumentsRectifierReturnOffset_ = masm.callJitNoProfiler(r8);
+        break;
+      case ArgumentsRectifierKind::TrialInlining:
+        Label noBaselineScript, done;
+        masm.loadBaselineJitCodeRaw(calleeTokenReg, r8, &noBaselineScript);
+        masm.callJitNoProfiler(r8);
+        masm.ma_b(&done, ShortJump);
+
+        // See BaselineCacheIRCompiler::emitCallInlinedFunction.
+        masm.bind(&noBaselineScript);
+        masm.loadJitCodeRaw(calleeTokenReg, r8);
+        masm.callJitNoProfiler(r8);
+        masm.bind(&done);
+        break;
+    }
 
     // Remove the rectifier frame.
     masm.loadPtr(Address(StackPointer, 0), r9);

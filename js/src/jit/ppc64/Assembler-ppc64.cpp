@@ -1836,10 +1836,11 @@ BufferOffset Assembler::x_bne(CRegisterID cr, int16_t off, LikelyBit lkb, LinkBi
     return as_bc(off, NotEqual, cr, lkb, lb);
 }
 
-BufferOffset Assembler::x_bdnz(int16_t off, LikelyBit lkb, LinkBit lb)
+BufferOffset Assembler::xs_bdnz(int16_t off, LikelyBit lkb, LinkBit lb)
 {
-    spew("bdnz %d", off);
-    return writeInst(PPC_bc | 0x10 << 21 | off | lkb << 21 | lb);
+    spew("bdnz .+%d", off);
+    MOZ_ASSERT(!(off & 0x03));
+    return writeInst(PPC_bc | (0x10 << 21) | (off & 0xfffc) | lkb << 21 | lb);
 }
 
 // Emit specialized bcl form to avoid tainting branch history.
@@ -1848,7 +1849,7 @@ BufferOffset Assembler::xs_bcl_always(int16_t off, LikelyBit lkb)
 {
     spew("bcl 20,4*cr7+so,.+%d", off);
     MOZ_ASSERT(!(off & 0x03));
-    return writeInst(PPC_bc | (20 << 21) | (31 << 16) | off | 0x01);
+    return writeInst(PPC_bc | (20 << 21) | (31 << 16) | (off & 0xfffc) | 0x01);
 }
 
 BufferOffset Assembler::xs_mtctr(Register ra)

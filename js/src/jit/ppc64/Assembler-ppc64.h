@@ -1411,7 +1411,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
         BufferOffset xs_bcl_always(int16_t off, LikelyBit lkb = NotLikelyB);
 	BufferOffset x_beq(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset x_bne(CRegisterID cr, int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-	BufferOffset x_bdnz(int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
+	BufferOffset xs_bdnz(int16_t off, LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
 	BufferOffset xs_mtctr(Register ra);
 	BufferOffset xs_mtlr(Register ra);
 	BufferOffset xs_mflr(Register rd);
