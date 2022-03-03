@@ -1268,11 +1268,9 @@ CodeGenerator::visitDivI(LDivI* ins)
 
     // Not negative zero. So: DIVIDE! AND! CONQUER!
     if (mir->canBeNegativeOverflow() || mir->canBeDivideByZero()) {
-        // If Overflow is set, we must bail out. But only do this if
-        // there is a snapshot, because if there isn't, Ion already knows
-        // this operation is infallible (and we can avoid checking
-        // for overflow and emit a lot fewer instructions).
-        MOZ_ASSERT(ins->snapshot());
+        // If Overflow is set, we must bail out. But only check this if Ion
+        // doesn't already know this operation is infallible (we can emit
+        // a lot fewer instructions).
 
         masm.ma_li(dest, 0L);
         masm.xs_mtxer(dest); // whack XER[SO]
@@ -1306,11 +1304,11 @@ CodeGenerator::visitDivI(LDivI* ins)
         }
         if (mir->canBeDivideByZero()) {
             // Must have been divide by zero.
-            // If we can truncate division, then a truncated division by
-            // zero is always zero, and not actually an exception.
             if (mir->trapOnError()) {
                 masm.wasmTrap(wasm::Trap::IntegerDivideByZero, mir->bytecodeOffset());
             } else if (mir->canTruncateInfinities()) {
+                // If we can truncate division, then a truncated division by
+                // zero is always zero, and not actually an exception.
                 masm.move32(Imm32(0), dest);
                 masm.ma_b(&done, ShortJump);
             } else {

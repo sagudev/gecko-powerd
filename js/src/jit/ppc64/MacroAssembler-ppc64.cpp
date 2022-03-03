@@ -163,10 +163,9 @@ MacroAssemblerPPC64Compat::convertDoubleToInt32(FloatRegister src, Register dest
         // and look at the sign bit.
         // The MIPS version happily clobbers dest from the beginning, so
         // no worries doing this check here to save some work.
-
         Label done;
         MOZ_ASSERT(dest != ScratchRegister);
-xs_trap();
+
         // Don't bother if the result was not zero.
         as_cmpldi(dest, 0);
         ma_bc(Assembler::NotEqual, &done, ShortJump);
@@ -215,10 +214,9 @@ MacroAssemblerPPC64Compat::convertDoubleToPtr(FloatRegister src, Register dest,
         // and look at the sign bit.
         // The MIPS version happily clobbers dest from the beginning, so
         // no worries doing this check here to save some work.
-
         Label done;
         MOZ_ASSERT(dest != ScratchRegister);
-xs_trap();
+
         // Don't bother if the result was not zero.
         as_cmpldi(dest, 0);
         ma_bc(Assembler::NotEqual, &done, ShortJump);
@@ -256,6 +254,7 @@ MacroAssemblerPPC64Compat::convertInt32ToFloat32(Register src, FloatRegister des
     ADBlock();
     moveToDouble(src, dest);
     // Enforce rounding mode 0b00 (round-to-nearest ties-to-even).
+// XXX: make this into a round followed by fcfids
     as_mtfsfi(7, 0);
     as_fcfids(dest, dest);
 }
@@ -1066,7 +1065,6 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Imm32 imm, Condition 
     MOZ_ASSERT(rd != ScratchRegister);
     MOZ_ASSERT(rd != SecondScratchReg);
 
-xs_trap();
     asMasm().loadPtr(addr, ScratchRegister);
     ma_li(SecondScratchReg, imm);
     ma_cmp_set(rd, ScratchRegister, SecondScratchReg, c, useCmpw);
@@ -1080,7 +1078,6 @@ MacroAssemblerPPC64::ma_cmp_set(Register rd, Address addr, Imm64 imm, Condition 
     MOZ_ASSERT(rd != SecondScratchReg);
     MOZ_ASSERT(!useCmpw);
 
-xs_trap();
     asMasm().loadPtr(addr, ScratchRegister);
     ma_li(SecondScratchReg, imm);
     ma_cmp_set(rd, ScratchRegister, SecondScratchReg, c, useCmpw);
