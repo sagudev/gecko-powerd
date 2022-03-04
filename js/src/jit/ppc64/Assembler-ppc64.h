@@ -497,6 +497,7 @@ enum PPCOpcodes {
     PPC_xscvspdp= 0xF0000524, // VSX scalar convert single to double (for FPR)
     PPC_xscvspdpn=0xF000052C, // VSX scalar convert single to double sNaN-pres
     PPC_xxbrd   = 0xF017076C, // VSX byte-reverse doubleword
+    PPC_xxlxor  = 0xF00004D0, // VSX logical XOR (I love this mnemonic)
 
     // simplified mnemonics
     PPC_mr = PPC_or,
@@ -1400,6 +1401,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
     BufferOffset as_xscvspdp(FloatRegister xt, FloatRegister xb);
     BufferOffset as_xscvdpspn(FloatRegister xt, FloatRegister xb);
     BufferOffset as_xscvspdpn(FloatRegister xt, FloatRegister xb);
+    BufferOffset as_xxlxor(FloatRegister xt, FloatRegister xa, FloatRegister xb);
 
         BufferOffset as_addpcis(Register rt, uint16_t im = 0);
 

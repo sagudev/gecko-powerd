@@ -1792,6 +1792,10 @@ BufferOffset Assembler::as_mcrfs(CRegisterID bf, uint8_t bfa)
         spew("xscvspdpn\t%3s,%3s", xt.name(), xb.name());
         return writeInst(XForm(PPC_xscvspdpn, xt, f0, xb, false));
     }
+    BufferOffset Assembler::as_xxlxor(FloatRegister xt, FloatRegister xa, FloatRegister xb) {
+        spew("xxlxor\t%3s,%3s,%3s", xt.name(), xa.name(), xb.name());
+        return writeInst(XForm(PPC_xxlxor, xt, xa, xb, false));
+    }
 
     BufferOffset Assembler::as_addpcis(Register rt, uint16_t im) {
         spew("addpcis\t%s,%d", rt.name(), im);

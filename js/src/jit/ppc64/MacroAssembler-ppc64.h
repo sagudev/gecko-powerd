@@ -1021,14 +1021,21 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         if (src != dest) as_fmr(dest, src);
     }
 
-// XXX: use xxlxor
     void zeroDouble(FloatRegister reg) {
-        xs_li(ScratchRegister, 0);
-        moveToDouble(ScratchRegister, reg);
+        if (HasPPCISA3()) {
+            // This should also work on POWER8.
+            // It's my favourite mnemonic in the whole instruction set.
+            // Just say it six times fast. It's positively Asgardian.
+            as_xxlxor(reg, reg, reg);
+        } else {
+            xs_li(ScratchRegister, 0);
+            moveToDouble(ScratchRegister, reg);
+        }
     }
 
     void moveFromDouble(FloatRegister src, Register dest) {
         if (HasPPCISA3()) {
+            // This should also work on POWER8.
             as_mfvsrd(dest, src);
         } else {
             // Sigh.
@@ -1040,6 +1047,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
 
     void moveToDouble(Register src, FloatRegister dest) {
         if (HasPPCISA3()) {
+            // This should also work on POWER8.
             as_mtvsrd(dest, src);
         } else {
             // Sigh.
@@ -1073,6 +1081,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
             // upconvert to double.
             as_mtvsrws(dest, src); // loads into both words of DW 0
             as_xscvspdpn(dest, dest); // preserve sNaN bit, both doubles equal
+// XXX: what if we put an frsp here to get rid of it in the 32->64 upconvert?
         } else {
             // Sigh.
             as_stwu(src, StackPointer, -4);
@@ -1081,7 +1090,6 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64
         }
     }
     void convertUInt64ToDouble(Register src, FloatRegister dest);
-
 
     void breakpoint();
 

@@ -1838,15 +1838,15 @@ CodeGenerator::visitPowHalfD(LPowHalfD* ins)
 
     // Masm.pow(-Infinity, 0.5) == Infinity.
     masm.loadConstantDouble(NegativeInfinity<double>(), ScratchDoubleReg);
-    masm.as_fcmpu(input, output);
-    masm.ma_bc(Assembler::DoubleUnordered, &skip, ShortJump);
+    masm.as_fcmpu(input, ScratchDoubleReg);
+    masm.ma_bc(Assembler::DoubleNotEqualOrUnordered, &skip, ShortJump);
     masm.as_fneg(output, ScratchDoubleReg);
     masm.ma_b(&done, ShortJump);
 
     masm.bind(&skip);
     // Math.pow(-0, 0.5) == 0 == Math.pow(0, 0.5).
     // Adding 0 converts any -0 to 0.
-    masm.loadConstantDouble(0.0, ScratchDoubleReg);
+    masm.zeroDouble(ScratchDoubleReg);
     masm.as_fadd(output, input, ScratchDoubleReg);
     masm.as_fsqrt(output, output);
 
