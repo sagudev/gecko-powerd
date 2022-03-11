@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include <cmath>
 #include "jit/ppc64/MacroAssembler-ppc64.h"
 
 #include "mozilla/CheckedInt.h"
@@ -1747,7 +1748,6 @@ void
 MacroAssemblerPPC64Compat::boxNonDouble(JSValueType type, Register src,
                                          const ValueOperand& dest)
 {
-    MOZ_ASSERT(src != dest.valueReg());
     boxValue(type, src, dest.valueReg());
 }
 
@@ -1793,7 +1793,8 @@ MacroAssemblerPPC64Compat::int32ValueToFloat32(const ValueOperand& operand,
 void
 MacroAssemblerPPC64Compat::loadConstantFloat32(float f, FloatRegister dest)
 {
-    ma_lis(dest, f);
+    if (f == 0.0 && !signbit(f)) zeroDouble(dest);
+    else ma_lis(dest, f);
 }
 
 void
@@ -1848,7 +1849,8 @@ xs_trap();
 void
 MacroAssemblerPPC64Compat::loadConstantDouble(double dp, FloatRegister dest)
 {
-    ma_lid(dest, dp);
+    if (dp == 0.0 && !signbit(dp)) zeroDouble(dest);
+    else ma_lid(dest, dp);
 }
 
 Register
@@ -3177,13 +3179,14 @@ MacroAssembler::truncDoubleToInt32(FloatRegister src, Register dest, Label* fail
     as_fctiwz(ScratchDoubleReg, src);
     // VXCVI is a failure (over/underflow, NaN, etc.)
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(src, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Bond, James Bond: CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, fail);
-
     moveFromDouble(ScratchDoubleReg, dest);
     as_srawi(dest, dest, 0); // clear upper word and sign extend
+    as_cmpdi(cr7, dest, 0);  // check for zero
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_crand(0, 0, 30); // CR0[LT] &= CR7[EQ] (only bail if - and 0)
+    as_cror(0, 0, 7); // Bond, James Bond: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 }
 
 void
@@ -3192,7 +3195,6 @@ MacroAssembler::nearbyIntDouble(RoundingMode mode, FloatRegister src,
 {
     ADBlock();
 
-xs_trap();
     switch (mode) {
         case RoundingMode::Up:
             as_frip(dest, src);
@@ -3200,11 +3202,17 @@ xs_trap();
         case RoundingMode::Down:
             as_frim(dest, src);
             break;
-        case RoundingMode::NearestTiesToEven: // XXX: WRONG, see 4.6.7.3 p177
-            as_frin(dest, src);
+        case RoundingMode::NearestTiesToEven:
+            // This is actually IEEE nearest ties-to-even. |frin| does not
+            // do this behaviour as specified by JavaScript, so we don't
+            // support this, and it should never be called ... right?
+            MOZ_CRASH("on a scale of one to even I just can't");
             break;
         case RoundingMode::TowardsZero:
             as_friz(dest, src);
+            break;
+        default:
+            MOZ_CRASH("unsupported mode");
             break;
     }
 }
@@ -3240,13 +3248,14 @@ MacroAssembler::ceilDoubleToInt32(FloatRegister src, Register dest, Label* fail)
     as_fctiw(ScratchDoubleReg, ScratchDoubleReg);
     // VXCVI is a failure (over/underflow, NaN, etc.)
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(src, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Licenced to kill: CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, fail);
-
     moveFromDouble(ScratchDoubleReg, dest);
     as_srawi(dest, dest, 0); // clear upper word and sign extend
+    as_cmpdi(cr7, dest, 0);  // check for zero
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_crand(0, 0, 30); // CR0[LT] &= CR7[EQ] (only bail if - and 0)
+    as_cror(0, 0, 7); // Licenced to kill: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 }
 
 void
@@ -3273,13 +3282,14 @@ MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest, Label* fail
     as_fctiw(ScratchDoubleReg, ScratchDoubleReg);
     // VXCVI is a failure (over/underflow, NaN, etc.)
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(src, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Nobody does it better: CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, fail);
-
     moveFromDouble(ScratchDoubleReg, dest);
     as_srawi(dest, dest, 0); // clear upper word and sign extend
+    as_cmpdi(cr7, dest, 0);  // check for zero
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_crand(0, 0, 30); // CR0[LT] &= CR7[EQ] (only bail if - and 0)
+    as_cror(0, 0, 7); // Nobody does it better: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 }
 
 void
@@ -3303,21 +3313,25 @@ MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
     as_mtfsb0(23);
     // The default b00 rounding mode is implemented as IEEE round-to-nearest
     // and ties-to-even. This means round(0.5) == 0. However, JavaScript
-    // expects round(0.5) == 1, so we "pre-round" with frin which is an
-    // exact duplicate of C++ round(). If frin gets a NaN, it will pass on an
-    // invalid conversion in fctiw anyway, so we needn't check VXSNAN first.
-    // (For pre-v2.02, you'll need to add a 0.5 fudge, and round to -inf.)
-    as_frin(ScratchDoubleReg, src);
-    as_fctiw(ScratchDoubleReg, ScratchDoubleReg);
+    // expects round(0.5) == 1. |frin| is not an exact duplicate for this
+    // behaviour either. The best option is to fudge it by adding 0.5 and
+    // round towards -Inf, which works in both the positive and negative cases.
+    xs_lis(ScratchRegister, 0x3f00); // 0x3f000000 = 0.5
+    moveToFloat32(ScratchRegister, ScratchDoubleReg);
+    as_fadd(ScratchDoubleReg, ScratchDoubleReg, src); // preserves NaN
+    as_mtfsfi(7, 3); // RN to -Inf
+    as_fctiw(ScratchDoubleReg, ScratchDoubleReg); // truncate according to RN
     // VXCVI is a failure (over/underflow, NaN, etc.)
     as_mcrfs(cr1, 5); // reserved - VXSOFT - VXSQRT - VXCVI -> CR1[...SO]
-    moveFromDouble(src, ScratchRegister);
-    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
-    as_cror(0, 0, 7); // Makes me feel sad for the rest: CR0[LT] |= CR1[SO]
-    ma_bc(Assembler::LessThan, fail);
-
+    as_mtfsfi(7, 0); // RN to default
     moveFromDouble(ScratchDoubleReg, dest);
     as_srawi(dest, dest, 0); // clear upper word and sign extend
+    as_cmpdi(cr7, dest, 0);  // check for zero
+    moveFromDouble(src, ScratchRegister);
+    as_cmpdi(ScratchRegister, 0); // check sign bit of original float
+    as_crand(0, 0, 30); // CR0[LT] &= CR7[EQ] (only bail if - and 0)
+    as_cror(0, 0, 7); // Makes me feel sad for the rest: CR0[LT] |= CR1[SO]
+    ma_bc(Assembler::LessThan, fail);
 }
 
 void

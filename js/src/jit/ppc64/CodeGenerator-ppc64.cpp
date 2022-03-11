@@ -858,34 +858,40 @@ CodeGenerator::visitCompare(LCompare* comp)
 void
 CodeGenerator::visitCompareAndBranch(LCompareAndBranch* comp)
 {
-    ADBlock();
-    MCompare* mir = comp->cmpMir();
-    Assembler::Condition cond = JSOpToCondition(mir->compareType(), comp->jsop());
+  ADBlock();
+  MCompare* mir = comp->cmpMir();
+  Assembler::Condition cond = JSOpToCondition(mir->compareType(), comp->jsop());
 
-    if (mir->compareType() == MCompare::Compare_Object ||
-        mir->compareType() == MCompare::Compare_Symbol) {
-        if (comp->right()->isGeneralReg()) {
-            emitBranch(ToRegister(comp->left()), ToRegister(comp->right()), cond,
-                       comp->ifTrue(), comp->ifFalse());
-        } else {
-            masm.loadPtr(ToAddress(comp->right()), ScratchRegister);
-            emitBranch(ToRegister(comp->left()), ScratchRegister, cond,
-                       comp->ifTrue(), comp->ifFalse());
-        }
-        return;
-    }
-
+  if (mir->compareType() == MCompare::Compare_Object ||
+      mir->compareType() == MCompare::Compare_Symbol ||
+      mir->compareType() == MCompare::Compare_UIntPtr) {
     if (comp->right()->isConstant()) {
-        emitBranch(ToRegister(comp->left()), Imm32(ToInt32(comp->right())), cond,
-                   comp->ifTrue(), comp->ifFalse());
+      MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
+      emitBranch(ToRegister(comp->left()), Imm32(ToInt32(comp->right())), cond,
+                 comp->ifTrue(), comp->ifFalse());
     } else if (comp->right()->isGeneralReg()) {
-        emitBranch(ToRegister(comp->left()), ToRegister(comp->right()), cond,
-                   comp->ifTrue(), comp->ifFalse());
+      emitBranch(ToRegister(comp->left()), ToRegister(comp->right()), cond,
+                 comp->ifTrue(), comp->ifFalse());
     } else {
-        masm.load32(ToAddress(comp->right()), ScratchRegister);
-        emitBranch(ToRegister(comp->left()), ScratchRegister, cond,
-                   comp->ifTrue(), comp->ifFalse());
+      masm.loadPtr(ToAddress(comp->right()), ScratchRegister);
+      emitBranch(ToRegister(comp->left()), ScratchRegister, cond,
+                 comp->ifTrue(), comp->ifFalse());
     }
+    return;
+  }
+
+  if (comp->right()->isConstant()) {
+    emitBranch(ToRegister(comp->left()), Imm32(ToInt32(comp->right())), cond,
+               comp->ifTrue(), comp->ifFalse());
+  } else if (comp->right()->isGeneralReg()) {
+    emitBranch(ToRegister(comp->left()), ToRegister(comp->right()), cond,
+               comp->ifTrue(), comp->ifFalse());
+  } else {
+    masm.load32(ToAddress(comp->right()), ScratchRegister);
+    emitBranch(ToRegister(comp->left()), ScratchRegister, cond, comp->ifTrue(),
+               comp->ifFalse());
+  }
+
 }
 
 bool
@@ -1775,7 +1781,17 @@ CodeGenerator::visitUrshD(LUrshD* ins)
     FloatRegister out = ToFloatRegister(ins->output());
 
     if (rhs->isConstant()) {
-        masm.x_srwi(temp, lhs, ToInt32(rhs));
+        // See MacroAssembler::rshift32 for constraints.
+        int32_t rrhs = ToInt32(rhs);
+        MOZ_ASSERT(rrhs >= 0);
+
+        if (!(rrhs % 32)) {
+            // Effective no-op. Drop the mic.
+            masm.convertUInt32ToDouble(lhs, out);
+            return;
+        } else {
+            masm.x_srwi(temp, lhs, (rrhs & 31));
+        }
     } else {
         masm.as_srw(temp, lhs, ToRegister(rhs));
     }
@@ -2164,6 +2180,7 @@ CodeGenerator::visitBitAndAndBranch(LBitAndAndBranch* lir)
         masm.ma_and(ScratchRegister, ToRegister(lir->left()), Imm32(ToInt32(lir->right())));
     else
         masm.as_and(ScratchRegister, ToRegister(lir->left()), ToRegister(lir->right()));
+// XXX: use direct result instead of doing a second compare here
     emitBranch(ScratchRegister, ScratchRegister, lir->cond(), lir->ifTrue(),
                lir->ifFalse());
 }

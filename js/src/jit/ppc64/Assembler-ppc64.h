@@ -1516,7 +1516,7 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
         return false;
 #endif
     }
-    static bool SupportsSimd() { return false; } /* XXX */
+    static bool SupportsSimd() { return false; } // todo
 
     // Technically unaligned integer loads are supported in hardware, but
     // there is a non-zero penalty (though small on many implementations),
@@ -1529,8 +1529,21 @@ BufferOffset as_addis(Register rd, Register ra, int16_t im, bool actually_lis = 
     // when unaligned, so we really want to avoid that.
     static bool SupportsFastUnalignedFPAccesses() { return false; }
 
-    // XXX: We DO have special rounding instructions! We should support this!
-    static bool HasRoundInstruction(RoundingMode mode) { return false; }
+    static bool HasRoundInstruction(RoundingMode mode) {
+      switch (mode) {
+        case RoundingMode::Up:
+        case RoundingMode::Down:
+        case RoundingMode::TowardsZero:
+            return true;
+
+        // See note in MacroAssembler::nearbyIntDouble.
+        case RoundingMode::NearestTiesToEven:
+            return false;
+
+        // fall through
+        }
+        MOZ_CRASH("unexpected mode");
+    }
 
   protected:
     void bind(Instruction *inst, uint32_t branch, uint32_t target);
