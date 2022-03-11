@@ -830,29 +830,37 @@ void
 CodeGenerator::visitCompare(LCompare* comp)
 {
     ADBlock();
-    MCompare* mir = comp->mir();
-    Assembler::Condition cond = JSOpToCondition(mir->compareType(), comp->jsop());
-    const LAllocation* left = comp->getOperand(0);
-    const LAllocation* right = comp->getOperand(1);
-    const LDefinition* def = comp->getDef(0);
+  MCompare* mir = comp->mir();
+  Assembler::Condition cond = JSOpToCondition(mir->compareType(), comp->jsop());
+  const LAllocation* left = comp->getOperand(0);
+  const LAllocation* right = comp->getOperand(1);
+  const LDefinition* def = comp->getDef(0);
 
-    // 64-bit comparisons.
-    if (mir->compareType() == MCompare::Compare_Object ||
-        mir->compareType() == MCompare::Compare_Symbol)
-    {
-        if (right->isGeneralReg())
-            masm.cmpPtrSet(cond, ToRegister(left), ToRegister(right), ToRegister(def));
-        else
-            masm.cmpPtrSet(cond, ToRegister(left), ToAddress(right), ToRegister(def));
-        return;
+  if (mir->compareType() == MCompare::Compare_Object ||
+      mir->compareType() == MCompare::Compare_Symbol ||
+      mir->compareType() == MCompare::Compare_UIntPtr) {
+    if (right->isConstant()) {
+      MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
+      // Force 64-bit compare.
+      masm.ma_cmp_set(ToRegister(def), ToRegister(left), Imm64(ToInt32(right)),
+                      cond, /* useCmpw */ false);
+    } else if (right->isGeneralReg()) {
+      masm.cmpPtrSet(cond, ToRegister(left), ToRegister(right),
+                     ToRegister(def));
+    } else {
+      masm.cmpPtrSet(cond, ToRegister(left), ToAddress(right), ToRegister(def));
     }
+    return;
+  }
 
-    if (right->isConstant())
-        masm.cmp32Set(cond, ToRegister(left), Imm32(ToInt32(right)), ToRegister(def));
-    else if (right->isGeneralReg())
-        masm.cmp32Set(cond, ToRegister(left), ToRegister(right), ToRegister(def));
-    else
-        masm.cmp32Set(cond, ToRegister(left), ToAddress(right), ToRegister(def));
+  if (right->isConstant()) {
+    masm.cmp32Set(cond, ToRegister(left), Imm32(ToInt32(right)),
+                  ToRegister(def));
+  } else if (right->isGeneralReg()) {
+    masm.cmp32Set(cond, ToRegister(left), ToRegister(right), ToRegister(def));
+  } else {
+    masm.cmp32Set(cond, ToRegister(left), ToAddress(right), ToRegister(def));
+  }
 }
 
 void
@@ -867,7 +875,7 @@ CodeGenerator::visitCompareAndBranch(LCompareAndBranch* comp)
       mir->compareType() == MCompare::Compare_UIntPtr) {
     if (comp->right()->isConstant()) {
       MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
-      emitBranch(ToRegister(comp->left()), Imm32(ToInt32(comp->right())), cond,
+      emitBranch(ToRegister(comp->left()), ImmWord(ToInt32(comp->right())), cond,
                  comp->ifTrue(), comp->ifFalse());
     } else if (comp->right()->isGeneralReg()) {
       emitBranch(ToRegister(comp->left()), ToRegister(comp->right()), cond,
