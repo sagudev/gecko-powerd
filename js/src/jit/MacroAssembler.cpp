@@ -5156,6 +5156,15 @@ void MacroAssembler::orderedHashTableLookup(Register setOrMapObj,
   bind(&ok);
 #endif
 
+#if defined(JS_CODEGEN_PPC64)
+  // If this was preceded by a MoveGroup instruction, the hash may have been
+  // loaded algebraically since it's an Int32 (and thus sign-extended); the
+  // operation doesn't know to keep the upper bits clear, failing the assert.
+  if (isBigInt == IsBigInt::No) {
+    as_rldicl(hash, hash, 0, 32); // "clrldi"
+  }
+#endif
+
 #ifdef DEBUG
   PushRegsInMask(LiveRegisterSet(RegisterSet::Volatile()));
 
