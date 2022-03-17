@@ -955,46 +955,10 @@ BufferOffset Assembler::as_bctr(LinkBit lb)
 }
 
 // Conditional branches.
-BufferOffset Assembler::as_bc(BOffImm16 off, Condition cond, CRegisterID cr,
-        LikelyBit lkb, LinkBit lb)
-{
-    // fall through to the next one
-    return as_bc(off.encode(), cond, cr, lkb, lb);
-}
-
-BufferOffset Assembler::as_bc(int16_t off, Condition cond, CRegisterID cr,
-        LikelyBit lkb, LinkBit lb)
-{
-    return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
-}
-
-BufferOffset Assembler::as_bc(BOffImm16 off, DoubleCondition cond,
-        CRegisterID cr, LikelyBit lkb, LinkBit lb)
-{
-    // fall through to the next one
-    return as_bc(off.encode(), cond, cr, lkb, lb);
-}
-
-BufferOffset Assembler::as_bc(int16_t off, DoubleCondition cond, CRegisterID cr,
-        LikelyBit lkb, LinkBit lb)
-{
-    return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
-}
-
-BufferOffset Assembler::as_bcctr(Condition cond, CRegisterID cr, LikelyBit lkb,
-        LinkBit lb)
-{
-    return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
-}
-
-BufferOffset Assembler::as_bcctr(DoubleCondition cond, CRegisterID cr,
-        LikelyBit lkb, LinkBit lb)
-{
-    return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
-}
-
-// Turn a condition (possibly synthetic) and CR field number into BO _|_ BI.
-// These may issue instructions.
+//
+// These utility functions turn a condition (possibly synthetic) and CR
+// field number into BO _|_ BI. With DoubleConditions we may issue CR bit
+// twiddles and change the op.
 uint16_t Assembler::computeConditionCode(DoubleCondition op, CRegisterID cr)
 {
 	// Use condition register logic to combine the FU (FUUUU-! I mean, unordered)
@@ -1033,6 +997,7 @@ uint16_t Assembler::computeConditionCode(DoubleCondition op, CRegisterID cr)
 	return (newop + ((uint8_t)cr << 6));
 }
 
+// Do the same for GPR compares and XER-based conditions.
 uint16_t Assembler::computeConditionCode(Condition op, CRegisterID cr)
 {
 	// Mask off the synthetic bits, if present. Hopefully we handled them already!
@@ -1058,13 +1023,60 @@ static uint32_t makeOpMask(uint16_t op)
     return ((op & 0x0f) << 21) | ((op & 0xfff0) << 12);
 }
 
+BufferOffset Assembler::as_bcctr(Condition cond, CRegisterID cr, LikelyBit lkb,
+        LinkBit lb)
+{
+    return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
+}
+
+BufferOffset Assembler::as_bcctr(DoubleCondition cond, CRegisterID cr,
+        LikelyBit lkb, LinkBit lb)
+{
+    return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
+}
+
+BufferOffset Assembler::as_bc(BOffImm16 off, Condition cond, CRegisterID cr,
+        LikelyBit lkb, LinkBit lb)
+{
+    // fall through to the next one
+    return as_bc(off.encode(), cond, cr, lkb, lb);
+}
+
+BufferOffset Assembler::as_bc(int16_t off, Condition cond, CRegisterID cr,
+        LikelyBit lkb, LinkBit lb)
+{
+    // No current need to adjust for the |mcrxr|; see ma_bc() in the
+    // MacroAssembler for why (no branch we generate that uses the result
+    // needs to be retargeted).
+    return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
+}
+
+BufferOffset Assembler::as_bc(BOffImm16 off, DoubleCondition cond,
+        CRegisterID cr, LikelyBit lkb, LinkBit lb)
+{
+    // fall through to the next one
+    return as_bc(off.encode(), cond, cr, lkb, lb);
+}
+
+BufferOffset Assembler::as_bc(int16_t off, DoubleCondition cond, CRegisterID cr,
+        LikelyBit lkb, LinkBit lb)
+{
+    // Adjust for issued CR twiddles, if any.
+    uint32_t offs = currentOffset();
+    uint16_t op = computeConditionCode(cond, cr);
+    offs = currentOffset() - offs;
+    MOZ_ASSERT(offs == 0 || offs == 4); // currently zero or one instruction
+    return as_bc((off-offs), op, lkb, lb);
+}
+
+// These are the actual instruction emitters after conditions are converted
+// and any offsets recalculated.
 BufferOffset Assembler::as_bc(int16_t off, uint16_t op, LikelyBit lkb, LinkBit lb)
 {
     spew("bc%s%s BO_BI=0x%04x,%d", (lb) ? "l" : "", (lkb) ? "+" : "", op, off);
     MOZ_ASSERT(!(off & 0x03));
     return writeInst(Instruction(PPC_bc | makeOpMask(op) | lkb << 21 | ((uint16_t)off & 0xfffc) | lb).encode());
 }
-
 BufferOffset Assembler::as_bcctr(uint16_t op, LikelyBit lkb, LinkBit lb)
 {
     spew("bcctr%s%s", (lb) ? "l" : "", (lkb) ? "+" : "");

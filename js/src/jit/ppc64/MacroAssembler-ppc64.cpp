@@ -875,7 +875,10 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
         // However, overflow doesn't do reversed sense, so we do "footwork."
         m_buffer.ensureSpace(12 * sizeof(uint32_t)); // Worst case + CR ops
         if (c & ConditionOnlyXER) {
-            // bc cond .+8
+            // This is why we don't need to account for the mcrxrx in
+            // Assembler-ppc64, because we generate this:
+            //
+            // bc cond .+8 (DO NOT ADJUST)
             // b .+32
             // long jump
             as_bc(2 * sizeof(uint32_t), c, cr, NotLikelyB, DontLinkB);
@@ -915,7 +918,7 @@ MacroAssemblerPPC64::ma_bc(CRegisterID cr, T c, Label* label, JumpKind jumpKind)
     BufferOffset bo;
     m_buffer.ensureSpace(12 * sizeof(uint32_t)); // Worst case, with CR ops
     if (c & ConditionOnlyXER) {
-        // bc cond .+8
+        // bc cond .+8 (DO NOT ADJUST: see above)
         // b .+32
         // long jump
         as_bc(2 * sizeof(uint32_t), c, cr, NotLikelyB, DontLinkB);
