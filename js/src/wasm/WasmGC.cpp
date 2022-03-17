@@ -290,12 +290,11 @@ bool wasm::IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC) {
   // enumerate all code sequences that can precede the stackmap location.
   return true;
 #  elif defined(JS_CODEGEN_PPC64)
-// XXX: we should just be able to use inst[0]
-  const uint32_t* insn = (const uint32_t*)nextPC;
   js::jit::Instruction* inst = (js::jit::Instruction*)nextPC;
-  //fprintf(stderr, "IsValidStackMapKey: 0x%lx 0x%08x\n", (uint64_t)nextPC, insn[0]);
-  return (((uintptr_t(insn) & 3) == 0) &&
-          (inst[0].extractOpcode() == js::jit::PPC_addi ||  // stack allocate
+  //fprintf(stderr, "IsValidStackMapKey: 0x%lx 0x%08x 0x%08x\n", (uint64_t)nextPC, inst[0].encode(), inst[0].extractOpcode());
+  return (((uintptr_t(nextPC) & 3) == 0) && (
+           inst[0].extractOpcode() == 0xf0000000 ||         // VSX (xxlxor etc)
+           inst[0].extractOpcode() == js::jit::PPC_addi ||  // stack allocate
            inst[0].extractOpcode() == js::jit::PPC_addis || // load immediate
            inst[0].extractOpcode() == js::jit::PPC_cmpwi || // test after bl
            inst[0].extractOpcode() == js::jit::PPC_cmpw ||  // (extsw, same)
