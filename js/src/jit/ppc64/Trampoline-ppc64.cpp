@@ -498,6 +498,12 @@ JitRuntime::generateInvalidator(MacroAssembler& masm, Label* bailoutTail)
     ADBlock("generateInvalidator");
     invalidatorOffset_ = startTrampolineCode(masm);
 
+  // The InvalidationBailoutStack r3 points to must have:
+  // - osiPointReturnAddress_
+  // - ionScript_  (pushed by CodeGeneratorPPC64::generateInvalidateEpilogue())
+  // - regs_  (pushed here)
+  // - fpregs_  (pushed here) => r3
+
     // Stack has to be alligned here. If not, we will have to fix it.
     masm.checkStackAlignment();
 

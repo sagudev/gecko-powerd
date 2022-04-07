@@ -4,12 +4,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <cmath>
 #include "jit/ppc64/MacroAssembler-ppc64.h"
 
 #include "mozilla/CheckedInt.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MathAlgorithms.h"
+
+#include <cmath>
 
 #include "jit/Bailouts.h"
 #include "jit/BaselineFrame.h"
@@ -264,6 +265,7 @@ void
 MacroAssemblerPPC64Compat::convertInt32ToFloat32(const Address& src, FloatRegister dest)
 {
     ADBlock();
+MOZ_CRASH("NYI convertInt32ToFloat32");
 xs_trap();
     ma_li(ScratchRegister, ImmWord(src.offset));
     as_lfiwax(dest, src.base, ScratchRegister);
@@ -482,6 +484,7 @@ void
 MacroAssemblerPPC64::ma_dext(Register rt, Register rs, Imm32 pos, Imm32 size)
 {
     // MIPS dext is right-justified, so use rldicl to simulate.
+MOZ_CRASH("ma_dext whyyyy");
 xs_trap(); // not sure if trap
     as_rldicl(rt, rs, (pos.value + size.value), 64 - (size.value)); // "extrdi"
 }
@@ -798,10 +801,13 @@ MacroAssemblerPPC64::ma_store(Register data, Address address, LoadStoreSize size
 void
 MacroAssemblerPPC64Compat::computeScaledAddress(const BaseIndex& address, Register dest)
 {
+    // TODO: The non-shift case can be essentially an ldx or stdx (or whatever
+    // size), so we should figure out a way to signal the caller that this
+    // optimization is possible.
     int32_t shift = Imm32::ShiftOf(address.scale).value;
     if (shift) {
         MOZ_ASSERT(address.base != ScratchRegister);
-        ma_dsll(ScratchRegister, address.index, Imm32(shift));
+        ma_dsll(ScratchRegister, address.index, Imm32(shift)); // 64-bit needed
         as_add(dest, address.base, ScratchRegister);
     } else {
         as_add(dest, address.base, address.index);
@@ -1185,6 +1191,7 @@ MacroAssemblerPPC64Compat::move32(Imm32 imm, Register dest)
     ADBlock();
     //uint64_t bits = (uint64_t)((int64_t)imm.value & 0x00000000ffffffff);
     //ma_li(dest, bits);
+// XXX: why not just cast to int64_t now that we're fixed?
     ma_li(dest, imm);
 }
 
@@ -1193,6 +1200,8 @@ MacroAssemblerPPC64Compat::move32(Register src, Register dest)
 {
     ADBlock();
     ma_move(dest, src);
+    // Ass-U-Me we explicitly want the upper 32-bits cleared.
+    //as_rldicl(dest, src, 0, 32); // "clrldi"
 }
 
 void
@@ -1806,6 +1815,7 @@ MacroAssemblerPPC64Compat::loadInt32OrDouble(const Address& src, FloatRegister d
     ADBlock();
     Label notInt32, end;
 
+MOZ_CRASH("NYI loadInt32OrDouble");
 xs_trap();
     // If it's an int, convert it to double.
     loadPtr(Address(src.base, src.offset), ScratchRegister);
@@ -1827,6 +1837,7 @@ MacroAssemblerPPC64Compat::loadInt32OrDouble(const BaseIndex& addr, FloatRegiste
     ADBlock();
     Label notInt32, end;
 
+MOZ_CRASH("NYI loadInt32OrDouble BI");
 xs_trap();
     // If it's an int, convert it to double.
     computeScaledAddress(addr, SecondScratchReg);
@@ -2927,6 +2938,7 @@ static void
 CompareExchange64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, const Synchronization& sync, const T& mem,
                   Register64 expect, Register64 replace, Register64 output)
 {
+    // use Acquired Lock semantics, ISA v3.0B reference p915
     masm.computeEffectiveAddress(mem, SecondScratchReg);
 
     Label tryAgain;
@@ -2945,6 +2957,7 @@ CompareExchange64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, co
     masm.ma_bc(Assembler::NotEqual, &tryAgain, ShortJump);
 
     masm.memoryBarrierAfter(sync);
+    //masm.as_isync();
     masm.bind(&exit);
 }
 
@@ -2981,6 +2994,7 @@ AtomicExchange64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, con
     masm.as_stdcx(src.reg, r0, SecondScratchReg);
     masm.ma_bc(cr0, Assembler::NotEqual, &tryAgain, ShortJump);
 
+    //masm.as_isync();
     masm.memoryBarrierAfter(sync);
 }
 
@@ -3039,6 +3053,7 @@ AtomicFetchOp64(MacroAssembler& masm, const wasm::MemoryAccessDesc* access, cons
     masm.as_stdcx(temp.reg, r0, SecondScratchReg);
     masm.ma_bc(Assembler::NotEqual, &tryAgain, ShortJump);
 
+    //masm.as_isync();
     masm.memoryBarrierAfter(sync);
 }
 
@@ -3417,6 +3432,7 @@ MacroAssemblerPPC64::ma_li(Register dest, Imm32 imm)
 {
   ADBlock();
   // signed
+// XXX: why??? why not just call ma_li(Register dest, int64_t value)?
   if (Imm16::IsInSignedRange(imm.value)) {
     xs_li(dest, imm.value);
   } else if (Imm16::IsInUnsignedRange(imm.value)) {
@@ -3481,6 +3497,8 @@ MacroAssemblerPPC64::ma_and(Register rd, Register rs, Imm32 imm)
     if (Imm16::IsInUnsignedRange(imm.value)) {
         as_andi_rc(rd, rs, imm.value);
     } else {
+        MOZ_ASSERT(rs != ScratchRegister);
+
         ma_li(ScratchRegister, imm);
         as_and(rd, rs, ScratchRegister);
     }
@@ -3505,6 +3523,8 @@ MacroAssemblerPPC64::ma_or(Register rd, Register rs, Imm32 imm)
     if (Imm16::IsInUnsignedRange(imm.value)) {
         as_ori(rd, rs, imm.value);
     } else {
+        MOZ_ASSERT(rs != ScratchRegister);
+
         ma_li(ScratchRegister, imm);
         as_or(rd, rs, ScratchRegister);
     }
@@ -3529,6 +3549,8 @@ MacroAssemblerPPC64::ma_xor(Register rd, Register rs, Imm32 imm)
     if (Imm16::IsInUnsignedRange(imm.value)) {
         as_xori(rd, rs, imm.value);
     } else {
+        MOZ_ASSERT(rs != ScratchRegister);
+
         ma_li(ScratchRegister, imm);
         as_xor(rd, rs, ScratchRegister);
     }
@@ -3664,6 +3686,8 @@ uint32_t
 MacroAssemblerPPC64::ma_load(Register dest, const BaseIndex& src,
                                   LoadStoreSize size, LoadStoreExtension extension)
 {
+    // TODO: See note in ::computeScaledAddress. Can we turn this into
+    // a smaller instruction sequence?
     asMasm().computeScaledAddress(src, SecondScratchReg);
 
     // If src.offset is out of 16-bit signed range, we will hit an assert
@@ -3738,6 +3762,8 @@ uint32_t
 MacroAssemblerPPC64::ma_store(Register data, const BaseIndex& dest,
                                    LoadStoreSize size, LoadStoreExtension extension)
 {
+    // TODO: See note in ::computeScaledAddress. Can we turn this into
+    // a smaller instruction sequence?
     MOZ_ASSERT(data != SecondScratchReg);
     asMasm().computeScaledAddress(dest, SecondScratchReg);
 

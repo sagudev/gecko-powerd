@@ -917,7 +917,13 @@ BufferOffset Assembler::as_eieio()
     return writeInst(PPC_eieio);
 }
 
-BufferOffset Assembler::as_lwsync()
+BufferOffset Assembler::as_isync()
+{
+    spew("isync");
+    return writeInst(PPC_isync);
+}
+
+BufferOffset Assembler::xs_lwsync()
 {
     spew("lwsync");
     return writeInst(PPC_lwsync);

@@ -1435,6 +1435,7 @@ CodeGenerator::visitModI(LModI* ins)
         }
     }
 
+#if(0)
     if (mir->canBeNegativeDividend()) {
         Label dividendOk;
         masm.ma_bc(rhs, Imm32(0), &dividendOk, Assembler::GreaterThan, ShortJump);
@@ -1475,6 +1476,7 @@ CodeGenerator::visitModI(LModI* ins)
         // Dividend wasn't negative, or not INT_MIN % -1.
         masm.bind(&dividendOk);
     }
+#endif
 
     // Test division functioned (or statically known not to fail), so now
     // we can safely compute the modulo. The definition is consistent with
@@ -1496,7 +1498,7 @@ CodeGenerator::visitModI(LModI* ins)
             MOZ_ASSERT(mir->fallible());
             // See if X < 0
             masm.ma_bc(dest, Imm32(0), &done, Assembler::NotEqual, ShortJump);
-            bailoutCmp32(Assembler::Signed, lhs, Imm32(0), ins->snapshot());
+            bailoutCmp32(Assembler::LessThan, lhs, Imm32(0), ins->snapshot());
         }
     }
     masm.bind(&done);
@@ -1667,6 +1669,15 @@ CodeGenerator::visitShiftI(LShiftI* ins)
           case JSOp::Ursh:
             if (shift) {
                 masm.x_srwi(dest, lhs, shift);
+#if(0)
+            } else if (ins->mir()->toUrsh()->fallible()) {
+                // x >>> 0 can overflow.
+                masm.as_extsw(ScratchRegister, lhs);
+                bailoutCmp32(Assembler::LessThan, ScratchRegister, Imm32(0), ins->snapshot());
+            } else {
+                masm.move32(lhs, dest);
+            }
+#else
             } else {
                 // x >>> 0 can overflow.
                 if (ins->mir()->toUrsh()->fallible())
@@ -1674,6 +1685,7 @@ CodeGenerator::visitShiftI(LShiftI* ins)
                 if (dest != lhs)
                     masm.move32(lhs, dest);
             }
+#endif
             break;
           default:
             MOZ_CRASH("Unexpected shift op");
@@ -1693,7 +1705,12 @@ CodeGenerator::visitShiftI(LShiftI* ins)
             masm.as_srw(dest, lhs, dest);
             if (ins->mir()->toUrsh()->fallible()) {
                 // x >>> 0 can overflow.
+#if(0)
+                masm.as_extsw(ScratchRegister, lhs);
+                bailoutCmp32(Assembler::LessThan, ScratchRegister, Imm32(0), ins->snapshot());
+#else
                 bailoutCmp32(Assembler::LessThan, dest, Imm32(0), ins->snapshot());
+#endif
             }
             break;
           default:
@@ -2002,6 +2019,7 @@ CodeGeneratorPPC64::visitOutOfLineBailout(OutOfLineBailout* ool)
     ADBlock();
 
     // Push snapshotOffset and make sure stack is aligned.
+// XXX: this should just be an stdu
     masm.subPtr(Imm32(sizeof(Value)), StackPointer);
     masm.storePtr(ImmWord(ool->snapshot()->snapshotOffset()), Address(StackPointer, 0));
 
@@ -2081,6 +2099,7 @@ CodeGenerator::visitTestDAndBranch(LTestDAndBranch* test)
     MBasicBlock* ifTrue = test->ifTrue();
     MBasicBlock* ifFalse = test->ifFalse();
 
+// XXX: zeroDouble
     masm.loadConstantDouble(0.0, ScratchDoubleReg);
     // If 0, or NaN, the result is false.
 
@@ -2094,6 +2113,7 @@ CodeGenerator::visitTestDAndBranch(LTestDAndBranch* test)
     }
 }
 
+// XXX: duplicate code
 void
 CodeGenerator::visitTestFAndBranch(LTestFAndBranch* test)
 {
@@ -2103,6 +2123,7 @@ CodeGenerator::visitTestFAndBranch(LTestFAndBranch* test)
     MBasicBlock* ifTrue = test->ifTrue();
     MBasicBlock* ifFalse = test->ifFalse();
 
+// XXX: zeroDouble
     masm.loadConstantFloat32(0.0f, ScratchFloat32Reg);
     // If 0, or NaN, the result is false.
 
@@ -2128,6 +2149,7 @@ CodeGenerator::visitCompareD(LCompareD* comp)
     masm.ma_cmp_set_double(dest, lhs, rhs, cond);
 }
 
+// XXX: duplicate code
 void
 CodeGenerator::visitCompareF(LCompareF* comp)
 {
@@ -2160,6 +2182,7 @@ CodeGenerator::visitCompareDAndBranch(LCompareDAndBranch* comp)
     }
 }
 
+// XXX; duplicate code
 void
 CodeGenerator::visitCompareFAndBranch(LCompareFAndBranch* comp)
 {
@@ -2266,12 +2289,7 @@ CodeGeneratorPPC64::generateInvalidateEpilogue()
     // pointer is).
     invalidateEpilogueData_ = masm.pushWithPatch(ImmWord(uintptr_t(-1)));
     TrampolinePtr thunk = gen->jitRuntime()->getInvalidationThunk();
-
-    masm.jump(thunk);
-
-    // We should never reach this point in JIT code -- the invalidation thunk
-    // should pop the invalidated JS frame and return directly to its caller.
-    masm.assumeUnreachable("Should have returned directly to its caller instead of here.");
+    masm.jump(thunk); // A thunk sat on a thump.
 }
 
 class js::jit::OutOfLineTableSwitch : public OutOfLineCodeBase<CodeGeneratorPPC64>
@@ -2715,7 +2733,7 @@ CodeGenerator::visitWasmSelect(LWasmSelect* ins)
         Register out = ToRegister(ins->output());
         MOZ_ASSERT(ToRegister(ins->trueExpr()) == out, "true expr input is reused for output");
         masm.as_cmpdi(cond, 0);
-        __asm__("trap\n"); // XXX: fix condition below
+MOZ_CRASH("visitWasmSelect NYI for isel"); // XXX: also check if 64-bit int
         masm.as_isel(out, out, ToRegister(falseExpr), 2); // CR0[EQ]
         return;
     }
@@ -2816,7 +2834,6 @@ CodeGenerator::visitUDivOrMod(LUDivOrMod* ins)
     // Although divwuo can flag overflow for divide by zero, we end up
     // checking anyway to deal with the Infinity|0 situation, so we just don't
     // bother and use regular (cheaper) divwu.
-// XXX: see if ftdiv can help
     if (ins->canBeDivideByZero()) {
         if (ins->mir()->isTruncated()) {
             if (ins->trapOnError()) {

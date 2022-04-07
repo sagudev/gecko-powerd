@@ -372,7 +372,8 @@ enum PPCOpcodes {
     PPC_frsqrte = 0xFC000034, // floating reciprocal square root estimate
     PPC_fnmsub  = 0xFC00003C, // floating fused negative multiply-subtract
     PPC_fmadd   = 0xFC00003A, // floating fused multiply-add
-    PPC_isel    = 0x7C00001E, // Integer select
+    PPC_isel    = 0x7C00001E, // integer select
+    PPC_isync   = 0x4C00012C, // instruction synchronize
     PPC_lbz     = 0x88000000, // load byte and zero
     PPC_lbzx    = 0x7C0000AE, // load byte and zero indexed
     PPC_ld      = 0xE8000000, // load doubleword
@@ -1088,7 +1089,8 @@ class Assembler : public AssemblerShared
 
     BufferOffset as_nop();
     BufferOffset as_eieio();
-    BufferOffset as_lwsync();
+    BufferOffset as_isync();
+    BufferOffset xs_lwsync();
     BufferOffset as_sync();
 
     // Branch and jump instructions.

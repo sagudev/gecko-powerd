@@ -105,6 +105,7 @@ MacroAssembler::andPtr(Imm32 imm, Register dest)
 void
 MacroAssembler::and64(Imm64 imm, Register64 dest)
 {
+    MOZ_ASSERT(dest.reg != ScratchRegister);
     ma_li(ScratchRegister, ImmWord(imm.value));
     ma_and(dest.reg, ScratchRegister);
 }
@@ -119,6 +120,7 @@ void
 MacroAssembler::and64(const Operand& src, Register64 dest)
 {
     if (src.getTag() == Operand::MEM) {
+        MOZ_ASSERT(dest.reg != ScratchRegister);
         Register64 scratch(ScratchRegister);
 
         load64(src.toAddress(), scratch);
@@ -131,6 +133,7 @@ MacroAssembler::and64(const Operand& src, Register64 dest)
 void
 MacroAssembler::or64(Imm64 imm, Register64 dest)
 {
+    MOZ_ASSERT(dest.reg != ScratchRegister);
     ma_li(ScratchRegister, ImmWord(imm.value));
     ma_or(dest.reg, ScratchRegister);
 }
@@ -138,6 +141,7 @@ MacroAssembler::or64(Imm64 imm, Register64 dest)
 void
 MacroAssembler::xor64(Imm64 imm, Register64 dest)
 {
+    MOZ_ASSERT(dest.reg != ScratchRegister);
     ma_li(ScratchRegister, ImmWord(imm.value));
     ma_xor(dest.reg, ScratchRegister);
 }
@@ -183,6 +187,7 @@ void
 MacroAssembler::xor64(const Operand& src, Register64 dest)
 {
     if (src.getTag() == Operand::MEM) {
+        MOZ_ASSERT(dest.reg != ScratchRegister);
         Register64 scratch(ScratchRegister);
 
         load64(src.toAddress(), scratch);
@@ -1699,6 +1704,7 @@ void MacroAssembler::branch16(Condition cond, const Address& lhs, Imm32 rhs,
   }
 } 
 
+// XXX: need 32-bit hints here
 template <class L>
 void
 MacroAssembler::branch32(Condition cond, Register lhs, Register rhs, L label)
@@ -2021,6 +2027,7 @@ MacroAssembler::branchTest32(Condition cond, Register lhs, Register rhs, L label
     if (lhs == rhs) {
         ma_bc(lhs, rhs, label, cond);
     } else {
+        // XXX: trim to 32 bits?
         as_and(ScratchRegister, lhs, rhs);
         ma_bc(ScratchRegister, ScratchRegister, label, cond);
     }
@@ -2031,6 +2038,7 @@ void
 MacroAssembler::branchTest32(Condition cond, Register lhs, Imm32 rhs, L label)
 {
     MOZ_ASSERT(cond == Zero || cond == NonZero);
+    // XXX: trim to 32 bits?
     ma_and(ScratchRegister, lhs, rhs);
     ma_bc(ScratchRegister, ScratchRegister, label, cond);
 }
@@ -2325,10 +2333,28 @@ MacroAssembler::branchTestMagic(Condition cond, const BaseIndex& address, Label*
 void
 MacroAssembler::branchToComputedAddress(const BaseIndex& addr)
 {
-    // Ass-U-Me that this never calls ABI compliant code (or else we'd need
-    // r12 to match CTR).
-    loadPtr(addr, ScratchRegister);
-    branch(ScratchRegister);
+    // TODO: We should just be able to call loadPtr here, but we get values
+    // with the high word still set.
+    //loadPtr(addr, ScratchRegister);
+
+    int32_t shift = Imm32::ShiftOf(addr.scale).value;
+    MOZ_ASSERT(addr.base != ScratchRegister);
+    MOZ_ASSERT(addr.index != ScratchRegister);
+    MOZ_ASSERT(addr.base != SecondScratchReg);
+    MOZ_ASSERT(addr.index != SecondScratchReg);
+
+    // Ass-U-Me that addr.index is always positive.
+    if (shift) {
+        ma_dsll(ScratchRegister, addr.index, Imm32(shift));
+        as_rldicl(ScratchRegister, ScratchRegister, 0, 32); // "clrldi"
+        as_add(SecondScratchReg, addr.base, ScratchRegister);
+    } else {
+        // XXX: merge with following ld into ldx
+        as_add(SecondScratchReg, addr.base, addr.index);
+    }
+    as_ld(SecondScratchReg, SecondScratchReg, 0);
+    xs_mtctr(SecondScratchReg);
+    as_bctr(DontLinkB);
 }
 
 void
@@ -2394,7 +2420,15 @@ void MacroAssembler::cmpPtrMovePtr(Condition cond, Register lhs, Register rhs,
 void MacroAssembler::cmpPtrMovePtr(Condition cond, Register lhs,
                                    const Address& rhs, Register src,
                                    Register dest) {
-  MOZ_CRASH("NYI");
+    MOZ_ASSERT(lhs != ScratchRegister);
+    MOZ_ASSERT(src != ScratchRegister);
+    MOZ_ASSERT(lhs != SecondScratchReg); // may be used by ma_load
+    MOZ_ASSERT(src != SecondScratchReg);
+    MOZ_ASSERT(dest != ScratchRegister);
+    MOZ_ASSERT(dest != SecondScratchReg);
+
+    ma_load(ScratchRegister, rhs, SizeDouble);
+    cmpPtrMovePtr(cond, lhs, ScratchRegister, src, dest);
 }
 
 void MacroAssembler::cmp32Load32(Condition cond, Register lhs,
@@ -2614,8 +2648,7 @@ MacroAssembler::storeUncanonicalizedFloat32(FloatRegister src, const BaseIndex& 
 void
 MacroAssembler::memoryBarrier(MemoryBarrierBits barrier)
 {
-    // XXX: We probably don't need all of sync's guarantees, right?
-    as_lwsync();
+    xs_lwsync();
 }
 
 // ===============================================================
