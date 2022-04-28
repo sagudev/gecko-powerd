@@ -44,9 +44,11 @@
 #include "mozilla/gfx/2D.h"
 
 #include <cairo-gobject.h>
+#include <dlfcn.h>
 #include "WidgetStyleCache.h"
 #include "prenv.h"
 #include "nsCSSColorUtils.h"
+#include "mozilla/Preferences.h"
 
 using namespace mozilla;
 using namespace mozilla::widget;
@@ -1620,7 +1622,7 @@ static void EnsureColorPairIsOpaque(nscolor& aBg, nscolor& aFg) {
   // Blend with white, ensuring the color is opaque, so that the UI doesn't have
   // to care about alpha.
   aBg = NS_ComposeColors(NS_RGB(0xff, 0xff, 0xff), aBg);
-  aFg = NS_ComposeColors(NS_RGB(0xff, 0xff, 0xff), aFg);
+  aFg = NS_ComposeColors(aBg, aFg);
 }
 
 static void PreferDarkerBackground(nscolor& aBg, nscolor& aFg) {
@@ -1903,7 +1905,6 @@ void nsLookAndFeel::PerThemeData::Init() {
       mSelectedItemText = mTextSelectedText;
     }
 
-    PreferDarkerBackground(mSelectedItem, mSelectedItemText);
     EnsureColorPairIsOpaque(mSelectedItem, mSelectedItemText);
 
     // In a similar fashion, default accent color is the selected item/text
@@ -1919,8 +1920,8 @@ void nsLookAndFeel::PerThemeData::Init() {
       mAccentColorForeground = mSelectedItemText;
     }
 
-    PreferDarkerBackground(mAccentColor, mAccentColorForeground);
     EnsureColorPairIsOpaque(mAccentColor, mAccentColorForeground);
+    PreferDarkerBackground(mAccentColor, mAccentColorForeground);
   }
 
   // Button text color
