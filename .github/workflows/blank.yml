@@ -19,6 +19,6 @@ jobs:
         with:
           python-version: '3.9'
       - name: Bootstrap
-        run: ./mach --no-interactive bootstrap
+        run: ./mach bootstrap --application-choice browser
       - name: Build
         run: ./mach build
