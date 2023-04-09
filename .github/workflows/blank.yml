@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   
 env:
-  MACH_USE_SYSTEM_PYTHON: true
+  MOZBUILD_STATE_PATH: /home/runner/.mozbuild
 
 jobs:
   build:
