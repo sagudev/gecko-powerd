@@ -19,6 +19,8 @@ jobs:
         with:
           python-version: '3.9'
       - name: Bootstrap
-        run: ./mach bootstrap --application-choice browser
+        run: |
+          mkdir /home/runner/.mozbuild
+          ./mach bootstrap --no-interactive --application-choice browser
       - name: Build
         run: ./mach build
